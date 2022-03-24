@@ -87,6 +87,40 @@ bool SubstraitVeloxPlanConverter::needsRowConstruct(
   return false;
 }
 
+std::shared_ptr<const core::PlanNode> SubstraitVeloxPlanConverter::createUnifyNode(
+    const std::shared_ptr<const core::PlanNode>& aggNode, uint64_t groupingSize,
+    uint64_t aggSize) {
+  // Construct a Project node to unify the grouping and agg names with different id.
+  std::vector<std::shared_ptr<const core::ITypedExpr>> unifyExprs;
+  std::vector<std::string> unifiedOutNames;
+  uint32_t unifiedOutSize = groupingSize + aggSize;
+  unifiedOutNames.reserve(unifiedOutSize);
+  uint32_t unifiedColIdx = 0;
+  auto unifyNodeInputType = aggNode->outputType();
+  while (unifiedColIdx < groupingSize) {
+    auto colType = unifyNodeInputType->childAt(unifiedColIdx);
+    unifiedOutNames.emplace_back(sub_parser_->makeNodeName(plan_node_id_, unifiedColIdx));
+    // The plan node id of grouping columns is not changed after Aggregation.
+    // So it is less than the current plan node id by two.
+    auto field = std::make_shared<const core::FieldAccessTypedExpr>(
+        colType, sub_parser_->makeNodeName(plan_node_id_ - 2, unifiedColIdx));
+    unifyExprs.push_back(field);
+    unifiedColIdx += 1;
+  }
+  while (unifiedColIdx < unifiedOutSize) {
+    auto colType = unifyNodeInputType->childAt(unifiedColIdx);
+    unifiedOutNames.emplace_back(sub_parser_->makeNodeName(plan_node_id_, unifiedColIdx));
+    // The plan node id of Aggregation columns is added by one after Aggregation.
+    // So it it less than the current plan node id by one.
+    auto field = std::make_shared<const core::FieldAccessTypedExpr>(
+        colType, sub_parser_->makeNodeName(plan_node_id_ - 1, unifiedColIdx));
+    unifyExprs.push_back(field);
+    unifiedColIdx += 1;
+  }
+  return std::make_shared<core::ProjectNode>(nextPlanNodeId(), std::move(unifiedOutNames),
+                                             std::move(unifyExprs), aggNode);
+}
+
 std::shared_ptr<const core::PlanNode>
 SubstraitVeloxPlanConverter::toVeloxAggWithRowConstruct(
     const substrait::AggregateRel& sagg,
@@ -191,36 +225,11 @@ SubstraitVeloxPlanConverter::toVeloxAggWithRowConstruct(
   auto aggNode = std::make_shared<core::AggregationNode>(
       nextPlanNodeId(), aggStep, groupingExprs, pre_grouping_exprs, aggOutNames, aggExprs,
       aggregateMasks, ignoreNullKeys, constructNode);
-  // Construct a Project node to unify the grouping and agg names with different id.
-  std::vector<std::shared_ptr<const core::ITypedExpr>> unifyExprs;
-  std::vector<std::string> unifiedOutNames;
-  uint32_t unifiedOutSize = groupingExprs.size() + aggExprs.size();
-  unifiedOutNames.reserve(unifiedOutSize);
-  uint32_t unifiedColIdx = 0;
-  auto unifyNodeInputType = aggNode->outputType();
-  while (unifiedColIdx < groupingExprs.size()) {
-    auto colType = unifyNodeInputType->childAt(unifiedColIdx);
-    unifiedOutNames.emplace_back(sub_parser_->makeNodeName(plan_node_id_, unifiedColIdx));
-    // The plan node id of grouping columns is not changed after Aggregation.
-    // So it is less than the current plan node id by two.
-    auto field = std::make_shared<const core::FieldAccessTypedExpr>(
-        colType, sub_parser_->makeNodeName(plan_node_id_ - 2, unifiedColIdx));
-    unifyExprs.push_back(field);
-    unifiedColIdx += 1;
+  if (groupingExprs.size() == 0) {
+    return aggNode;
   }
-  while (unifiedColIdx < unifiedOutSize) {
-    auto colType = unifyNodeInputType->childAt(unifiedColIdx);
-    unifiedOutNames.emplace_back(sub_parser_->makeNodeName(plan_node_id_, unifiedColIdx));
-    // The plan node id of Aggregation columns is added by one after Aggregation.
-    // So it it less than the current plan node id by one.
-    auto field = std::make_shared<const core::FieldAccessTypedExpr>(
-        colType, sub_parser_->makeNodeName(plan_node_id_ - 1, unifiedColIdx));
-    unifyExprs.push_back(field);
-    unifiedColIdx += 1;
-  }
-  auto unifyNode = std::make_shared<core::ProjectNode>(
-      nextPlanNodeId(), std::move(unifiedOutNames), std::move(unifyExprs), aggNode);
-  return unifyNode;
+  // Use Project node to unify the grouping and agg names with different id.
+  return createUnifyNode(aggNode, groupingExprs.size(), aggExprs.size());
 }
 
 std::shared_ptr<const core::PlanNode> SubstraitVeloxPlanConverter::toVeloxAgg(
@@ -283,7 +292,11 @@ std::shared_ptr<const core::PlanNode> SubstraitVeloxPlanConverter::toVeloxAgg(
   auto agg_node = std::make_shared<core::AggregationNode>(
       nextPlanNodeId(), aggStep, velox_grouping_exprs, pre_grouping_exprs, agg_out_names,
       agg_exprs, aggregateMasks, ignoreNullKeys, childNode);
-  return agg_node;
+  if (velox_grouping_exprs.size() == 0) {
+    return agg_node;
+  }
+  // Use Project node to unify the grouping and agg names with different id.
+  return createUnifyNode(agg_node, groupingOutIdx, aggOutIdx - groupingOutIdx);
 }
 
 std::shared_ptr<const core::PlanNode> SubstraitVeloxPlanConverter::toVeloxPlan(
@@ -647,18 +660,14 @@ class SubstraitVeloxPlanConverter::WholeStageResIter
             bytesOfType(col_type) * num_rows);
         out_data.buffers[1] = data_buffer;
       } else if (isString(col_type)) {
-        auto offsets = static_cast<const uint32_t*>(arrowArray.buffers[2]);
-        auto string_data_size = offsets[num_rows];
+        auto offsets = static_cast<const int32_t*>(arrowArray.buffers[1]);
+        int32_t string_data_size = offsets[num_rows];
         auto value_buffer = std::make_shared<arrow::Buffer>(
-            static_cast<const uint8_t*>(arrowArray.buffers[1]), string_data_size);
+            static_cast<const uint8_t*>(arrowArray.buffers[2]), string_data_size);
         auto offset_bytes = sizeof(int32_t);
         auto offset_buffer = std::make_shared<arrow::Buffer>(
-            static_cast<const uint8_t*>(arrowArray.buffers[2]),
+            static_cast<const uint8_t*>(arrowArray.buffers[1]),
             offset_bytes * (num_rows + 1));
-        /* Velox:                     Arrow:
-           buffer_1 -> value          buffer_1 -> offset
-           buffer_2 -> offset         buffer_2 -> value
-        */
         out_data.buffers[1] = offset_buffer;
         out_data.buffers[2] = value_buffer;
       }
