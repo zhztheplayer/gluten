@@ -17,12 +17,12 @@
   <parent>
     <groupId>io.glutenproject</groupId>
     <artifactId>gluten-parent</artifactId>
-    <version>1.0.0-snapshot</version>
+    <version>1.0.0-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
   <artifactId>gluten-jvm</artifactId>
-  <version>1.0.0-snapshot</version>
+  <version>1.0.0-SNAPSHOT</version>
   <packaging>jar</packaging>
   <name>Gluten-JVM</name>
 
@@ -49,7 +49,6 @@
     <!-- library versions -->
     <build-helper-maven-plugin.version>3.0.0</build-helper-maven-plugin.version>
     <maven-antrun-plugin.version>1.8</maven-antrun-plugin.version>
-    <maven-dependency-plugin.version>3.0.2</maven-dependency-plugin.version>
     <os-maven-plugin.version>1.5.0.Final</os-maven-plugin.version>
   </properties>
   <dependencies>
