@@ -11,6 +11,7 @@ jobs:
       - run:
           name: Prepare envirnment variables for gluten-build
           command: |
+            if [ -z "${CIRCLE_PULL_REQUEST##*/}" ]; then echo "Not a PR!"; exit 0; fi
             source tools/build_context.sh
             export TARGET_VELOX_REPO=$VELOX_BUILD_REPO
             export TARGET_VELOX_BRANCH=$VELOX_BUILD_BRANCH
@@ -22,7 +23,6 @@ jobs:
             export VELOX_SUITE=ON
             export GLUTEN_SUITE=OFF
             env
-            if [ -z "${CIRCLE_PULL_REQUEST##*/}" ]; then echo "Not a PR!"; exit 0; fi
             git clone https://github.com/zhztheplayer/gluten-build.git -b main gluten-build/
             bash gluten-build/build.sh
 
