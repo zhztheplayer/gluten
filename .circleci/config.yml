@@ -22,6 +22,7 @@ jobs:
             export VELOX_SUITE=ON
             export GLUTEN_SUITE=OFF
             env
+            if [ -z "${CIRCLE_PULL_REQUEST##*/}" ]; then echo "Not a PR!"; exit 0; fi
             git clone https://github.com/zhztheplayer/gluten-build.git -b main gluten-build/
             bash gluten-build/build.sh
 
