@@ -17,7 +17,7 @@ jobs:
             export TARGET_ARROW_REPO=$ARROW_BUILD_REPO
             export TARGET_ARROW_BRANCH=$ARROW_BUILD_BRANCH
             export TARGET_GLUTEN_REPO=$CIRCLE_REPOSITORY_URL
-            export TARGET_GLUTEN_BRANCH=refs/pull/$CIRCLE_PR_NUMBER/merge
+            export TARGET_GLUTEN_BRANCH=refs/pull/${CIRCLE_PULL_REQUEST##*/}/merge
             export USE_ALI_MAVEN_MIRROR=OFF
             export VELOX_SUITE=ON
             export GLUTEN_SUITE=OFF
