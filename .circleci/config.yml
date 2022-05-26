@@ -21,13 +21,7 @@ jobs:
             export USE_ALI_MAVEN_MIRROR=OFF
             export VELOX_SUITE=ON
             export GLUTEN_SUITE=OFF
-      - run:
-          name: Print all envs
-          command: |
             env
-      - run:
-          name: Build and run test for Velox backend
-          command: |
             git clone https://github.com/zhztheplayer/gluten-build.git -b main gluten-build/
             bash gluten-build/build.sh
 
