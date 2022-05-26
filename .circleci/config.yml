@@ -1,7 +1,7 @@
 version: 2.1
 
 jobs:
-  tpch-test:
+  tpch:
     machine:
       image: ubuntu-2004:202104-01
       docker_layer_caching: true
@@ -28,4 +28,4 @@ jobs:
 workflows:
   gluten-circleci-workflow:
     jobs:
-      - tpch-test
+      - tpch
