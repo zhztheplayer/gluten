@@ -1,0 +1,37 @@
+version: 2.1
+
+jobs:
+  tpch-test:
+    machine:
+      image: ubuntu-2004:202104-01
+      docker_layer_caching: true
+    resource_class: large
+    steps:
+      - checkout
+      - run:
+          name: Prepare envirnment variables for gluten-build
+          command: |
+            source tools/build_context.sh
+            export TARGET_VELOX_REPO=$VELOX_BUILD_REPO
+            export TARGET_VELOX_BRANCH=$VELOX_BUILD_BRANCH
+            export TARGET_ARROW_REPO=$ARROW_BUILD_REPO
+            export TARGET_ARROW_BRANCH=$ARROW_BUILD_BRANCH
+            export TARGET_GLUTEN_REPO=$CIRCLE_REPOSITORY_URL
+            export TARGET_GLUTEN_BRANCH=refs/pull/$CIRCLE_PR_NUMBER/merge
+            export USE_ALI_MAVEN_MIRROR=OFF
+            export VELOX_SUITE=ON
+            export GLUTEN_SUITE=OFF
+      - run:
+          name: Print all envs
+          command: |
+            env
+      - run:
+          name: Build and run test for Velox backend
+          command: |
+            git clone https://github.com/zhztheplayer/gluten-build.git -b main gluten-build/
+            bash gluten-build/build.sh
+
+workflows:
+  gluten-circleci-workflow:
+    jobs:
+      - tpch-test
