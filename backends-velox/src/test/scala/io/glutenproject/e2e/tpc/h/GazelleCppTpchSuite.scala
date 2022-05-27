@@ -20,6 +20,8 @@ package io.glutenproject.e2e.tpc.h
 import org.apache.spark.SparkConf
 
 class GazelleCppTpchSuite extends TpchSuite {
+  assume(System.getenv("GLUTEN_ENABLE_INTEGRATION_TEST").toBoolean, "!!! TEST IGNORED !!!")
+
   override def testConf(): SparkConf = {
     GazelleCppTpchSuite.testConf
   }
