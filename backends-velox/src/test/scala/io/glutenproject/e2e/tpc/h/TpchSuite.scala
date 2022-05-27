@@ -21,15 +21,13 @@ import io.glutenproject.e2e.tpc.TpcRunner
 import org.apache.log4j.{Level, LogManager}
 import org.apache.spark.sql.{GlutenSparkSessionSwitcher, GlutenTestUtils, Row, SparkSession}
 import org.apache.spark.{SparkConf, SparkFunSuite}
+import org.scalactic.source
+import org.scalatest.Tag
 
 import java.util.Objects
 import scala.collection.JavaConverters._
 
 abstract class TpchSuite extends SparkFunSuite {
-  assume({
-    val str = System.getenv("GLUTEN_ENABLE_INTEGRATION_TEST")
-    !Objects.isNull(str) && str.toBoolean
-  }, "!!! TEST IGNORED !!!")
 
   private var sessionSwitcher: GlutenSparkSessionSwitcher = null
   private var runner: TpcRunner = null
@@ -61,91 +59,104 @@ abstract class TpchSuite extends SparkFunSuite {
     sessionSwitcher.stopActiveSession()
   }
 
-  test("q1") {
+  protected def testIfEnabled(testName: String, testTags: Tag*)
+    (testFun: => Any /* Assertion */)(implicit pos: source.Position): Unit = {
+    val str = System.getenv("GLUTEN_ENABLE_INTEGRATION_TEST")
+    val enabled = !Objects.isNull(str) && str.toBoolean
+    if (!enabled) {
+      // scalastyle:off println
+      println("!!! TEST SKIPPED !!!")
+      // scalastyle:on println
+      return
+    }
+    test(testName, testTags: _*)(testFun)(pos)
+  }
+
+  testIfEnabled("q1") {
     runTpchQuery("q1")
   }
 
-  test("q2") {
+  testIfEnabled("q2") {
     runTpchQuery("q2")
   }
 
-  test("q3") {
+  testIfEnabled("q3") {
     runTpchQuery("q3")
   }
 
-  test("q4") {
+  testIfEnabled("q4") {
     runTpchQuery("q4")
   }
 
-  test("q5") {
+  testIfEnabled("q5") {
     runTpchQuery("q5")
   }
 
-  test("q6") {
+  testIfEnabled("q6") {
     runTpchQuery("q6")
   }
 
-  test("q7") {
+  testIfEnabled("q7") {
     runTpchQuery("q7")
   }
 
-  test("q8") {
+  testIfEnabled("q8") {
     runTpchQuery("q8")
   }
 
-  test("q9") {
+  testIfEnabled("q9") {
     runTpchQuery("q9")
   }
 
-  test("q10") {
+  testIfEnabled("q10") {
     runTpchQuery("q10")
   }
 
-  test("q11") {
+  testIfEnabled("q11") {
     runTpchQuery("q11")
   }
 
-  test("q12") {
+  testIfEnabled("q12") {
     runTpchQuery("q12")
   }
 
-  test("q13") {
+  testIfEnabled("q13") {
     runTpchQuery("q13")
   }
 
-  test("q14") {
+  testIfEnabled("q14") {
     runTpchQuery("q14")
   }
 
-  test("q15") {
+  testIfEnabled("q15") {
     runTpchQuery("q15")
   }
 
-  test("q16") {
+  testIfEnabled("q16") {
     runTpchQuery("q16")
   }
 
-  test("q17") {
+  testIfEnabled("q17") {
     runTpchQuery("q17")
   }
 
-  test("q18") {
+  testIfEnabled("q18") {
     runTpchQuery("q18")
   }
 
-  test("q19") {
+  testIfEnabled("q19") {
     runTpchQuery("q19")
   }
 
-  test("q20") {
+  testIfEnabled("q20") {
     runTpchQuery("q20")
   }
 
-  test("q21") {
+  testIfEnabled("q21") {
     runTpchQuery("q21")
   }
 
-  test("q22") {
+  testIfEnabled("q22") {
     runTpchQuery("q22")
   }
 
