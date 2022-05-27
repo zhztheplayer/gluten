@@ -22,9 +22,15 @@ import org.apache.log4j.{Level, LogManager}
 import org.apache.spark.sql.{GlutenSparkSessionSwitcher, GlutenTestUtils, Row, SparkSession}
 import org.apache.spark.{SparkConf, SparkFunSuite}
 
+import java.util.Objects
 import scala.collection.JavaConverters._
 
 abstract class TpchSuite extends SparkFunSuite {
+  assume({
+    val str = System.getenv("GLUTEN_ENABLE_INTEGRATION_TEST")
+    !Objects.isNull(str) && str.toBoolean
+  }, "!!! TEST IGNORED !!!")
+
   private var sessionSwitcher: GlutenSparkSessionSwitcher = null
   private var runner: TpcRunner = null
 

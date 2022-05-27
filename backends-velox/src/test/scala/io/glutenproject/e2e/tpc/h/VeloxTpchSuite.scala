@@ -23,7 +23,6 @@ import org.apache.spark.sql.types.{DateType, DoubleType, IntegerType, LongType}
 import java.sql.Date
 
 class VeloxTpchSuite extends TpchSuite {
-  assume(System.getenv("GLUTEN_ENABLE_INTEGRATION_TEST").toBoolean, "!!! TEST IGNORED !!!")
 
   defineTypeModifier(new TypeModifier(LongType, DoubleType) {
     override def modValue(from: Any): Any = {
