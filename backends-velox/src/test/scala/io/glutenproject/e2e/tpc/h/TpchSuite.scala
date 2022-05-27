@@ -61,7 +61,7 @@ abstract class TpchSuite extends SparkFunSuite {
 
   protected def testIfEnabled(testName: String, testTags: Tag*)
     (testFun: => Any /* Assertion */)(implicit pos: source.Position): Unit = {
-    val str = System.getenv("GLUTEN_ENABLE_INTEGRATION_TEST")
+    val str = System.getenv("GLUTEN_INTEGRATION_TEST_ENABLED")
     val enabled = !Objects.isNull(str) && str.toBoolean
     if (!enabled) {
       // scalastyle:off println
