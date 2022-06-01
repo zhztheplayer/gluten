@@ -78,7 +78,7 @@ void VeloxToRowConverter::ResumeVeloxVector() {
     if (!status.ok()) {
       throw std::runtime_error("Failed to export from Arrow record batch");
     }
-    VectorPtr vec = importFromArrowAsViewer(c_schema, c_array);
+    VectorPtr vec = importFromArrowAsOwner(c_schema, c_array);
     // auto& pool = *velox_pool_;
     vecs_.push_back(vec);
   }
