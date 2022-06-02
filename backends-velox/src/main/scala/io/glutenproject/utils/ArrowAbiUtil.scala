@@ -87,7 +87,13 @@ object ArrowAbiUtil {
     val fields = new util.ArrayList[Field](batch.numCols)
     for (i <- 0 until batch.numCols) {
       val col: ColumnVector = batch.column(i)
-      fields.add(col.asInstanceOf[ArrowWritableColumnVector].getValueVector.getField)
+      val field = col match {
+        case av: ArrowWritableColumnVector =>
+          av.getValueVector.getField
+        case other =>
+          throw new IllegalStateException("Vector is not arrow-compatible: " + other.getClass)
+      }
+      fields.add(field)
     }
     val arrowRecordBatch: ArrowRecordBatch = ArrowConverterUtils.createArrowRecordBatch(batch)
     val schema: Schema = new Schema(fields)
