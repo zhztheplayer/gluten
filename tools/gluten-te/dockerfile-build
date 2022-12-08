@@ -49,6 +49,7 @@ RUN ccache -M 128G
 RUN ccache -s
 
 # Default Gluten Maven build options (empty as of now)
+# FIXME the variable is now not in use
 ENV GLUTEN_MAVEN_OPTIONS="-Ddebug_build=$GLUTEN_DEBUG_BUILD"
 
 ARG BUILD_BACKEND_TYPE
@@ -57,27 +58,19 @@ RUN test -n "$BUILD_BACKEND_TYPE" || (echo "BUILD_BACKEND_TYPE not set" && false
 
 RUN if [ "$BUILD_BACKEND_TYPE" == "velox" ]; \
     then \
-      EXTRA_MAVEN_OPTIONS="-Pspark-3.2 \
-                           -Pbackends-velox \
-                           -DskipTests \
-                           -Dscalastyle.skip=true \
-                           -Dcheckstyle.skip=true"; \
+      BUILD_EXEC_COMMAND="/opt/gluten/tools/one_step_veloxbackend.sh --enable_ep_cache=ON"; \
     elif [ "$BUILD_BACKEND_TYPE" == "gazelle-cpp" ]; \
     then \
-      EXTRA_MAVEN_OPTIONS="-Pspark-3.2 \
-                           -Pbackends-gazelle \
-                           -DskipTests \
-                           -Dscalastyle.skip=true \
-                           -Dcheckstyle.skip=true"; \
+      echo "Unsupported backend type: $BUILD_BACKEND_TYPE"; \
+      exit 1; \
     else \
       echo "Unrecognizable backend type: $BUILD_BACKEND_TYPE"; \
       exit 1; \
-    fi && echo $EXTRA_MAVEN_OPTIONS > ~/.gluten-mvn-options;
+    fi && echo $BUILD_EXEC_COMMAND > ~/.gluten-build.sh;
 
 # Prebuild Gluten
-RUN EXTRA_MAVEN_OPTIONS=$(cat ~/.gluten-mvn-options) \
-    && cd /opt/gluten \
-    && bash -c "mvn clean install $GLUTEN_MAVEN_OPTIONS $EXTRA_MAVEN_OPTIONS"
+RUN cd /opt/gluten \
+    && bash ~/.gluten-build.sh
 
 # Build Gluten
 ARG TARGET_GLUTEN_REPO
@@ -90,8 +83,7 @@ RUN cd /opt/gluten \
     && git fetch $TARGET_GLUTEN_REPO $TARGET_GLUTEN_COMMIT:build_$TARGET_GLUTEN_COMMIT \
     && git checkout build_$TARGET_GLUTEN_COMMIT
 
-RUN EXTRA_MAVEN_OPTIONS=$(cat ~/.gluten-mvn-options) \
-    && cd /opt/gluten \
-    && bash -c "mvn clean install $GLUTEN_MAVEN_OPTIONS $EXTRA_MAVEN_OPTIONS"
+RUN cd /opt/gluten \
+    && bash ~/.gluten-build.sh
 
 # EOF
