@@ -223,12 +223,12 @@ if(BUILD_PROTOBUF)
   build_protobuf()
   message(STATUS "Building ProtoBuf from Source: ${BUILD_PROTOBUF}")
   target_link_libraries(spark_columnar_jni
-                        LINK_PRIVATE protobuf::libprotobuf)
+                        PRIVATE protobuf::libprotobuf)
 else()
   find_protobuf()
   message(STATUS "Use existing ProtoBuf libraries: ${PROTOBUF_LIBRARY}")
   target_link_libraries(spark_columnar_jni
-                        LINK_PUBLIC ${PROTOBUF_LIBRARY})
+                        PUBLIC ${PROTOBUF_LIBRARY})
 endif()
 
 add_custom_command(OUTPUT ${PROTO_OUTPUT_FILES}
