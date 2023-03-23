@@ -86,6 +86,7 @@ RUN cd /opt && git clone --depth 1 --branch v3.2.2 https://github.com/apache/spa
 RUN cd /opt/spark322 && ./build/mvn -Pyarn -DskipTests clean install
 
 # Prepare entry command
-
 COPY buildenv-cmd/cmd.sh /root/.cmd.sh
 CMD [ "bash", "/root/.cmd.sh" ]
+
+# EOF

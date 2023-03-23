@@ -305,11 +305,13 @@ void JNI_OnUnload(JavaVM* vm, void* reserved) {
   JNIEnv* env;
   vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION);
   env->DeleteGlobalRef(serializable_obj_builder_class);
+  env->DeleteGlobalRef(byte_array_class);
   env->DeleteGlobalRef(jni_byte_input_stream_class);
   env->DeleteGlobalRef(split_result_class);
+  env->DeleteGlobalRef(metrics_builder_class);
   env->DeleteGlobalRef(serialized_arrow_array_iterator_class);
   env->DeleteGlobalRef(native_columnar_to_row_info_class);
-  env->DeleteGlobalRef(byte_array_class);
+  env->DeleteGlobalRef(celeborn_partition_pusher_class);
 }
 
 JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ExpressionEvaluatorJniWrapper_nativeCreateKernelWithIterator(
