@@ -18,6 +18,7 @@
 package io.glutenproject.execution
 
 import org.apache.spark.SparkConf
+import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.{Row, TestUtils}
 
 abstract class VeloxTPCHSuite extends WholeStageTransformerSuite {
@@ -44,6 +45,11 @@ abstract class VeloxTPCHSuite extends WholeStageTransformerSuite {
       .set("spark.sql.files.maxPartitionBytes", "1g")
       .set("spark.sql.shuffle.partitions", "1")
       .set("spark.memory.offHeap.size", "2g")
+      .set("spark.gluten.sql.columnar.backend.velox.spillEnabled", "true")
+      .set("spark.gluten.sql.columnar.backend.velox.memoryCapRatio", "0.75")
+      .set("spark.gluten.sql.columnar.backend.velox.joinSpillMemoryThreshold",
+        String.valueOf(ByteUnit.MiB.toBytes(512)))
+      .set("spark.eventLog.enabled", "true")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
   }

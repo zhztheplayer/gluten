@@ -52,7 +52,7 @@ abstract class WholeStageTransformerSuite extends GlutenQueryTest with SharedSpa
       "partsupp",
       "region",
       "supplier").map { table =>
-      val tableDir = getClass.getResource(resourcePath).getFile
+      val tableDir = "/tmp/tpch-generated-10.0/"
       val tablePath = new File(tableDir, table).getAbsolutePath
       val tableDF = spark.read.format(fileFormat).load(tablePath)
       tableDF.createOrReplaceTempView(table)
