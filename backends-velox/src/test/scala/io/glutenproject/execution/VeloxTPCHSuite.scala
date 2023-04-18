@@ -43,7 +43,10 @@ abstract class VeloxTPCHSuite extends WholeStageTransformerSuite {
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
       .set("spark.sql.files.maxPartitionBytes", "1g")
       .set("spark.sql.shuffle.partitions", "1")
-      .set("spark.memory.offHeap.size", "2g")
+      .set("spark.memory.offHeap.size", "10g")
+      .set("spark.gluten.sql.columnar.backend.velox.spillEnabled", "true")
+      .set("spark.gluten.sql.columnar.backend.velox.memoryCapRatio", "0.2")
+      .set("spark.eventLog.enabled", "true")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
   }
