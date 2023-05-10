@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution
 import io.glutenproject.columnarbatch.{ArrowColumnarBatches, GlutenColumnarBatches, GlutenIndicatorVector}
 import io.glutenproject.execution.GlutenColumnarToRowExecBase
 import io.glutenproject.memory.alloc.NativeMemoryAllocators
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.vectorized.{ArrowWritableColumnVector, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper}
 import org.apache.spark.{OneToOneDependency, Partition, SparkContext, TaskContext}
 import org.apache.spark.broadcast.Broadcast

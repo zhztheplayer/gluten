@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package io.glutenproject.memory.arrowalloc;
+package io.glutenproject.memory.arrow.alloc;
 
 import io.glutenproject.memory.GlutenMemoryConsumer;
 import io.glutenproject.memory.TaskMemoryMetrics;

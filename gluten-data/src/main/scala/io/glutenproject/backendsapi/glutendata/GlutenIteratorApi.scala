@@ -23,7 +23,7 @@ import io.glutenproject.columnarbatch.ArrowColumnarBatches
 import io.glutenproject.execution._
 import io.glutenproject.memory.{GlutenMemoryConsumer, TaskMemoryMetrics}
 import io.glutenproject.memory.alloc._
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.metrics.IMetrics
 import io.glutenproject.substrait.plan.PlanNode
 import io.glutenproject.substrait.rel.LocalFilesBuilder

@@ -48,13 +48,17 @@ public class NativeMemoryAllocator {
   }
 
   public long getBytesAllocated() {
-    if (this.nativeInstanceId == -1L) return 0;
+    if (isDefaultAllocator()) return 0;
     return bytesAllocated(this.nativeInstanceId);
   }
 
   public void close() {
-    if (this.nativeInstanceId == -1L) return;
+    if (isDefaultAllocator()) return;
     releaseAllocator(this.nativeInstanceId);
+  }
+
+  private boolean isDefaultAllocator() {
+    return this.nativeInstanceId == getDefaultAllocator();
   }
 
   private static native long getDefaultAllocator();

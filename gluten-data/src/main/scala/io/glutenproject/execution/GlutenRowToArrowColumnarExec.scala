@@ -20,7 +20,7 @@ package io.glutenproject.execution
 import scala.collection.mutable.ListBuffer
 import io.glutenproject.columnarbatch.GlutenColumnarBatches
 import io.glutenproject.memory.alloc.NativeMemoryAllocators
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.utils.GlutenArrowAbiUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow

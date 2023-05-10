@@ -21,7 +21,7 @@ import scala.collection.JavaConverters.asScalaIteratorConverter
 
 import io.glutenproject.columnarbatch.{ArrowColumnarBatches, GlutenColumnarBatches}
 import io.glutenproject.memory.alloc.NativeMemoryAllocators
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.vectorized.{ArrowWritableColumnVector, NativeColumnarToRowInfo, NativeColumnarToRowJniWrapper, NativePartitioning}
 
 import org.apache.spark.{Partitioner, RangePartitioner, ShuffleDependency}

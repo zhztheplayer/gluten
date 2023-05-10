@@ -21,7 +21,7 @@ import io.glutenproject.columnarbatch.{ArrowColumnarBatches, GlutenIndicatorVect
 
 import java.io.IOException
 import io.glutenproject.execution.FakeRow
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.spark.sql.execution.datasources.velox.DatasourceJniWrapper
 import io.glutenproject.utils.{GlutenArrowAbiUtil, GlutenArrowUtil, VeloxDatasourceUtil}
 import io.glutenproject.vectorized.ArrowWritableColumnVector

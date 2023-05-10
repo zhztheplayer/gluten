@@ -19,7 +19,7 @@ package org.apache.spark.shuffle
 
 import io.glutenproject.columnarbatch.GlutenColumnarBatches
 import io.glutenproject.memory.alloc.NativeMemoryAllocators
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.utils.GlutenArrowAbiUtil
 import io.glutenproject.vectorized.{JniByteInputStreams, ShuffleReaderJniWrapper}
 import org.apache.arrow.c.ArrowSchema

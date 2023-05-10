@@ -18,7 +18,7 @@
 package io.glutenproject.utils
 
 import io.glutenproject.columnarbatch.ArrowColumnarBatches
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.vectorized.ArrowWritableColumnVector
 import org.apache.arrow.vector.util.VectorBatchAppender
 

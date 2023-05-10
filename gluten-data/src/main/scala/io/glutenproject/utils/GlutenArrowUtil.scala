@@ -24,7 +24,7 @@ import java.util
 import scala.collection.JavaConverters._
 
 import io.glutenproject.columnarbatch.ArrowColumnarBatches
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.vectorized.ArrowWritableColumnVector
 import io.netty.buffer.{ByteBufAllocator, ByteBufOutputStream}
 import org.apache.arrow.c.{ArrowSchema, CDataDictionaryProvider, Data}

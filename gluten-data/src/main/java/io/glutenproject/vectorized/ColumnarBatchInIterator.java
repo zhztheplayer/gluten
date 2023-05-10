@@ -19,7 +19,7 @@ package io.glutenproject.vectorized;
 
 import io.glutenproject.columnarbatch.ArrowColumnarBatches;
 import io.glutenproject.columnarbatch.GlutenColumnarBatches;
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators;
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators;
 import java.util.Iterator;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 

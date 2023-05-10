@@ -23,7 +23,7 @@ import io.glutenproject.columnarbatch.ArrowColumnarBatches
 import io.glutenproject.execution._
 import io.glutenproject.execution.GlutenColumnarRules.LoadBeforeColumnarToRow
 import io.glutenproject.expression.{AliasBaseTransformer, ExpressionTransformer, GlutenAliasTransformer}
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.utils.GlutenArrowUtil
 import io.glutenproject.vectorized.{ArrowWritableColumnVector, GlutenColumnarBatchSerializer}
 import org.apache.commons.lang3.ClassUtils

@@ -17,7 +17,7 @@
 
 package io.glutenproject.columnarbatch;
 
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators;
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators;
 import io.glutenproject.utils.GlutenArrowAbiUtil;
 import io.glutenproject.utils.GlutenArrowUtil;
 import io.glutenproject.utils.GlutenImplicitClass;

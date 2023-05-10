@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution.datasources.v2.arrow
 import scala.collection.JavaConverters.{asScalaBufferConverter, seqAsJavaListConverter}
 
 import io.glutenproject.columnarbatch.ArrowColumnarBatches
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.vectorized.ArrowWritableColumnVector
 import org.apache.arrow.memory.ArrowBuf
 import org.apache.arrow.vector._

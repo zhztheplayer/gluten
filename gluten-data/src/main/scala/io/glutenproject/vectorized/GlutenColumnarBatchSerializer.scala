@@ -22,7 +22,7 @@ import java.nio.ByteBuffer
 import scala.reflect.ClassTag
 import io.glutenproject.columnarbatch.GlutenColumnarBatches
 import io.glutenproject.memory.alloc.NativeMemoryAllocators
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.utils.GlutenArrowAbiUtil
 import org.apache.arrow.c.ArrowSchema
 import org.apache.arrow.memory.BufferAllocator

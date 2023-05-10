@@ -17,7 +17,7 @@
 
 package io.glutenproject.utils
 
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators
 import io.glutenproject.spark.sql.execution.datasources.velox.DatasourceJniWrapper
 import org.apache.arrow.c.ArrowSchema
 import org.apache.arrow.vector.util.SchemaUtility

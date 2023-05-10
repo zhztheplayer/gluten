@@ -17,7 +17,7 @@
 
 package io.glutenproject.vectorized;
 
-import io.glutenproject.memory.arrowalloc.ArrowBufferAllocators;
+import io.glutenproject.memory.arrow.alloc.ArrowBufferAllocators;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
