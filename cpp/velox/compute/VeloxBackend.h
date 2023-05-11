@@ -29,6 +29,7 @@
 #include "compute/Backend.h"
 #include "compute/VeloxParquetDatasource.h"
 #include "shuffle/ShuffleWriter.h"
+#include "compute/VeloxPlanConverter.h"
 
 namespace gluten {
 // This class is used to convert the Substrait plan into Velox plan.
@@ -36,9 +37,20 @@ class VeloxBackend final : public Backend {
  public:
   explicit VeloxBackend(const std::unordered_map<std::string, std::string>& confMap);
 
-  // FIXME This is not thread-safe?
+  std::unique_ptr<VeloxPlanConverter> createVeloxPlanConvertor(
+      const std::vector<std::shared_ptr<ResultIterator>>& inputs);
+
+  std::shared_ptr<ResultIterator> createIteratorFromVeloxPlan(
+      MemoryAllocator* allocator,
+      const std::shared_ptr<const facebook::velox::core::PlanNode>& veloxPlan,
+      const std::unordered_map<facebook::velox::core::PlanNodeId,
+                               std::shared_ptr<facebook::velox::substrait::SplitInfo>> splitInfos,
+      const std::string& spillDir,
+      const std::unordered_map<std::string, std::string>& sessionConf);
+
   std::shared_ptr<ResultIterator> getResultIterator(
       MemoryAllocator* allocator,
+      const substrait::Plan& substraitPlan,
       const std::string& spillDir,
       const std::vector<std::shared_ptr<ResultIterator>>& inputs = {},
       const std::unordered_map<std::string, std::string>& sessionConf = {}) override;
@@ -77,10 +89,6 @@ class VeloxBackend final : public Backend {
     return std::make_shared<VeloxParquetDatasource>(filePath, fileName, schema);
   }
 
-  std::shared_ptr<const facebook::velox::core::PlanNode> getVeloxPlan() {
-    return veloxPlan_;
-  }
-
   static void getInfoAndIds(
       const std::unordered_map<
           facebook::velox::core::PlanNodeId,
@@ -91,8 +99,6 @@ class VeloxBackend final : public Backend {
       std::vector<facebook::velox::core::PlanNodeId>& streamIds);
 
  private:
-  std::vector<std::shared_ptr<ResultIterator>> inputIters_;
-  std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
   // Memory pool options used to create mem pool for iterators.
   facebook::velox::memory::MemoryPool::Options memPoolOptions_{};
   int64_t spillThreshold_ = std::numeric_limits<int64_t>::max();

@@ -106,42 +106,59 @@ void VeloxBackend::getInfoAndIds(
   }
 }
 
-std::shared_ptr<ResultIterator> VeloxBackend::getResultIterator(
-    MemoryAllocator* allocator,
-    const std::string& spillDir,
-    const std::vector<std::shared_ptr<ResultIterator>>& inputs,
-    const std::unordered_map<std::string, std::string>& sessionConf) {
-  if (inputs.size() > 0) {
-    inputIters_ = std::move(inputs);
-  }
-
-  auto veloxPool = asWrappedVeloxAggregateMemoryPool(allocator);
-  auto ctxPool = veloxPool->addAggregateChild("result_iterator");
+std::unique_ptr<VeloxPlanConverter> VeloxBackend::createVeloxPlanConvertor(
+    const std::vector<std::shared_ptr<ResultIterator>>& inputs) {
+  std::vector<std::shared_ptr<ResultIterator>> inputIters;
+  inputIters = std::move(inputs);
   // TODO: wait shuffle split velox to velox, then the input ColumnBatch is RowVector, no need pool to convert
   // https://github.com/oap-project/gluten/issues/1434
   auto resultPool = getDefaultVeloxLeafMemoryPool();
   // auto resultPool = veloxPool->addLeafChild("input_row_vector_pool");
-  auto veloxPlanConverter = std::make_unique<VeloxPlanConverter>(inputIters_, resultPool);
-  veloxPlan_ = veloxPlanConverter->toVeloxPlan(substraitPlan_);
+  auto veloxPlanConverter = std::make_unique<VeloxPlanConverter>(inputIters, resultPool);
+  return veloxPlanConverter;
+}
 
+std::shared_ptr<ResultIterator> VeloxBackend::createIteratorFromVeloxPlan(
+    MemoryAllocator* allocator,
+    const std::shared_ptr<const facebook::velox::core::PlanNode>& veloxPlan,
+    const std::unordered_map<facebook::velox::core::PlanNodeId,
+        std::shared_ptr<facebook::velox::substrait::SplitInfo>> splitInfos,
+    const std::string& spillDir,
+    const std::unordered_map<std::string, std::string>& sessionConf) {
   // Scan node can be required.
   std::vector<std::shared_ptr<velox::substrait::SplitInfo>> scanInfos;
   std::vector<velox::core::PlanNodeId> scanIds;
   std::vector<velox::core::PlanNodeId> streamIds;
 
   // Separate the scan ids and stream ids, and get the scan infos.
-  getInfoAndIds(veloxPlanConverter->splitInfos(), veloxPlan_->leafPlanNodeIds(), scanInfos, scanIds, streamIds);
+  getInfoAndIds(splitInfos, veloxPlan->leafPlanNodeIds(), scanInfos, scanIds, streamIds);
 
+  auto veloxPool = asWrappedVeloxAggregateMemoryPool(allocator);
+  auto ctxPool = veloxPool->addAggregateChild("result_iterator");
+  // TODO: wait shuffle split velox to velox, then the input ColumnBatch is RowVector, no need pool to convert
+  // https://github.com/oap-project/gluten/issues/1434
+  auto resultPool = getDefaultVeloxLeafMemoryPool();
   if (scanInfos.size() == 0) {
     // Source node is not required.
     auto wholestageIter = std::make_unique<WholeStageResultIteratorMiddleStage>(
-        ctxPool, resultPool, veloxPlan_, streamIds, spillDir, sessionConf);
+        ctxPool, resultPool, veloxPlan, streamIds, spillDir, sessionConf);
     return std::make_shared<ResultIterator>(std::move(wholestageIter), shared_from_this());
   } else {
     auto wholestageIter = std::make_unique<WholeStageResultIteratorFirstStage>(
-        ctxPool, resultPool, veloxPlan_, scanIds, scanInfos, streamIds, spillDir, sessionConf);
+        ctxPool, resultPool, veloxPlan, scanIds, scanInfos, streamIds, spillDir, sessionConf);
     return std::make_shared<ResultIterator>(std::move(wholestageIter), shared_from_this());
   }
+}
+
+std::shared_ptr<ResultIterator> VeloxBackend::getResultIterator(
+    MemoryAllocator* allocator,
+    const substrait::Plan& substraitPlan,
+    const std::string& spillDir,
+    const std::vector<std::shared_ptr<ResultIterator>>& inputs,
+    const std::unordered_map<std::string, std::string>& sessionConf) {
+  auto convertor = createVeloxPlanConvertor(inputs);
+  return createIteratorFromVeloxPlan(
+      allocator, convertor->toVeloxPlan(substraitPlan), convertor->splitInfos(), spillDir, sessionConf);
 }
 
 arrow::Result<std::shared_ptr<ColumnarToRowConverter>> VeloxBackend::getColumnar2RowConverter(

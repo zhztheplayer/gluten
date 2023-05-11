@@ -171,7 +171,7 @@ void VeloxPlanConverter::setInputPlanNode(const ::substrait::RelRoot& sroot) {
 }
 
 std::shared_ptr<const facebook::velox::core::PlanNode> VeloxPlanConverter::toVeloxPlan(
-    ::substrait::Plan& substraitPlan) {
+    const ::substrait::Plan& substraitPlan) {
   // In fact, only one RelRoot is expected here.
   for (auto& srel : substraitPlan.relations()) {
     if (srel.has_root()) {

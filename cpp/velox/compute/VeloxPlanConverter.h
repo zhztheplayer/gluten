@@ -36,7 +36,7 @@ class VeloxPlanConverter {
       std::shared_ptr<facebook::velox::memory::MemoryPool> pool)
       : inputIters_(inputIters), pool_(pool) {}
 
-  std::shared_ptr<const facebook::velox::core::PlanNode> toVeloxPlan(::substrait::Plan& substraitPlan);
+  std::shared_ptr<const facebook::velox::core::PlanNode> toVeloxPlan(const ::substrait::Plan& substraitPlan);
 
   const std::unordered_map<facebook::velox::core::PlanNodeId, std::shared_ptr<facebook::velox::substrait::SplitInfo>>&
   splitInfos() {

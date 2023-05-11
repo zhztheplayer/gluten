@@ -40,17 +40,18 @@ class Backend : public std::enable_shared_from_this<Backend> {
 
   virtual std::shared_ptr<ResultIterator> getResultIterator(
       MemoryAllocator* allocator,
+      const substrait::Plan& substraitPlan,
       const std::string& spillDir,
       const std::vector<std::shared_ptr<ResultIterator>>& inputs,
       const std::unordered_map<std::string, std::string>& sessionConf) = 0;
 
-  bool parsePlan(const uint8_t* data, int32_t size) {
-    return parsePlan(data, size, -1, -1, -1);
+  bool parsePlan(const uint8_t* data, int32_t size, substrait::Plan* substraitPlan) {
+    return parsePlan(data, size, -1, -1, -1, substraitPlan);
   }
 
-  /// Parse and cache the plan.
+  /// Parse and return the plan.
   /// Return true if parsed successfully.
-  bool parsePlan(const uint8_t* data, int32_t size, int32_t stageId, int32_t partitionId, int64_t taskId) {
+  bool parsePlan(const uint8_t* data, int32_t size, int32_t stageId, int32_t partitionId, int64_t taskId, substrait::Plan* substraitPlan) {
 #ifdef GLUTEN_PRINT_DEBUG
     auto buf = std::make_shared<arrow::Buffer>(data, size);
     auto maybePlanJson = substraitFromPbToJson("Plan", *buf);
@@ -62,12 +63,7 @@ class Backend : public std::enable_shared_from_this<Backend> {
       std::cout << "Error parsing substrait plan to json: " << maybePlanJson.status().ToString() << std::endl;
     }
 #endif
-    return parseProtobuf(data, size, &substraitPlan_);
-  }
-
-  // Just for benchmark
-  ::substrait::Plan& getPlan() {
-    return substraitPlan_;
+    return parseProtobuf(data, size, substraitPlan);
   }
 
   /// This function is used to create certain converter from the format used by
@@ -117,7 +113,6 @@ class Backend : public std::enable_shared_from_this<Backend> {
   }
 
  protected:
-  ::substrait::Plan substraitPlan_;
   // static conf map
   std::unordered_map<std::string, std::string> confMap_;
 };

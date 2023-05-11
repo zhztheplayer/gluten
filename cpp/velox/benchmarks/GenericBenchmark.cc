@@ -80,10 +80,13 @@ auto BM_Generic = [](::benchmark::State& state,
           });
     }
 
-    backend->parsePlan(plan->data(), plan->size());
-    auto resultIter = backend->getResultIterator(
-        gluten::defaultMemoryAllocator().get(), "/tmp/test-spill", std::move(inputIters), conf);
-    auto veloxPlan = std::dynamic_pointer_cast<gluten::VeloxBackend>(backend)->getVeloxPlan();
+    substrait::Plan substraitPlan;
+    backend->parsePlan(plan->data(), plan->size(), &substraitPlan);
+    auto veloxBackend = std::dynamic_pointer_cast<gluten::VeloxBackend>(backend);
+    auto convertor = veloxBackend->createVeloxPlanConvertor(std::move(inputIters));
+    auto veloxPlan = convertor->toVeloxPlan(substraitPlan);
+    auto resultIter = veloxBackend->createIteratorFromVeloxPlan(
+        gluten::defaultMemoryAllocator().get(), veloxPlan, convertor->splitInfos(), "/tmp/test-spill", conf);
     auto outputSchema = getOutputSchema(veloxPlan);
     ArrowWriter writer{FLAGS_write_file};
     state.PauseTiming();
