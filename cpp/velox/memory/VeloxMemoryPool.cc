@@ -146,7 +146,7 @@ class WrappedVeloxMemoryPool : public velox::memory::MemoryPoolImpl {
       Kind kind,
       bool threadSafe,
       std::unique_ptr<velox::memory::MemoryReclaimer> reclaimer) override {
-    return std::make_shared<WrappedVeloxMemoryPool>(
+    const std::shared_ptr<WrappedVeloxMemoryPool>& child = std::make_shared<WrappedVeloxMemoryPool>(
         getDefaultVeloxMemoryManager(),
         name,
         kind,
@@ -158,6 +158,8 @@ class WrappedVeloxMemoryPool : public velox::memory::MemoryPoolImpl {
             .trackUsage = trackUsage_,
             .threadSafe = threadSafe,
             .checkUsageLeak = checkUsageLeak_});
+    child->setAllocatorShared(sharedAlloc_);
+    return child;
   }
 
  private:
