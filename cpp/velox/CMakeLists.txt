@@ -238,8 +238,6 @@ set(VELOX_SRCS
     memory/LargeMemoryPool.cc
     memory/VeloxMemoryPool.cc
     memory/VeloxColumnarBatch.cc
-    utils/VeloxArrowUtils.cc
-    utils/ArrowTypeUtils.cc
     jni/JniFileSystem.cc
     substrait/SubstraitParser.cc
     substrait/SubstraitToVeloxExpr.cc
@@ -252,6 +250,9 @@ set(VELOX_SRCS
     substrait/VeloxToSubstraitExpr.cc
     substrait/VeloxToSubstraitPlan.cc
     substrait/VeloxToSubstraitType.cc
+    utils/VeloxArrowUtils.cc
+    utils/ArrowTypeUtils.cc
+    utils/ConfigExtractor.cc
     )
 add_library(velox SHARED ${VELOX_SRCS})
 

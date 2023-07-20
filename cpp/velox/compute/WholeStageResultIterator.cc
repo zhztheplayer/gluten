@@ -9,6 +9,8 @@
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
 
+#include "utils/ConfigExtractor.h"
+
 #ifdef ENABLE_HDFS
 #include <hdfs/hdfs.h>
 #endif
@@ -62,7 +64,7 @@ WholeStageResultIterator::WholeStageResultIterator(
 #ifdef ENABLE_HDFS
   updateHdfsTokens();
 #endif
-  spillStrategy_ = getConfigValue(kSpillStrategy, "auto");
+  spillStrategy_ = getConfigValue(confMap_, kSpillStrategy, "auto");
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 }
 
@@ -258,24 +260,11 @@ int64_t WholeStageResultIterator::runtimeMetric(
   return 0;
 }
 
-std::string WholeStageResultIterator::getConfigValue(
-    const std::string& key,
-    const std::optional<std::string>& fallbackValue) {
-  auto got = confMap_.find(key);
-  if (got == confMap_.end()) {
-    if (fallbackValue == std::nullopt) {
-      throw std::runtime_error("No such config key: " + key);
-    }
-    return fallbackValue.value();
-  }
-  return got->second;
-}
-
 std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryContextConf() {
   std::unordered_map<std::string, std::string> configs = {};
   // Find batch size from Spark confs. If found, set the preferred and max batch size.
-  configs[velox::core::QueryConfig::kPreferredOutputBatchRows] = getConfigValue(kSparkBatchSize, "4096");
-  configs[velox::core::QueryConfig::kMaxOutputBatchRows] = getConfigValue(kSparkBatchSize, "4096");
+  configs[velox::core::QueryConfig::kPreferredOutputBatchRows] = getConfigValue(confMap_, kSparkBatchSize, "4096");
+  configs[velox::core::QueryConfig::kMaxOutputBatchRows] = getConfigValue(confMap_, kSparkBatchSize, "4096");
   // Find offheap size from Spark confs. If found, set the max memory usage of partial aggregation.
   // FIXME this uses process-wise off-heap memory which is not for task
   try {
@@ -289,7 +278,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
 
     // Set the max memory of partial aggregation as 3/4 of offheap size.
     auto maxMemory =
-        (long)(0.75 * (double)std::stol(getConfigValue(kSparkTaskOffHeapMemory, std::to_string(facebook::velox::memory::kMaxMemory))));
+        (long)(0.75 * (double)std::stol(getConfigValue(confMap_, kSparkTaskOffHeapMemory, std::to_string(facebook::velox::memory::kMaxMemory))));
     configs[velox::core::QueryConfig::kMaxPartialAggregationMemory] = std::to_string(maxMemory);
     configs[velox::core::QueryConfig::kAbandonPartialAggregationMinPct] = std::to_string(90);
     // Spill configs
@@ -298,22 +287,25 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
     } else {
       configs[velox::core::QueryConfig::kSpillEnabled] = "true";
     }
-    configs[velox::core::QueryConfig::kAggregationSpillEnabled] = getConfigValue(kAggregationSpillEnabled, "true");
-    configs[velox::core::QueryConfig::kJoinSpillEnabled] = getConfigValue(kJoinSpillEnabled, "true");
-    configs[velox::core::QueryConfig::kOrderBySpillEnabled] = getConfigValue(kOrderBySpillEnabled, "true");
+    configs[velox::core::QueryConfig::kAggregationSpillEnabled] =
+        getConfigValue(confMap_, kAggregationSpillEnabled, "true");
+    configs[velox::core::QueryConfig::kJoinSpillEnabled] = getConfigValue(confMap_, kJoinSpillEnabled, "true");
+    configs[velox::core::QueryConfig::kOrderBySpillEnabled] = getConfigValue(confMap_, kOrderBySpillEnabled, "true");
     configs[velox::core::QueryConfig::kAggregationSpillMemoryThreshold] =
-        getConfigValue(kAggregationSpillMemoryThreshold, "0"); // spill only when input doesn't fit
+        getConfigValue(confMap_, kAggregationSpillMemoryThreshold, "0"); // spill only when input doesn't fit
     configs[velox::core::QueryConfig::kJoinSpillMemoryThreshold] =
-        getConfigValue(kJoinSpillMemoryThreshold, "0"); // spill only when input doesn't fit
+        getConfigValue(confMap_, kJoinSpillMemoryThreshold, "0"); // spill only when input doesn't fit
     configs[velox::core::QueryConfig::kOrderBySpillMemoryThreshold] =
-        getConfigValue(kOrderBySpillMemoryThreshold, "0"); // spill only when input doesn't fit
-    configs[velox::core::QueryConfig::kMaxSpillLevel] = getConfigValue(kMaxSpillLevel, "4");
-    configs[velox::core::QueryConfig::kMaxSpillFileSize] = getConfigValue(kMaxSpillFileSize, "0");
-    configs[velox::core::QueryConfig::kMinSpillRunSize] = getConfigValue(kMinSpillRunSize, std::to_string(256 << 20));
-    configs[velox::core::QueryConfig::kSpillStartPartitionBit] = getConfigValue(kSpillStartPartitionBit, "29");
-    configs[velox::core::QueryConfig::kSpillPartitionBits] = getConfigValue(kSpillPartitionBits, "2");
+        getConfigValue(confMap_, kOrderBySpillMemoryThreshold, "0"); // spill only when input doesn't fit
+    configs[velox::core::QueryConfig::kMaxSpillLevel] = getConfigValue(confMap_, kMaxSpillLevel, "4");
+    configs[velox::core::QueryConfig::kMaxSpillFileSize] = getConfigValue(confMap_, kMaxSpillFileSize, "0");
+    configs[velox::core::QueryConfig::kMinSpillRunSize] =
+        getConfigValue(confMap_, kMinSpillRunSize, std::to_string(256 << 20));
+    configs[velox::core::QueryConfig::kSpillStartPartitionBit] =
+        getConfigValue(confMap_, kSpillStartPartitionBit, "29");
+    configs[velox::core::QueryConfig::kSpillPartitionBits] = getConfigValue(confMap_, kSpillPartitionBits, "2");
     configs[velox::core::QueryConfig::kSpillableReservationGrowthPct] =
-        getConfigValue(kSpillableReservationGrowthPct, "25");
+        getConfigValue(confMap_, kSpillableReservationGrowthPct, "25");
   } catch (const std::invalid_argument& err) {
     std::string errDetails = err.what();
     throw std::runtime_error("Invalid conf arg: " + errDetails);
@@ -339,7 +331,9 @@ void WholeStageResultIterator::updateHdfsTokens() {
 
 std::shared_ptr<velox::Config> WholeStageResultIterator::createConnectorConfig() {
   std::unordered_map<std::string, std::string> configs = {};
-  configs[velox::connector::hive::HiveConfig::kCaseSensitive] = getConfigValue(kCaseSensitive, "true");
+  // The semantics of reading as lower case is opposite with case-sensitive.
+  configs[velox::connector::hive::HiveConfig::kFileColumnNamesReadAsLowerCase] =
+      getConfigValue(confMap_, kCaseSensitive, "false") == "false" ? "true" : "false";
   return std::make_shared<velox::core::MemConfig>(configs);
 }
 
@@ -445,7 +439,7 @@ WholeStageResultIteratorFirstStage::extractPartitionColumnAndValue(const std::st
       throw std::runtime_error("No value found for partition key: " + partitionColumn + " in path: " + filePath);
     }
     std::string partitionValue = latterPart.substr(0, pos);
-    if (!folly::to<bool>(getConfigValue(kCaseSensitive, "true"))) {
+    if (!folly::to<bool>(getConfigValue(confMap_, kCaseSensitive, "false"))) {
       folly::toLowerAscii(partitionColumn);
     }
     if (partitionValue == kHiveDefaultPartition) {

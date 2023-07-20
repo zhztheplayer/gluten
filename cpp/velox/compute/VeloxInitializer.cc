@@ -39,6 +39,7 @@
 #include "velox/connectors/hive/storage_adapters/s3fs/S3FileSystem.h"
 #endif
 #include "jni/JniFileSystem.h"
+#include "utils/ConfigExtractor.h"
 #include "velox/common/memory/MmapAllocator.h"
 #include "velox/connectors/hive/HiveConnector.h"
 #include "velox/dwio/dwrf/reader/DwrfReader.h"
@@ -261,16 +262,9 @@ void VeloxInitializer::initCache(const std::unordered_map<std::string, std::stri
 }
 
 void VeloxInitializer::initIOExecutor(const std::unordered_map<std::string, std::string>& conf) {
-  int32_t ioThreads = std::stoi(kVeloxIOThreadsDefault);
-  auto got = conf.find(kVeloxIOThreads);
-  if (got != conf.end()) {
-    ioThreads = std::stoi(got->second);
-  }
-  int32_t splitPreloadPerDriver = std::stoi(kVeloxSplitPreloadPerDriverDefault);
-  got = conf.find(kVeloxSplitPreloadPerDriver);
-  if (got != conf.end()) {
-    splitPreloadPerDriver = std::stoi(got->second);
-  }
+  int32_t ioThreads = std::stoi(getConfigValue(conf, kVeloxIOThreads, kVeloxIOThreadsDefault));
+  int32_t splitPreloadPerDriver =
+      std::stoi(getConfigValue(conf, kVeloxSplitPreloadPerDriver, kVeloxSplitPreloadPerDriverDefault));
   if (ioThreads > 0) {
     ioExecutor_ = std::make_unique<folly::IOThreadPoolExecutor>(ioThreads);
     FLAGS_split_preload_per_driver = splitPreloadPerDriver;
