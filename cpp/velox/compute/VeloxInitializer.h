@@ -70,8 +70,7 @@ class VeloxInitializer {
   inline static std::mutex mutex_;
 
   // Instance of AsyncDataCache used for all large allocations.
-  std::shared_ptr<facebook::velox::memory::MemoryAllocator> asyncDataCache_ =
-      facebook::velox::memory::MemoryAllocator::createDefaultInstance();
+  std::unique_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 
   std::unique_ptr<folly::IOThreadPoolExecutor> ssdCacheExecutor_;
   std::unique_ptr<folly::IOThreadPoolExecutor> ioExecutor_;
