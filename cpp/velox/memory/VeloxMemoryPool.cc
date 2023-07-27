@@ -47,7 +47,7 @@ class VeloxMemoryAllocator final : public facebook::velox::memory::MallocAllocat
   }
 
   velox::memory::Cache* cache() const override {
-    VELOX_CHECK(false, "Unreachable code");
+    return nullptr;
   }
 
  private:
