@@ -3,7 +3,7 @@
 set -exu
 
 VELOX_REPO=https://github.com/rui-mo/velox.git
-VELOX_BRANCH=wip_pick
+VELOX_BRANCH=pick
 VELOX_HOME=""
 
 #Set on run gluten on HDFS

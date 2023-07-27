@@ -199,7 +199,7 @@ void VeloxInitializer::init(const std::unordered_map<std::string, std::string>& 
   velox::exec::Operator::registerOperator(std::make_unique<RowVectorStreamOperatorTranslator>());
 }
 
-velox::memory::MemoryAllocator* VeloxInitializer::getAsyncDataCache() const {
+facebook::velox::cache::AsyncDataCache* VeloxInitializer::getAsyncDataCache() const {
   return asyncDataCache_.get();
 }
 
@@ -248,8 +248,10 @@ void VeloxInitializer::initCache(const std::unordered_map<std::string, std::stri
     auto allocator = std::make_shared<velox::memory::MmapAllocator>(options);
     if (ssdCacheSize == 0) {
       LOG(INFO) << "AsyncDataCache will do memory caching only as ssd cache size is 0";
+      // FIXME this is not tracked by Spark
       asyncDataCache_ = velox::cache::AsyncDataCache::create(allocator.get());
     } else {
+      // FIXME this is not tracked by Spark
       asyncDataCache_ = velox::cache::AsyncDataCache::create(allocator.get(), std::move(ssd));
     }
 

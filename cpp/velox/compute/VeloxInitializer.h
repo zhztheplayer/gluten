@@ -48,7 +48,7 @@ class VeloxInitializer {
 
   static std::shared_ptr<VeloxInitializer> get();
 
-  facebook::velox::memory::MemoryAllocator* getAsyncDataCache() const;
+  facebook::velox::cache::AsyncDataCache* getAsyncDataCache() const;
 
  private:
   explicit VeloxInitializer(const std::unordered_map<std::string, std::string>& conf) {
@@ -70,7 +70,7 @@ class VeloxInitializer {
   inline static std::mutex mutex_;
 
   // Instance of AsyncDataCache used for all large allocations.
-  std::unique_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
+  std::shared_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 
   std::unique_ptr<folly::IOThreadPoolExecutor> ssdCacheExecutor_;
   std::unique_ptr<folly::IOThreadPoolExecutor> ioExecutor_;
