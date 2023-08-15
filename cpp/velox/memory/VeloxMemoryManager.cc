@@ -16,6 +16,8 @@
  */
 
 #include "VeloxMemoryManager.h"
+#include "velox/common/memory/MallocAllocator.h"
+#include "velox/common/memory/MemoryPool.h"
 
 #include "utils/exception.h"
 
@@ -27,73 +29,25 @@ using namespace facebook;
 //   gluten allocator is only used to do allocation-reporting to Spark in mmap case
 // This allocator only hook `allocateBytes` and `freeBytes`, we can not ensure this behavior is safe enough,
 // so, only use this allocator when build with GLUTEN_ENABLE_HBM.
-class VeloxMemoryAllocator final : public velox::memory::MemoryAllocator {
+class VeloxMemoryAllocator final : public velox::memory::MallocAllocator {
  public:
-  VeloxMemoryAllocator(gluten::MemoryAllocator* glutenAlloc, velox::memory::MemoryAllocator* veloxAlloc)
-      : glutenAlloc_(glutenAlloc), veloxAlloc_(veloxAlloc) {}
+  VeloxMemoryAllocator(gluten::MemoryAllocator* glutenAlloc)
+      : MallocAllocator(velox::memory::kMaxMemory), glutenAlloc_(glutenAlloc) {}
 
-  Kind kind() const override {
-    return veloxAlloc_->kind();
-  }
-
-  bool allocateNonContiguous(
-      velox::memory::MachinePageCount numPages,
-      velox::memory::Allocation& out,
-      ReservationCallback reservationCB,
-      velox::memory::MachinePageCount minSizeClass) override {
-    return veloxAlloc_->allocateNonContiguous(numPages, out, reservationCB, minSizeClass);
-  }
-
-  int64_t freeNonContiguous(velox::memory::Allocation& allocation) override {
-    int64_t freedBytes = veloxAlloc_->freeNonContiguous(allocation);
-    return freedBytes;
-  }
-
-  bool allocateContiguous(
-      velox::memory::MachinePageCount numPages,
-      velox::memory::Allocation* collateral,
-      velox::memory::ContiguousAllocation& allocation,
-      ReservationCallback reservationCB) override {
-    return veloxAlloc_->allocateContiguous(numPages, collateral, allocation, reservationCB);
-  }
-
-  void freeContiguous(velox::memory::ContiguousAllocation& allocation) override {
-    veloxAlloc_->freeContiguous(allocation);
-  }
-
-  void* allocateBytes(uint64_t bytes, uint16_t alignment) override {
+ protected:
+  void* allocateBytesWithoutRetry(uint64_t bytes, uint16_t alignment) override {
     void* out;
     VELOX_CHECK(glutenAlloc_->allocateAligned(alignment, bytes, &out))
     return out;
   }
 
+ public:
   void freeBytes(void* p, uint64_t size) noexcept override {
     VELOX_CHECK(glutenAlloc_->free(p, size));
   }
 
-  bool checkConsistency() const override {
-    return veloxAlloc_->checkConsistency();
-  }
-
-  velox::memory::MachinePageCount numAllocated() const override {
-    return veloxAlloc_->numAllocated();
-  }
-
-  velox::memory::MachinePageCount numMapped() const override {
-    return veloxAlloc_->numMapped();
-  }
-
-  std::string toString() const override {
-    return veloxAlloc_->toString();
-  }
-
-  size_t capacity() const override {
-    return veloxAlloc_->capacity();
-  }
-
  private:
   gluten::MemoryAllocator* glutenAlloc_;
-  velox::memory::MemoryAllocator* veloxAlloc_;
 };
 
 /// We assume in a single Spark task. No thread-safety should be guaranteed.
@@ -102,8 +56,12 @@ class ListenableArbitrator : public velox::memory::MemoryArbitrator {
   ListenableArbitrator(const Config& config, AllocationListener* listener)
       : MemoryArbitrator(config), listener_(listener) {}
 
+  std::string kind() override {
+    return kind_;
+  }
+
   void reserveMemory(velox::memory::MemoryPool* pool, uint64_t) override {
-    growPool(pool, initMemoryPoolCapacity_);
+    growPool(pool, memoryPoolInitCapacity_);
   }
 
   uint64_t releaseMemory(velox::memory::MemoryPool* pool, uint64_t bytes) override {
@@ -131,14 +89,16 @@ class ListenableArbitrator : public velox::memory::MemoryArbitrator {
     return true;
   }
 
+  uint64_t shrinkMemory(const std::vector<std::shared_ptr<velox::memory::MemoryPool>>& pools, uint64_t targetBytes) override {
+    GLUTEN_CHECK(false, "Not implemented");
+  }
   Stats stats() const override {
     Stats stats; // no-op
     return stats;
   }
 
   std::string toString() const override {
-    return fmt::format(
-        "ARBITRATOR[{}] CAPACITY {} {}", kindString(kind_), velox::succinctBytes(capacity_), stats().toString());
+    return fmt::format("ARBITRATOR[{}] CAPACITY {} {}", kind_, velox::succinctBytes(capacity_), stats().toString());
   }
 
  private:
@@ -147,18 +107,33 @@ class ListenableArbitrator : public velox::memory::MemoryArbitrator {
     pool->grow(bytes);
   }
 
-  void abort(velox::memory::MemoryPool* pool) {
-    try {
-      pool->abort();
-    } catch (const std::exception& e) {
-      LOG(WARNING) << "Failed to abort memory pool " << pool->toString();
-    }
-    // NOTE: no matter memory pool abort throws or not, it should have been marked
-    // as aborted to prevent any new memory arbitration triggered from the aborted
-    // memory pool.
-    VELOX_CHECK(pool->aborted());
+  gluten::AllocationListener* listener_;
+  inline static std::string kind_ = "GLUTEN";
+};
+
+class ArbitratorFactoryRegister {
+ public:
+  explicit ArbitratorFactoryRegister(gluten::AllocationListener* listener) : listener_(listener) {
+    static std::atomic_uint32_t id{0UL};
+    kind_ = "GLUTEN_ARBITRATOR_FACTORY_" + std::to_string(id++);
+    velox::memory::MemoryArbitrator::registerFactory(
+        kind_,
+        [this](
+            const velox::memory::MemoryArbitrator::Config& config) -> std::unique_ptr<velox::memory::MemoryArbitrator> {
+          return std::make_unique<ListenableArbitrator>(config, listener_);
+        });
   }
 
+  virtual ~ArbitratorFactoryRegister() {
+    velox::memory::MemoryArbitrator::unregisterFactory(kind_);
+  }
+
+  const std::string& getKind() const {
+    return kind_;
+  }
+
+ private:
+  std::string kind_;
   gluten::AllocationListener* listener_;
 };
 
@@ -170,18 +145,12 @@ VeloxMemoryManager::VeloxMemoryManager(
   auto veloxAlloc = velox::memory::MemoryAllocator::getInstance();
   glutenAlloc_ = std::make_shared<ListenableMemoryAllocator>(allocator.get(), listener_);
 #ifdef GLUTEN_ENABLE_HBM
-  auto wrappedAlloc = std::make_shared<VeloxMemoryAllocator>(allocator.get(), veloxAlloc);
+  auto wrappedAlloc = std::make_shared<VeloxMemoryAllocator>(allocator.get());
 #endif
-  velox::memory::MemoryArbitrator::Config arbitratorConfig{
-      velox::memory::MemoryArbitrator::Kind::kNoOp, // do not use shared arbitrator as it will mess up the thread
-                                                    // contexts (one Spark task reclaims memory from another)
-      velox::memory::kMaxMemory, // the 2nd capacity
-      0,
-      32 << 20,
-      true};
-  velox::memory::IMemoryManager::Options mmOptions{
+  velox::memory::MemoryManagerOptions mmOptions{
       velox::memory::MemoryAllocator::kMaxAlignment,
-      velox::memory::kMaxMemory, // the 1st capacity, Velox requires for a couple of different capacity numbers
+      velox::memory::kMaxMemory,
+      velox::memory::kMaxMemory,
       true,
       false,
 #ifdef GLUTEN_ENABLE_HBM
@@ -189,7 +158,10 @@ VeloxMemoryManager::VeloxMemoryManager(
 #else
       veloxAlloc,
 #endif
-      [=]() { return std::make_unique<ListenableArbitrator>(arbitratorConfig, listener_.get()); },
+      "GLUTEN",
+      0,
+      32 << 20,
+      true
   };
   veloxMemoryManager_ = std::make_unique<velox::memory::MemoryManager>(mmOptions);
   veloxPool_ = veloxMemoryManager_->addRootPool(
@@ -199,7 +171,7 @@ VeloxMemoryManager::VeloxMemoryManager(
   veloxLeafPool_ = veloxPool_->addLeafChild(name_ + "_default_leaf");
 }
 
-velox::memory::IMemoryManager* getDefaultVeloxMemoryManager() {
+velox::memory::MemoryManager* getDefaultVeloxMemoryManager() {
   return &(facebook::velox::memory::defaultMemoryManager());
 }
 
@@ -215,5 +187,4 @@ std::shared_ptr<velox::memory::MemoryPool> defaultLeafVeloxMemoryPool() {
       rootVeloxMemoryPool()->addLeafChild("default_leaf", true, facebook::velox::memory::MemoryReclaimer::create());
   return leaf;
 }
-
 } // namespace gluten
