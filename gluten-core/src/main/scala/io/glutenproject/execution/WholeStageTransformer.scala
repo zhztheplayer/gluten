@@ -46,7 +46,7 @@ case class TransformContext(
     outputAttributes: Seq[Attribute],
     root: RelNode)
 
-case class WholeStageTransformContext(root: PlanNode, substraitContext: SubstraitContext = null)
+case class WholeStageTransformContext(root: PlanNode, substraitContext: SubstraitContext)
 
 trait TransformSupport extends GlutenPlan {
 

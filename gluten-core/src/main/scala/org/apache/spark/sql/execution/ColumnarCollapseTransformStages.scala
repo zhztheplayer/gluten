@@ -101,36 +101,20 @@ class ColumnarInputAdapter(child: SparkPlan) extends InputAdapter(child) {
  * created, e.g. for special fallback handling when an existing WholeStageTransformer failed to
  * generate/compile code.
  */
-case class ColumnarCollapseTransformStages(
-    glutenConfig: GlutenConfig,
-    transformStageCounter: AtomicInteger = ColumnarCollapseTransformStages.transformStageCounter)
-  extends Rule[SparkPlan] {
+case class ColumnarCollapseTransformStages private () extends Rule[SparkPlan] {
 
-  def separateScanRDD: Boolean =
-    BackendsApiManager.getSettings.excludeScanExecFromCollapsedStage()
+  private val transformStageCounter: AtomicInteger =
+    ColumnarCollapseTransformStages.transformStageCounter
 
   def apply(plan: SparkPlan): SparkPlan = {
-    insertWholeStageTransformer(plan)
-  }
-
-  /**
-   * When it's the ClickHouse backend, BasicScanExecTransformer will not be included in
-   * WholeStageTransformer.
-   */
-  private def isSeparateBasicScanExecTransformer(plan: SparkPlan): Boolean = plan match {
-    case _: BasicScanExecTransformer if separateScanRDD => true
-    case _ => false
-  }
-
-  private def supportTransform(plan: SparkPlan): Boolean = plan match {
-    case plan: TransformSupport if !isSeparateBasicScanExecTransformer(plan) => true
-    case _ => false
+    val out = insertWholeStageTransformer(plan)
+    out
   }
 
   /** Inserts an InputAdapter on top of those that do not support transform. */
   private def insertInputAdapter(plan: SparkPlan): SparkPlan = {
     plan match {
-      case p if !supportTransform(p) =>
+      case p if !ColumnarCollapseTransformStages.supportTransform(p) =>
         new ColumnarInputAdapter(insertWholeStageTransformer(p))
       case p =>
         p.withNewChildren(p.children.map(insertInputAdapter))
@@ -139,7 +123,7 @@ case class ColumnarCollapseTransformStages(
 
   private def insertWholeStageTransformer(plan: SparkPlan): SparkPlan = {
     plan match {
-      case t if supportTransform(t) =>
+      case t if ColumnarCollapseTransformStages.supportTransform(t) =>
         WholeStageTransformer(t.withNewChildren(t.children.map(insertInputAdapter)))(
           transformStageCounter.incrementAndGet())
       case other =>
@@ -148,6 +132,29 @@ case class ColumnarCollapseTransformStages(
   }
 }
 
+// Controlled collapse
+
+case class ColumnarCollapseTransformStagesControlled private (control: StageControl)
+  extends Rule[SparkPlan] {
+  override def apply(plan: SparkPlan): SparkPlan = {
+    return plan
+  }
+}
+
 object ColumnarCollapseTransformStages {
+
+  def apply(config: GlutenConfig): Rule[SparkPlan] = {
+    new ColumnarCollapseTransformStages()
+  }
+
+  private def separateScanRDD: Boolean =
+    BackendsApiManager.getSettings.excludeScanExecFromCollapsedStage()
+
+  private def supportTransform(plan: SparkPlan): Boolean = plan match {
+    case _: BasicScanExecTransformer if separateScanRDD => false
+    case _: TransformSupport => true
+    case _ => false
+  }
+
   val transformStageCounter = new AtomicInteger(0)
 }
