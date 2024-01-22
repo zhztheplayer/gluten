@@ -37,26 +37,9 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
       shuffle.child match {
         case HashAggPropagatedToShuffle(proj, agg) =>
           shuffle.withNewChildren(
-            Seq(proj.withNewChildren(Seq(FlushableHashAggregateExecTransformer(
-              agg.requiredChildDistributionExpressions,
-              agg.groupingExpressions,
-              agg.aggregateExpressions,
-              agg.aggregateAttributes,
-              agg.initialInputBufferOffset,
-              agg.resultExpressions,
-              agg.child
-            )))))
+            Seq(proj.withNewChildren(Seq(FlushableHashAggregateExecTransformer(agg)))))
         case HashAggWithShuffle(agg) =>
-          shuffle.withNewChildren(
-            Seq(FlushableHashAggregateExecTransformer(
-              agg.requiredChildDistributionExpressions,
-              agg.groupingExpressions,
-              agg.aggregateExpressions,
-              agg.aggregateAttributes,
-              agg.initialInputBufferOffset,
-              agg.resultExpressions,
-              agg.child
-            )))
+          shuffle.withNewChildren(Seq(FlushableHashAggregateExecTransformer(agg)))
         case _ =>
           shuffle
       }

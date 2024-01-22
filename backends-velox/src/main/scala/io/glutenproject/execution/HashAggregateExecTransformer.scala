@@ -628,7 +628,7 @@ case class RegularHashAggregateExecTransformer(
 
 // Hash aggregation that emits pre-aggregated data which allows duplications on grouping keys
 // among its output rows.
-case class FlushableHashAggregateExecTransformer(
+case class FlushableHashAggregateExecTransformer private (
     requiredChildDistributionExpressions: Option[Seq[Expression]],
     groupingExpressions: Seq[NamedExpression],
     aggregateExpressions: Seq[AggregateExpression],
@@ -655,5 +655,21 @@ case class FlushableHashAggregateExecTransformer(
 
   override protected def withNewChildInternal(newChild: SparkPlan): HashAggregateExecTransformer = {
     copy(child = newChild)
+  }
+}
+
+object FlushableHashAggregateExecTransformer {
+  def apply(agg: RegularHashAggregateExecTransformer): FlushableHashAggregateExecTransformer = {
+    val out = FlushableHashAggregateExecTransformer(
+      agg.requiredChildDistributionExpressions,
+      agg.groupingExpressions,
+      agg.aggregateExpressions,
+      agg.aggregateAttributes,
+      agg.initialInputBufferOffset,
+      agg.resultExpressions,
+      agg.child
+    )
+    out.copyTagsFrom(agg)
+    out
   }
 }
