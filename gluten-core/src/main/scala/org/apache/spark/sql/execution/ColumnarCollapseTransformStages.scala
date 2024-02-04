@@ -19,16 +19,20 @@ package org.apache.spark.sql.execution
 import io.glutenproject.GlutenConfig
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.execution._
+import io.glutenproject.extension.GlutenPlan
 import io.glutenproject.metrics.MetricsUpdater
 import io.glutenproject.substrait.SubstraitContext
 import io.glutenproject.substrait.rel.RelBuilder
 
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder}
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.execution.metric.SQLMetric
+import org.apache.spark.sql.vectorized.ColumnarBatch
 
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -40,9 +44,7 @@ import scala.collection.JavaConverters._
  * would be transformed to `ValueStreamNode` at native side.
  */
 case class InputIteratorTransformer(child: SparkPlan) extends UnaryTransformSupport {
-  // `InputAdapter` is a case class, so `ColumnarInputAdapter.withNewChildren()` will return
-  // `InputAdapter`.
-  assert(child.isInstanceOf[InputAdapter])
+  assert(child.isInstanceOf[ColumnarInputAdapter])
 
   @transient
   override lazy val metrics: Map[String, SQLMetric] =
@@ -72,17 +74,6 @@ case class InputIteratorTransformer(child: SparkPlan) extends UnaryTransformSupp
   override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan = {
     copy(child = newChild)
   }
-}
-
-/**
- * InputAdapter is used to hide a SparkPlan from a subtree that supports transform. Note, if we
- * remove this adaptor, the SQL UI graph would be broken.
- */
-class ColumnarInputAdapter(child: SparkPlan) extends InputAdapter(child) {
-  // this is the most important effect of this class
-  override def supportCodegen: Boolean = false
-
-  override def nodeName: String = s"InputAdapter"
 }
 
 /**
@@ -168,10 +159,27 @@ case class ColumnarCollapseTransformStages(
   }
 }
 
+case class ColumnarInputAdapter(child: SparkPlan) extends UnaryExecNode with GlutenPlan {
+  override def output: Seq[Attribute] = child.output
+  override def supportsColumnar: Boolean = child.supportsColumnar
+  override protected def doExecute(): RDD[InternalRow] =
+    child.execute()
+  override protected def doExecuteColumnar(): RDD[ColumnarBatch] = child.executeColumnar()
+  override def outputPartitioning: Partitioning = child.outputPartitioning
+  override def outputOrdering: Seq[SortOrder] = child.outputOrdering
+  override def vectorTypes: Option[Seq[String]] = child.vectorTypes
+  override protected[sql] def doExecuteBroadcast[T](): Broadcast[T] = child.executeBroadcast()
+  override protected def withNewChildInternal(newChild: SparkPlan): SparkPlan =
+    copy(child = newChild)
+  // Node name's required to be "InputAdapter" to correctly draw UI graph.
+  // See buildSparkPlanGraphNode in SparkPlanGraph.scala of Spark.
+  override def nodeName: String = s"InputAdapter"
+}
+
 object ColumnarCollapseTransformStages {
   val transformStageCounter = new AtomicInteger(0)
 
   def wrapInputIteratorTransformer(plan: SparkPlan): TransformSupport = {
-    InputIteratorTransformer(new ColumnarInputAdapter(plan))
+    InputIteratorTransformer(ColumnarInputAdapter(plan))
   }
 }
