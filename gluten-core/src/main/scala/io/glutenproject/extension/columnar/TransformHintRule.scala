@@ -73,7 +73,7 @@ object FallbackHints {
    *
    * Since it's usually not safe to consider a plan "transformable" during validation phase. Another
    * validation rule could turn "transformable" to "fallback" before implementing the plan within
-   * Gluten transformers.
+   * Gluten transformers. Thus the returned value of this method could not be always reliable.
    */
   def isNotTaggedFallback(plan: SparkPlan): Boolean = {
     getHintOption(plan) match {
