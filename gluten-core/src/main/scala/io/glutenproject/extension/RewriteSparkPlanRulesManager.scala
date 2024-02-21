@@ -16,7 +16,7 @@
  */
 package io.glutenproject.extension
 
-import io.glutenproject.extension.columnar.{AddTransformHintRule, TRANSFORM_UNSUPPORTED, TransformHint, TransformHints}
+import io.glutenproject.extension.columnar.{AddFallbackHintRule, FALLBACK, FallbackHint, FallbackHints}
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -46,7 +46,7 @@ case class RewrittenNodeWall(originalChild: SparkPlan) extends LeafExecNode {
 class RewriteSparkPlanRulesManager(rewriteRules: Seq[Rule[SparkPlan]]) extends Rule[SparkPlan] {
 
   private def mayNeedRewrite(plan: SparkPlan): Boolean = {
-    TransformHints.isTransformable(plan) && {
+    FallbackHints.isNotTaggedFallback(plan) && {
       plan match {
         case _: SortExec => true
         case _: TakeOrderedAndProjectExec => true
@@ -60,16 +60,16 @@ class RewriteSparkPlanRulesManager(rewriteRules: Seq[Rule[SparkPlan]]) extends R
 
   private def getTransformHintBack(
       origin: SparkPlan,
-      rewrittenPlan: SparkPlan): Option[TransformHint] = {
+      rewrittenPlan: SparkPlan): Option[FallbackHint] = {
     // The rewritten plan may contain more nodes than origin, here use the node name to get it back
     val target = rewrittenPlan.collect {
       case p if p.nodeName == origin.nodeName => p
     }
     assert(target.size == 1)
-    if (TransformHints.isTransformable(target.head)) {
+    if (FallbackHints.isNotTaggedFallback(target.head)) {
       None
     } else {
-      Some(TransformHints.getHint(target.head))
+      Some(FallbackHints.getHint(target.head))
     }
   }
 
@@ -86,7 +86,7 @@ class RewriteSparkPlanRulesManager(rewriteRules: Seq[Rule[SparkPlan]]) extends R
   }
 
   override def apply(plan: SparkPlan): SparkPlan = {
-    val addHint = AddTransformHintRule()
+    val addHint = AddFallbackHintRule()
     plan.transformUp {
       case origin if mayNeedRewrite(origin) =>
         // Add a wall to avoid transforming unnecessary nodes.
@@ -97,7 +97,7 @@ class RewriteSparkPlanRulesManager(rewriteRules: Seq[Rule[SparkPlan]]) extends R
           // Note, it is not expected, but it happens in CH backend when pulling out
           // aggregate.
           // TODO: Fix the exception and remove this branch
-          TransformHints.tagNotTransformable(origin, error.get)
+          FallbackHints.tagFallback(origin, error.get)
           origin
         } else if (withWall.fastEquals(rewrittenPlan)) {
           // Return origin if the rewrite rules do nothing.
@@ -107,9 +107,9 @@ class RewriteSparkPlanRulesManager(rewriteRules: Seq[Rule[SparkPlan]]) extends R
           addHint.apply(rewrittenPlan)
           val hint = getTransformHintBack(origin, rewrittenPlan)
           hint match {
-            case Some(tu @ TRANSFORM_UNSUPPORTED(_, _)) =>
+            case Some(tu @ FALLBACK(_, _)) =>
               // If the rewritten plan is still not transformable, return the original plan.
-              TransformHints.tag(origin, tu)
+              FallbackHints.tag(origin, tu)
               origin
             case None =>
               rewrittenPlan.transformUp { case wall: RewrittenNodeWall => wall.originalChild }

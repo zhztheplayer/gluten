@@ -22,7 +22,7 @@ import io.glutenproject.execution._
 import io.glutenproject.expression._
 import io.glutenproject.expression.ConverterUtils.FunctionConfig
 import io.glutenproject.extension.{FallbackBroadcastHashJoin, FallbackBroadcastHashJoinPrepQueryStage, TransformPreOverrides}
-import io.glutenproject.extension.columnar.AddTransformHintRule
+import io.glutenproject.extension.columnar.AddFallbackHintRule
 import io.glutenproject.substrait.expression.{ExpressionBuilder, ExpressionNode, WindowFunctionNode}
 import io.glutenproject.utils.CHJoinValidateUtil
 import io.glutenproject.vectorized.CHColumnarBatchSerializer
@@ -199,7 +199,7 @@ class CHSparkPlanExecApi extends SparkPlanExecApi {
           return (0, plan.outputPartitioning, plan.child)
         }
         val project = TransformPreOverrides().replaceWithTransformerPlan(
-          AddTransformHintRule().apply(
+          AddFallbackHintRule().apply(
             ProjectExec(plan.child.output ++ projectExpressions, plan.child)))
         var newExprs = Seq[Expression]()
         for (i <- exprs.indices) {
@@ -222,7 +222,7 @@ class CHSparkPlanExecApi extends SparkPlanExecApi {
           return (0, plan.outputPartitioning, plan.child)
         }
         val project = TransformPreOverrides().replaceWithTransformerPlan(
-          AddTransformHintRule().apply(
+          AddFallbackHintRule().apply(
             ProjectExec(plan.child.output ++ projectExpressions, plan.child)))
         var newOrderings = Seq[SortOrder]()
         for (i <- orderings.indices) {

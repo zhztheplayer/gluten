@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution
 import io.glutenproject.GlutenConfig
 import io.glutenproject.events.GlutenPlanFallbackEvent
 import io.glutenproject.extension.GlutenPlan
-import io.glutenproject.extension.columnar.{TRANSFORM_UNSUPPORTED, TransformHints}
+import io.glutenproject.extension.columnar.{FALLBACK, FallbackHints}
 import io.glutenproject.utils.LogLevelUtil
 
 import org.apache.spark.sql.SparkSession
@@ -58,9 +58,9 @@ case class GlutenFallbackReporter(glutenConfig: GlutenConfig, spark: SparkSessio
     plan.foreachUp {
       case _: GlutenPlan => // ignore
       case plan: SparkPlan =>
-        if (TransformHints.isNotTransformable(plan)) {
-          TransformHints.getHint(plan) match {
-            case TRANSFORM_UNSUPPORTED(Some(reason), append) =>
+        if (FallbackHints.isTaggedFallback(plan)) {
+          FallbackHints.getHint(plan) match {
+            case FALLBACK(Some(reason), append) =>
               logFallbackReason(validationLogLevel, plan.nodeName, reason)
               // With in next round stage in AQE, the physical plan would be a new instance that
               // can not preserve the tag, so we need to set the fallback reason to logical plan.

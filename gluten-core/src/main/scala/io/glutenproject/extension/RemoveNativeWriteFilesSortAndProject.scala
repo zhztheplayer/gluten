@@ -18,7 +18,7 @@ package io.glutenproject.extension
 
 import io.glutenproject.GlutenConfig
 import io.glutenproject.execution.{ProjectExecTransformer, SortExecTransformer, WriteFilesExecTransformer}
-import io.glutenproject.extension.columnar.TransformHints
+import io.glutenproject.extension.columnar.FallbackHints
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, AttributeMap, AttributeSet, NamedExpression, SortOrder}
@@ -77,7 +77,7 @@ object NativeWriteFilesWithSkippingSortAndProject extends Logging {
         } else {
           // If we can not transform the project, then we fallback to origin plan which means
           // we also retain the sort operator.
-          TransformHints.tagNotTransformable(p, validationResult)
+          FallbackHints.tagFallback(p, validationResult)
           None
         }
       case _ => None

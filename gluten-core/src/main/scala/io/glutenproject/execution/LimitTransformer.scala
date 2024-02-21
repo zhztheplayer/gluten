@@ -19,7 +19,7 @@ package io.glutenproject.execution
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.expression.ConverterUtils
 import io.glutenproject.extension.ValidationResult
-import io.glutenproject.extension.columnar.TransformHints
+import io.glutenproject.extension.columnar.FallbackHints
 import io.glutenproject.metrics.MetricsUpdater
 import io.glutenproject.substrait.`type`.TypeBuilder
 import io.glutenproject.substrait.SubstraitContext
@@ -48,7 +48,7 @@ case class LimitTransformer(child: SparkPlan, offset: Long, count: Long)
 
   override protected def doValidateInternal(): ValidationResult = {
     child match {
-      case sort: SortExec if TransformHints.isTransformable(sort) && offset != 0 =>
+      case sort: SortExec if FallbackHints.isNotTaggedFallback(sort) && offset != 0 =>
         return ValidationResult.notOk(s"Native TopK does not support offset: $offset")
       case _ =>
     }

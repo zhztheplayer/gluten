@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution.datasources
 import io.glutenproject.execution.{ProjectExecTransformer, SortExecTransformer, TransformSupport, WholeStageTransformer}
 import io.glutenproject.execution.datasource.GlutenFormatWriterInjects
 import io.glutenproject.extension.{ColumnarOverrideRules, TransformPreOverrides}
-import io.glutenproject.extension.columnar.AddTransformHintRule
+import io.glutenproject.extension.columnar.AddFallbackHintRule
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
@@ -46,7 +46,7 @@ trait GlutenFormatWriterInjectsBase extends GlutenFormatWriterInjects {
 
     val rules = List(
       ColumnarOverrideRules.rewriteSparkPlanRule(),
-      AddTransformHintRule(),
+      AddFallbackHintRule(),
       TransformPreOverrides()
     )
     val transformed = rules.foldLeft(plan) { case (latestPlan, rule) => rule.apply(latestPlan) }

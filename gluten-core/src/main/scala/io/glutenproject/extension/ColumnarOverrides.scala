@@ -84,7 +84,7 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
           transformHashAggregate()
         case _ =>
           // If the child is not transformable, transform the grandchildren only.
-          TransformHints.tagNotTransformable(plan, "child output schema is empty")
+          FallbackHints.tagFallback(plan, "child output schema is empty")
           val grandChildren = plan.child.children.map(child => replaceWithTransformerPlan(child))
           plan.withNewChildren(Seq(plan.child.withNewChildren(grandChildren)))
       }
@@ -109,7 +109,7 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
     val newChild: SparkPlan = scan match {
       case _: FileSourceScanExec | _: BatchScanExec =>
         val newScan = FilterHandler.applyFilterPushdownToScan(plan)
-        if (TransformHints.isNotTransformable(newScan)) {
+        if (FallbackHints.isTaggedFallback(newScan)) {
           throw new IllegalStateException("Unreachable code")
         }
         newScan match {
@@ -131,7 +131,7 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
       if (plan.logicalLink.nonEmpty) {
         newSource.setLogicalLink(plan.logicalLink.get)
       }
-      TransformHints.tag(newSource, TransformHints.getHint(plan))
+      FallbackHints.tag(newSource, FallbackHints.getHint(plan))
       newSource
     case plan: BatchScanExec =>
       val newPartitionFilters: Seq[Expression] = plan.scan match {
@@ -144,7 +144,7 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
       if (plan.logicalLink.nonEmpty) {
         newSource.setLogicalLink(plan.logicalLink.get)
       }
-      TransformHints.tag(newSource, TransformHints.getHint(plan))
+      FallbackHints.tag(newSource, FallbackHints.getHint(plan))
       newSource
     case plan if HiveTableScanExecTransformer.isHiveTableScan(plan) =>
       val newPartitionFilters: Seq[Expression] = ExpressionConverter.transformDynamicPruningExpr(
@@ -153,14 +153,14 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
       if (plan.logicalLink.nonEmpty) {
         newSource.setLogicalLink(plan.logicalLink.get)
       }
-      TransformHints.tag(newSource, TransformHints.getHint(plan))
+      FallbackHints.tag(newSource, FallbackHints.getHint(plan))
       newSource
     case other =>
       throw new UnsupportedOperationException(s"${other.getClass.toString} is not supported.")
   }
 
   def replaceWithTransformerPlan(plan: SparkPlan): SparkPlan = {
-    if (TransformHints.isNotTransformable(plan)) {
+    if (FallbackHints.isTaggedFallback(plan)) {
       logDebug(s"Columnar Processing for ${plan.getClass} is under row guard.")
       plan match {
         case shj: ShuffledHashJoinExec =>
@@ -400,7 +400,7 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
       } else {
         logDebug(s"Columnar Processing for ${plan.getClass} is currently unsupported.")
         val newSource = plan.copy(partitionFilters = transformer.partitionFilters)
-        TransformHints.tagNotTransformable(newSource, validationResult.reason.get)
+        FallbackHints.tagFallback(newSource, validationResult.reason.get)
         newSource
       }
     case plan: BatchScanExec =>
@@ -419,7 +419,7 @@ case class TransformPreOverrides() extends Rule[SparkPlan] with LogLevelUtil {
       }
       logDebug(s"Columnar Processing for ${plan.getClass} is currently unsupported.")
       val newSource = HiveTableScanExecTransformer.copyWith(plan, newPartitionFilters)
-      TransformHints.tagNotTransformable(newSource, validateResult.reason.get)
+      FallbackHints.tagFallback(newSource, validateResult.reason.get)
       newSource
     case other =>
       throw new UnsupportedOperationException(s"${other.getClass.toString} is not supported.")
@@ -636,7 +636,7 @@ case class ColumnarOverrideRules(session: SparkSession)
       List(
         (spark: SparkSession) => MergeTwoPhasesHashBaseAggregate(spark),
         (_: SparkSession) => rewriteSparkPlanRule(),
-        (_: SparkSession) => AddTransformHintRule(),
+        (_: SparkSession) => AddFallbackHintRule(),
         (_: SparkSession) => FallbackBloomFilterAggIfNeeded(),
         (_: SparkSession) => TransformPreOverrides(),
         (_: SparkSession) => RemoveNativeWriteFilesSortAndProject(),
@@ -669,7 +669,7 @@ case class ColumnarOverrideRules(session: SparkSession)
       // when columnar table cache is enabled.
       (s: SparkSession) => RemoveGlutenTableCacheColumnarToRow(s),
       (s: SparkSession) => GlutenFallbackReporter(GlutenConfig.getConf, s),
-      (_: SparkSession) => RemoveTransformHintRule()
+      (_: SparkSession) => RemoveFallbackHintRule()
     )
   }
 

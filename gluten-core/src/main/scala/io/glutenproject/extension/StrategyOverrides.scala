@@ -18,8 +18,8 @@ package io.glutenproject.extension
 
 import io.glutenproject.{GlutenConfig, GlutenSparkExtensionsInjector}
 import io.glutenproject.backendsapi.BackendsApiManager
-import io.glutenproject.extension.columnar.TRANSFORM_UNSUPPORTED
-import io.glutenproject.extension.columnar.TransformHints.TAG
+import io.glutenproject.extension.columnar.FALLBACK
+import io.glutenproject.extension.columnar.FallbackHints.TAG
 import io.glutenproject.utils.LogicalPlanSelector
 
 import org.apache.spark.sql.{SparkSession, SparkSessionExtensions, Strategy}
@@ -170,7 +170,7 @@ case class JoinSelectionOverrides(session: SparkSession)
   }
 
   def tagNotTransformable(plan: LogicalPlan, reason: String): LogicalPlan = {
-    plan.setTagValue(TAG, TRANSFORM_UNSUPPORTED(Some(reason)))
+    plan.setTagValue(TAG, FALLBACK(Some(reason)))
     plan
   }
 

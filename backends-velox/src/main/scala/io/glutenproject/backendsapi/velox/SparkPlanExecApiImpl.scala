@@ -21,7 +21,7 @@ import io.glutenproject.backendsapi.SparkPlanExecApi
 import io.glutenproject.execution._
 import io.glutenproject.expression._
 import io.glutenproject.expression.ConverterUtils.FunctionConfig
-import io.glutenproject.extension.columnar.TransformHints
+import io.glutenproject.extension.columnar.FallbackHints
 import io.glutenproject.sql.shims.SparkShimLoader
 import io.glutenproject.substrait.expression.{ExpressionBuilder, ExpressionNode, IfThenNode}
 import io.glutenproject.vectorized.{ColumnarBatchSerializer, ColumnarBatchSerializeResult}
@@ -212,7 +212,7 @@ class SparkPlanExecApiImpl extends SparkPlanExecApi {
             projectTransformer,
             projectTransformer.output.drop(1))
         } else {
-          TransformHints.tagNotTransformable(shuffle, validationResult)
+          FallbackHints.tagFallback(shuffle, validationResult)
           shuffle.withNewChildren(newChild :: Nil)
         }
 

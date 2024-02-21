@@ -17,7 +17,7 @@
 package io.glutenproject.execution
 
 import io.glutenproject.expression.ExpressionConverter
-import io.glutenproject.extension.columnar.TransformHints
+import io.glutenproject.extension.columnar.FallbackHints
 import io.glutenproject.sql.shims.SparkShimLoader
 
 import org.apache.spark.sql.catalyst.expressions.Expression
@@ -114,7 +114,7 @@ object ScanTransformerFactory {
           transformer
         } else {
           val newSource = batchScan.copy(runtimeFilters = transformer.runtimeFilters)
-          TransformHints.tagNotTransformable(newSource, validationResult.reason.get)
+          FallbackHints.tagFallback(newSource, validationResult.reason.get)
           newSource
         }
       } else {
@@ -128,7 +128,7 @@ object ScanTransformerFactory {
       // and fallback the BatchScanExec itself.
       val newSource = batchScan.copy(runtimeFilters = ExpressionConverter
         .transformDynamicPruningExpr(batchScan.runtimeFilters))
-      TransformHints.tagNotTransformable(newSource, "The scan in BatchScanExec is not supported.")
+      FallbackHints.tagFallback(newSource, "The scan in BatchScanExec is not supported.")
       newSource
     }
   }

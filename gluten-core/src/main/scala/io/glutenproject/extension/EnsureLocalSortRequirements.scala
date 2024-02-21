@@ -18,7 +18,7 @@ package io.glutenproject.extension
 
 import io.glutenproject.GlutenConfig
 import io.glutenproject.execution.SortExecTransformer
-import io.glutenproject.extension.columnar.TransformHints
+import io.glutenproject.extension.columnar.FallbackHints
 
 import org.apache.spark.sql.catalyst.expressions.SortOrder
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -38,7 +38,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
       requiredOrdering: Seq[SortOrder]): SparkPlan = {
     val newChild = SortExec(requiredOrdering, global = false, child = originalChild)
     if (!GlutenConfig.getConf.enableColumnarSort) {
-      TransformHints.tagNotTransformable(newChild, "columnar Sort is not enabled in SortExec")
+      FallbackHints.tagFallback(newChild, "columnar Sort is not enabled in SortExec")
       newChild
     } else {
       val newChildWithTransformer =
@@ -51,7 +51,7 @@ object EnsureLocalSortRequirements extends Rule[SparkPlan] {
       if (validationResult.isValid) {
         newChildWithTransformer
       } else {
-        TransformHints.tagNotTransformable(newChild, validationResult)
+        FallbackHints.tagFallback(newChild, validationResult)
         newChild
       }
     }

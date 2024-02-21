@@ -20,7 +20,7 @@ import io.glutenproject.GlutenConfig
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.execution._
 import io.glutenproject.extension.{GlutenPlan, ValidationResult}
-import io.glutenproject.extension.columnar.TransformHints.EncodeTransformableTagImplicits
+import io.glutenproject.extension.columnar.FallbackHints.EncodeTransformableTagImplicits
 import io.glutenproject.sql.shims.SparkShimLoader
 import io.glutenproject.utils.PhysicalPlanSelector
 
@@ -45,25 +45,25 @@ import org.apache.spark.sql.types.StringType
 
 import org.apache.commons.lang3.exception.ExceptionUtils
 
-trait TransformHint {
+sealed trait FallbackHint {
   val stacktrace: Option[String] =
-    if (TransformHints.DEBUG) {
+    if (FallbackHints.DEBUG) {
       Some(ExceptionUtils.getStackTrace(new Throwable()))
     } else None
 }
 
-case class TRANSFORM_UNSUPPORTED(reason: Option[String], appendReasonIfExists: Boolean = true)
-  extends TransformHint
+case class FALLBACK(reason: Option[String], appendReasonIfExists: Boolean = true)
+  extends FallbackHint
 
-object TransformHints {
-  val TAG: TreeNodeTag[TransformHint] =
-    TreeNodeTag[TransformHint]("io.glutenproject.transformhint")
+object FallbackHints {
+  val TAG: TreeNodeTag[FallbackHint] =
+    TreeNodeTag[FallbackHint]("io.glutenproject.fallback")
 
   val DEBUG = false
 
-  def isNotTransformable(plan: SparkPlan): Boolean = {
+  def isTaggedFallback(plan: SparkPlan): Boolean = {
     getHintOption(plan) match {
-      case Some(TRANSFORM_UNSUPPORTED(_, _)) => true
+      case Some(FALLBACK(_, _)) => true
       case _ => false
     }
   }
@@ -72,32 +72,32 @@ object TransformHints {
    * NOTE: To be deprecated. Do not create new usages of this method.
    *
    * Since it's usually not safe to consider a plan "transformable" during validation phase. Another
-   * validation rule could turn "transformable" to "non-transformable" before implementing the plan
-   * within Gluten transformers.
+   * validation rule could turn "transformable" to "fallback" before implementing the plan within
+   * Gluten transformers.
    */
-  def isTransformable(plan: SparkPlan): Boolean = {
+  def isNotTaggedFallback(plan: SparkPlan): Boolean = {
     getHintOption(plan) match {
       case None => true
       case _ => false
     }
   }
 
-  def tag(plan: SparkPlan, hint: TransformHint): Unit = {
+  def tag(plan: SparkPlan, hint: FallbackHint): Unit = {
     val mergedHint = getHintOption(plan)
       .map {
-        case originalHint @ TRANSFORM_UNSUPPORTED(Some(originalReason), originAppend) =>
+        case originalHint @ FALLBACK(Some(originalReason), originAppend) =>
           hint match {
-            case TRANSFORM_UNSUPPORTED(Some(newReason), append) =>
+            case FALLBACK(Some(newReason), append) =>
               if (originAppend && append) {
-                TRANSFORM_UNSUPPORTED(Some(originalReason + "; " + newReason))
+                FALLBACK(Some(originalReason + "; " + newReason))
               } else if (originAppend) {
-                TRANSFORM_UNSUPPORTED(Some(originalReason))
+                FALLBACK(Some(originalReason))
               } else if (append) {
-                TRANSFORM_UNSUPPORTED(Some(newReason))
+                FALLBACK(Some(newReason))
               } else {
-                TRANSFORM_UNSUPPORTED(Some(originalReason), false)
+                FALLBACK(Some(originalReason), false)
               }
-            case TRANSFORM_UNSUPPORTED(None, _) =>
+            case FALLBACK(None, _) =>
               originalHint
             case _ =>
               throw new UnsupportedOperationException(
@@ -115,29 +115,29 @@ object TransformHints {
     plan.unsetTagValue(TAG)
   }
 
-  def tagNotTransformable(plan: SparkPlan, validationResult: ValidationResult): Unit = {
+  def tagFallback(plan: SparkPlan, validationResult: ValidationResult): Unit = {
     if (!validationResult.isValid) {
-      tag(plan, TRANSFORM_UNSUPPORTED(validationResult.reason))
+      tag(plan, FALLBACK(validationResult.reason))
     }
   }
 
-  def tagNotTransformable(plan: SparkPlan, reason: String): Unit = {
-    tag(plan, TRANSFORM_UNSUPPORTED(Some(reason)))
+  def tagFallback(plan: SparkPlan, reason: String): Unit = {
+    tag(plan, FALLBACK(Some(reason)))
   }
 
-  def tagAllNotTransformable(plan: SparkPlan, hint: TRANSFORM_UNSUPPORTED): Unit = {
+  def tagFallbackRecursively(plan: SparkPlan, hint: FALLBACK): Unit = {
     plan.foreach {
       case _: GlutenPlan => // ignore
       case other => tag(other, hint)
     }
   }
 
-  def getHint(plan: SparkPlan): TransformHint = {
+  def getHint(plan: SparkPlan): FallbackHint = {
     getHintOption(plan).getOrElse(
       throw new IllegalStateException("Transform hint tag not set in plan: " + plan.toString()))
   }
 
-  private def getHintOption(plan: SparkPlan): Option[TransformHint] = {
+  private def getHintOption(plan: SparkPlan): Option[FallbackHint] = {
     plan.getTagValue(TAG)
   }
 
@@ -146,7 +146,7 @@ object TransformHints {
       if (validationResult.isValid) {
         return
       }
-      val newTag = TRANSFORM_UNSUPPORTED(validationResult.reason)
+      val newTag = FALLBACK(validationResult.reason)
       tag(plan, newTag)
     }
   }
@@ -155,7 +155,7 @@ object TransformHints {
 case class FallbackOnANSIMode(session: SparkSession) extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = PhysicalPlanSelector.maybe(session, plan) {
     if (GlutenConfig.getConf.enableAnsiMode) {
-      plan.foreach(TransformHints.tagNotTransformable(_, "does not support ansi mode"))
+      plan.foreach(FallbackHints.tagFallback(_, "does not support ansi mode"))
     }
     plan
   }
@@ -177,8 +177,8 @@ case class FallbackMultiCodegens(session: SparkSession) extends Rule[SparkPlan] 
       case other => false
     }
 
-  def tagNotTransformable(plan: SparkPlan): SparkPlan = {
-    TransformHints.tagNotTransformable(plan, "fallback multi codegens")
+  def tagFallback(plan: SparkPlan): SparkPlan = {
+    FallbackHints.tagFallback(plan, "fallback multi codegens")
     plan
   }
 
@@ -195,28 +195,28 @@ case class FallbackMultiCodegens(session: SparkSession) extends Rule[SparkPlan] 
     }
   }
 
-  def tagNotTransformableRecursive(plan: SparkPlan): SparkPlan = {
+  def tagFallbackRecursively(plan: SparkPlan): SparkPlan = {
     plan match {
       case p: ShuffleExchangeExec =>
-        tagNotTransformable(p.withNewChildren(p.children.map(tagNotTransformableForMultiCodegens)))
+        tagFallback(p.withNewChildren(p.children.map(tagNotTransformableForMultiCodegens)))
       case p: BroadcastExchangeExec =>
-        tagNotTransformable(p.withNewChildren(p.children.map(tagNotTransformableForMultiCodegens)))
+        tagFallback(p.withNewChildren(p.children.map(tagNotTransformableForMultiCodegens)))
       case p: ShuffledHashJoinExec =>
-        tagNotTransformable(p.withNewChildren(p.children.map(tagNotTransformableRecursive)))
+        tagFallback(p.withNewChildren(p.children.map(tagFallbackRecursively)))
       case p if !supportCodegen(p) =>
         // insert row guard them recursively
         p.withNewChildren(p.children.map(tagNotTransformableForMultiCodegens))
       case p if isAQEShuffleReadExec(p) =>
         p.withNewChildren(p.children.map(tagNotTransformableForMultiCodegens))
       case p: QueryStageExec => p
-      case p => tagNotTransformable(p.withNewChildren(p.children.map(tagNotTransformableRecursive)))
+      case p => tagFallback(p.withNewChildren(p.children.map(tagFallbackRecursively)))
     }
   }
 
   def tagNotTransformableForMultiCodegens(plan: SparkPlan): SparkPlan = {
     plan match {
       case plan if existsMultiCodegens(plan) =>
-        tagNotTransformableRecursive(plan)
+        tagFallbackRecursively(plan)
       case other =>
         other.withNewChildren(other.children.map(tagNotTransformableForMultiCodegens))
     }
@@ -268,13 +268,11 @@ case class FallbackEmptySchemaRelation() extends Rule[SparkPlan] {
         if (p.children.exists(_.output.isEmpty)) {
           // Some backends are not eligible to offload plan with zero-column input.
           // If any child have empty output, mark the plan and that child as UNSUPPORTED.
-          TransformHints.tagNotTransformable(p, "at least one of its children has empty output")
+          FallbackHints.tagFallback(p, "at least one of its children has empty output")
           p.children.foreach {
             child =>
               if (child.output.isEmpty && !child.isInstanceOf[WriteFilesExec]) {
-                TransformHints.tagNotTransformable(
-                  child,
-                  "at least one of its children has empty output")
+                FallbackHints.tagFallback(child, "at least one of its children has empty output")
               }
           }
         }
@@ -294,7 +292,7 @@ case class FallbackBloomFilterAggIfNeeded() extends Rule[SparkPlan] {
       BackendsApiManager.getSettings.enableBloomFilterAggFallbackRule()
     ) {
       plan.transformDown {
-        case p if TransformHints.isNotTransformable(p) =>
+        case p if FallbackHints.isTaggedFallback(p) =>
           handleBloomFilterFallback(p)
           p
       }
@@ -308,22 +306,22 @@ case class FallbackBloomFilterAggIfNeeded() extends Rule[SparkPlan] {
   }
 
   private def handleBloomFilterFallback(plan: SparkPlan): Unit = {
-    def tagNotTransformableRecursive(p: SparkPlan): Unit = {
+    def tagFallbackRecursively(p: SparkPlan): Unit = {
       p match {
         case agg: org.apache.spark.sql.execution.aggregate.ObjectHashAggregateExec
             if SparkShimLoader.getSparkShims.hasBloomFilterAggregate(agg) =>
-          TransformHints.tagNotTransformable(agg, "related BloomFilterMightContain falls back")
-          tagNotTransformableRecursive(agg.child)
+          FallbackHints.tagFallback(agg, "related BloomFilterMightContain falls back")
+          tagFallbackRecursively(agg.child)
         case a: org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec =>
-          tagNotTransformableRecursive(a.executedPlan)
+          tagFallbackRecursively(a.executedPlan)
         case _ =>
-          p.children.map(tagNotTransformableRecursive)
+          p.children.map(tagFallbackRecursively)
       }
     }
 
     plan.transformExpressions {
       case expr @ SubPlanFromBloomFilterMightContain(p: SparkPlan) =>
-        tagNotTransformableRecursive(p)
+        tagFallbackRecursively(p)
         expr
     }
   }
@@ -333,7 +331,7 @@ case class FallbackBloomFilterAggIfNeeded() extends Rule[SparkPlan] {
 // The doValidate function will be called to check if the conversion is supported.
 // If false is returned or any unsupported exception is thrown, a row guard will
 // be added on the top of that plan to prevent actual conversion.
-case class AddTransformHintRule() extends Rule[SparkPlan] {
+case class AddFallbackHintRule() extends Rule[SparkPlan] {
   val columnarConf: GlutenConfig = GlutenConfig.getConf
   val scanOnly: Boolean = columnarConf.enableScanOnly
   val enableColumnarShuffle: Boolean =
@@ -368,29 +366,29 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
       columnarConf.cartesianProductTransformerEnabled
 
   def apply(plan: SparkPlan): SparkPlan = {
-    addTransformableTags(plan)
+    addFallbackTags(plan)
   }
 
   /** Inserts a transformable tag on top of those that are not supported. */
-  private def addTransformableTags(plan: SparkPlan): SparkPlan = {
+  private def addFallbackTags(plan: SparkPlan): SparkPlan = {
     // Walk the tree with post-order
-    val out = plan.mapChildren(addTransformableTags)
-    addTransformableTag(out)
+    val out = plan.mapChildren(addFallbackTags)
+    addFallbackTag(out)
     out
   }
 
-  private def addTransformableTag(plan: SparkPlan): Unit = {
-    if (TransformHints.isNotTransformable(plan)) {
+  private def addFallbackTag(plan: SparkPlan): Unit = {
+    if (FallbackHints.isTaggedFallback(plan)) {
       logDebug(
         s"Skip adding transformable tag, since plan already tagged as " +
-          s"${TransformHints.getHint(plan)}: ${plan.toString()}")
+          s"${FallbackHints.getHint(plan)}: ${plan.toString()}")
       return
     }
     try {
       plan match {
         case plan: BatchScanExec =>
           if (!enableColumnarBatchScan) {
-            TransformHints.tagNotTransformable(plan, "columnar BatchScan is disabled")
+            FallbackHints.tagFallback(plan, "columnar BatchScan is disabled")
           } else {
             // IF filter expressions aren't empty, we need to transform the inner operators.
             if (plan.runtimeFilters.isEmpty) {
@@ -403,7 +401,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: FileSourceScanExec =>
           if (!enableColumnarFileScan) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar FileScan is not enabled in FileSourceScanExec")
           } else {
@@ -416,13 +414,13 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan if HiveTableScanExecTransformer.isHiveTableScan(plan) =>
           if (!enableColumnarHiveTableScan) {
-            TransformHints.tagNotTransformable(plan, "columnar hive table scan is disabled")
+            FallbackHints.tagFallback(plan, "columnar hive table scan is disabled")
           } else {
             HiveTableScanExecTransformer.validate(plan).tagOnFallback(plan)
           }
         case plan: ProjectExec =>
           if (!enableColumnarProject) {
-            TransformHints.tagNotTransformable(plan, "columnar project is disabled")
+            FallbackHints.tagFallback(plan, "columnar project is disabled")
           } else {
             val transformer = ProjectExecTransformer(plan.projectList, plan.child)
             transformer.doValidate().tagOnFallback(plan)
@@ -431,10 +429,10 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           val childIsScan = plan.child.isInstanceOf[FileSourceScanExec] ||
             plan.child.isInstanceOf[BatchScanExec]
           if (!enableColumnarFilter) {
-            TransformHints.tagNotTransformable(plan, "columnar Filter is not enabled in FilterExec")
+            FallbackHints.tagFallback(plan, "columnar Filter is not enabled in FilterExec")
           } else if (scanOnly && !childIsScan) {
             // When scanOnly is enabled, filter after scan will be offloaded.
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "ScanOnly enabled and plan child is not Scan in FilterExec")
           } else {
@@ -444,7 +442,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: HashAggregateExec =>
           if (!enableColumnarHashAgg) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar HashAggregate is not enabled in HashAggregateExec")
           } else {
@@ -462,11 +460,9 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: SortAggregateExec =>
           if (!BackendsApiManager.getSettings.replaceSortAggWithHashAgg) {
-            TransformHints.tagNotTransformable(plan, "replaceSortAggWithHashAgg is not enabled")
+            FallbackHints.tagFallback(plan, "replaceSortAggWithHashAgg is not enabled")
           } else if (!enableColumnarHashAgg) {
-            TransformHints.tagNotTransformable(
-              plan,
-              "columnar HashAgg is not enabled in SortAggregateExec")
+            FallbackHints.tagFallback(plan, "columnar HashAgg is not enabled in SortAggregateExec")
           } else {
             val transformer = BackendsApiManager.getSparkPlanExecApiInstance
               .genHashAggregateExecTransformer(
@@ -482,7 +478,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: ObjectHashAggregateExec =>
           if (!enableColumnarHashAgg) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar HashAgg is not enabled in ObjectHashAggregateExec")
           } else {
@@ -500,14 +496,14 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: UnionExec =>
           if (!enableColumnarUnion) {
-            TransformHints.tagNotTransformable(plan, "columnar Union is not enabled in UnionExec")
+            FallbackHints.tagFallback(plan, "columnar Union is not enabled in UnionExec")
           } else {
             val transformer = ColumnarUnionExec(plan.children)
             transformer.doValidate().tagOnFallback(plan)
           }
         case plan: ExpandExec =>
           if (!enableColumnarExpand) {
-            TransformHints.tagNotTransformable(plan, "columnar Expand is not enabled in ExpandExec")
+            FallbackHints.tagFallback(plan, "columnar Expand is not enabled in ExpandExec")
           } else {
             val transformer = ExpandExecTransformer(plan.projections, plan.output, plan.child)
             transformer.doValidate().tagOnFallback(plan)
@@ -515,9 +511,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
 
         case plan: WriteFilesExec =>
           if (!enableColumnarWrite || !BackendsApiManager.getSettings.supportTransformWriteFiles) {
-            TransformHints.tagNotTransformable(
-              plan,
-              "columnar Write is not enabled in WriteFilesExec")
+            FallbackHints.tagFallback(plan, "columnar Write is not enabled in WriteFilesExec")
           } else {
             val transformer = WriteFilesExecTransformer(
               plan.child,
@@ -530,7 +524,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: SortExec =>
           if (!enableColumnarSort) {
-            TransformHints.tagNotTransformable(plan, "columnar Sort is not enabled in SortExec")
+            FallbackHints.tagFallback(plan, "columnar Sort is not enabled in SortExec")
           } else {
             val transformer =
               SortExecTransformer(plan.sortOrder, plan.global, plan.child, plan.testSpillFrequency)
@@ -538,7 +532,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: ShuffleExchangeExec =>
           if (!enableColumnarShuffle) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar Shuffle is not enabled in ShuffleExchangeExec")
           } else {
@@ -551,7 +545,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: ShuffledHashJoinExec =>
           if (!enableColumnarShuffledHashJoin) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar shufflehashjoin is not enabled in ShuffledHashJoinExec")
           } else {
@@ -570,7 +564,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
         case plan: BroadcastExchangeExec =>
           // columnar broadcast is enabled only when columnar bhj is enabled.
           if (!enableColumnarBroadcastExchange) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar BroadcastExchange is not enabled in BroadcastExchangeExec")
           } else {
@@ -579,7 +573,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case bhj: BroadcastHashJoinExec =>
           if (!enableColumnarBroadcastJoin) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               bhj,
               "columnar BroadcastJoin is not enabled in BroadcastHashJoinExec")
           } else {
@@ -597,7 +591,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: SortMergeJoinExec =>
           if (!enableColumnarSortMergeJoin || plan.joinType == FullOuter) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar sort merge join is not enabled or join type is FullOuter")
           } else {
@@ -613,7 +607,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: CartesianProductExec =>
           if (!enableCartesianProduct) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "conversion to CartesianProductTransformer is not enabled.")
           } else {
@@ -622,7 +616,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: WindowExec =>
           if (!enableColumnarWindow) {
-            TransformHints.tagNotTransformable(plan, "columnar window is not enabled in WindowExec")
+            FallbackHints.tagFallback(plan, "columnar window is not enabled in WindowExec")
           } else {
             val transformer = WindowExecTransformer(
               plan.windowExpression,
@@ -633,18 +627,14 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: CoalesceExec =>
           if (!enableColumnarCoalesce) {
-            TransformHints.tagNotTransformable(
-              plan,
-              "columnar coalesce is not enabled in CoalesceExec")
+            FallbackHints.tagFallback(plan, "columnar coalesce is not enabled in CoalesceExec")
           } else {
             val transformer = CoalesceExecTransformer(plan.numPartitions, plan.child)
             transformer.doValidate().tagOnFallback(plan)
           }
         case plan: GlobalLimitExec =>
           if (!enableColumnarLimit) {
-            TransformHints.tagNotTransformable(
-              plan,
-              "columnar limit is not enabled in GlobalLimitExec")
+            FallbackHints.tagFallback(plan, "columnar limit is not enabled in GlobalLimitExec")
           } else {
             val (limit, offset) =
               SparkShimLoader.getSparkShims.getLimitAndOffsetFromGlobalLimit(plan)
@@ -653,18 +643,14 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
           }
         case plan: LocalLimitExec =>
           if (!enableColumnarLimit) {
-            TransformHints.tagNotTransformable(
-              plan,
-              "columnar limit is not enabled in GlobalLimitExec")
+            FallbackHints.tagFallback(plan, "columnar limit is not enabled in GlobalLimitExec")
           } else {
             val transformer = LimitTransformer(plan.child, 0L, plan.limit)
             transformer.doValidate().tagOnFallback(plan)
           }
         case plan: GenerateExec =>
           if (!enableColumnarGenerate) {
-            TransformHints.tagNotTransformable(
-              plan,
-              "columnar generate is not enabled in GenerateExec")
+            FallbackHints.tagFallback(plan, "columnar generate is not enabled in GenerateExec")
           } else {
             val transformer = GenerateExecTransformer(
               plan.generator,
@@ -681,7 +667,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
         // Considered transformable by default.
         case plan: TakeOrderedAndProjectExec =>
           if (!enableTakeOrderedAndProject) {
-            TransformHints.tagNotTransformable(
+            FallbackHints.tagFallback(
               plan,
               "columnar topK is not enabled in TakeOrderedAndProjectExec")
           } else {
@@ -700,7 +686,7 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
       }
     } catch {
       case e: UnsupportedOperationException =>
-        TransformHints.tagNotTransformable(
+        FallbackHints.tagFallback(
           plan,
           s"${e.getMessage}, original Spark plan is " +
             s"${plan.getClass}(${plan.children.toList.map(_.getClass)})")
@@ -708,9 +694,9 @@ case class AddTransformHintRule() extends Rule[SparkPlan] {
   }
 }
 
-case class RemoveTransformHintRule() extends Rule[SparkPlan] {
+case class RemoveFallbackHintRule() extends Rule[SparkPlan] {
   override def apply(plan: SparkPlan): SparkPlan = {
-    plan.foreach(TransformHints.untag)
+    plan.foreach(FallbackHints.untag)
     plan
   }
 }
