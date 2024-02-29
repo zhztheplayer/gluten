@@ -42,6 +42,7 @@ object ExpressionNames {
   final val LAST = "last"
   final val LAST_IGNORE_NULL = "last_ignore_null"
   final val FIRST = "first"
+  final val APPROX_PERCENTILE = "approx_percentile"
   final val FIRST_IGNORE_NULL = "first_ignore_null"
   final val APPROX_DISTINCT = "approx_distinct"
 

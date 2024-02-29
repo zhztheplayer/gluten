@@ -17,7 +17,6 @@
 package org.apache.spark.sql
 
 import io.glutenproject.execution.HashAggregateExecBaseTransformer
-
 import org.apache.spark.sql.GlutenTestConstants.GLUTEN_TEST
 import org.apache.spark.sql.execution.WholeStageCodegenExec
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -26,7 +25,6 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
 
 import java.lang.{Long => JLong}
-
 import scala.util.Random
 
 class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenSQLTestsTrait {
@@ -34,6 +32,13 @@ class GlutenDataFrameAggregateSuite extends DataFrameAggregateSuite with GlutenS
   import testImplicits._
 
   // blackTestNameList is defined in ClickHouseNotSupport
+  test("collect functions 2") {
+    val df = Seq((1, 2), (2, 2), (3, 4)).toDF("a", "b")
+    checkAnswer(
+      df.select(collect_set($"a"), collect_set($"b")),
+      Seq(Row(Seq(1, 2, 3), Seq(2, 4)))
+    )
+  }
 
   testGluten("count") {
     // agg with no input col
