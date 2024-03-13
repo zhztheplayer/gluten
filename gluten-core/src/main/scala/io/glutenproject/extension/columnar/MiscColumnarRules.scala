@@ -47,7 +47,7 @@ object MiscColumnarRules {
     // Sub-rules of TransformPreOverrides.
 
     // Aggregation transformation.
-    private case class AggregationTransformRule() extends Rule[SparkPlan] with LogLevelUtil {
+    case class AggregationTransformRule() extends Rule[SparkPlan] with LogLevelUtil {
       override def apply(plan: SparkPlan): SparkPlan = plan.transformUp {
         case agg: HashAggregateExec =>
           genHashAggregateExec(agg)
@@ -105,7 +105,7 @@ object MiscColumnarRules {
     }
 
     // Filter transformation.
-    private case class FilterTransformRule() extends Rule[SparkPlan] with LogLevelUtil {
+    case class FilterTransformRule() extends Rule[SparkPlan] with LogLevelUtil {
       private val replace = new ReplaceSingleNode()
 
       override def apply(plan: SparkPlan): SparkPlan = plan.transformDown {
@@ -161,6 +161,10 @@ object MiscColumnarRules {
 
     // Utility to replace single node within transformed Gluten node.
     // Children will be preserved as they are as children of the output node.
+    //
+    // Do not look-up on children on the input node in this rule. Otherwise
+    // it may break ACBO which would group all the possible input nodes to
+    // search for validate candidates.
     class ReplaceSingleNode() extends LogLevelUtil with Logging {
       private val columnarConf: GlutenConfig = GlutenConfig.getConf
 

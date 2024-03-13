@@ -450,6 +450,16 @@ jobs:
             --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
           && GLUTEN_IT_JVM_ARGS=-Xmx20G sbin/gluten-it.sh queries-compare \
             --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=40g -s=10.0 --threads=32 --iterations=1'
+      - name: TPC-H SF1.0 && TPC-DS SF10.0 Parquet local spark3.2 with advanced CBO
+        run: |
+          $PATH_TO_GLUTEN_TE/$OS_IMAGE_NAME/gha/gha-checkout/exec.sh 'cd /opt/gluten/tools/gluten-it && \
+          mvn clean install -Pspark-3.2 \
+          && GLUTEN_IT_JVM_ARGS=-Xmx5G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=h --error-on-memleak --off-heap-size=10g -s=1.0 --threads=16 --iterations=1 \
+            --extra-conf=spark.gluten.sql.advanced.cbo.enabled=true \
+          && GLUTEN_IT_JVM_ARGS=-Xmx20G sbin/gluten-it.sh queries-compare \
+            --local --preset=velox --benchmark-type=ds --error-on-memleak --off-heap-size=40g -s=10.0 --threads=32 --iterations=1 \
+            --extra-conf=spark.gluten.sql.advanced.cbo.enabled=true'
       - name: TPC-H SF1.0 && TPC-DS SF10.0 Parquet local spark3.2 with Celeborn 0.4.0
         run: |
           $PATH_TO_GLUTEN_TE/$OS_IMAGE_NAME/gha/gha-checkout/exec.sh \
