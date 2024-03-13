@@ -220,6 +220,16 @@ case class ColumnarOverrideRules(session: SparkSession)
    * the plan will be breakdown and decided to be fallen back or not.
    */
   private def transformRules(outputsColumnar: Boolean): List[SparkSession => Rule[SparkPlan]] = {
+
+    def maybeCbo(): List[SparkSession => Rule[SparkPlan]] = {
+      if (GlutenConfig.getConf.enableAdvancedCbo) {
+        return List(session => CostBasedTransform(session))
+      }
+      List(
+        (_: SparkSession) => TransformPreOverrides(),
+        (_: SparkSession) => InsertTransitions(outputsColumnar))
+    }
+
     List(
       (_: SparkSession) => RemoveTransitions,
       (spark: SparkSession) => FallbackOnANSIMode(spark),
@@ -232,18 +242,18 @@ case class ColumnarOverrideRules(session: SparkSession)
         (spark: SparkSession) => MergeTwoPhasesHashBaseAggregate(spark),
         (_: SparkSession) => rewriteSparkPlanRule(),
         (_: SparkSession) => AddTransformHintRule(),
-        (_: SparkSession) => FallbackBloomFilterAggIfNeeded(),
-        (_: SparkSession) => TransformPreOverrides(),
-        (_: SparkSession) => InsertTransitions(outputsColumnar),
+        (_: SparkSession) => FallbackBloomFilterAggIfNeeded()
+      ) :::
+      maybeCbo() :::
+      List(
         (_: SparkSession) => RemoveNativeWriteFilesSortAndProject(),
         (spark: SparkSession) => RewriteTransformer(spark),
         (_: SparkSession) => EnsureLocalSortRequirements,
         (_: SparkSession) => CollapseProjectExecTransformer
       ) :::
       BackendsApiManager.getSparkPlanExecApiInstance.genExtendedColumnarTransformRules() :::
-      SparkRuleUtil.extendedColumnarRules(
-        session,
-        GlutenConfig.getConf.extendedColumnarTransformRules) :::
+      SparkRuleUtil
+        .extendedColumnarRules(session, GlutenConfig.getConf.extendedColumnarTransformRules) :::
       List((_: SparkSession) => InsertTransitions(outputsColumnar))
   }
 
