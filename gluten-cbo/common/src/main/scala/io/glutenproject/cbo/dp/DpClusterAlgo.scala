@@ -93,12 +93,10 @@ object DpClusterAlgo {
     }
 
     override def xExistRestriction(): Boolean = {
-      // Some nodes in cluster can be excluded and we still got valid path.
       false
     }
 
     override def yExistRestriction(): Boolean = {
-      // Child cluster of a node cannot be excluded. (FIXME Really?)
       false
     }
 
