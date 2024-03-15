@@ -20,11 +20,14 @@ package io.glutenproject.cbo.dp
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath
 import io.glutenproject.cbo.best.BestFinder
-import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier}
+import io.glutenproject.cbo.path.{CboPath, PathFinder}
+import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier, Shape}
 
 // TODO: Branch and bound pruning.
 private class DpPlanner[T <: AnyRef] private (cbo: Cbo[T], plan: T, reqPropSet: PropertySet[T])
   extends CboPlanner[T] {
+  import DpPlanner._
+
   private val memo = Memo.unsafe(cbo)
   private val rules = cbo.ruleFactory.create().map(rule => RuleApplier(cbo, memo, rule))
   private val enforcerRuleSet = EnforcerRuleSet[T](cbo, memo)
@@ -48,9 +51,12 @@ private class DpPlanner[T <: AnyRef] private (cbo: Cbo[T], plan: T, reqPropSet: 
     PlannerState(cbo, memo.newState(), rootGroupId, best._1)
 
   private def findBest(memoState: UnsafeMemoState[T], groupId: Int): Best[T] = {
-    BestFinder
-      .unsafe(cbo, memoState, ???)
-      .bestOf(groupId)
+    val cluster = memoState.allClusters()(memoState.allGroups()(groupId).clusterId())
+    val algoDef = new DpExploreAlgoDef[T]
+    val adjustment = new ExploreAdjustment(cbo, memoState, rules, enforcerRuleSet)
+    DpClusterAlgo.resolve(memoState, algoDef, adjustment, cluster)
+    val finder = BestFinder(cbo, memoState.toSafe())
+    finder.bestOf(groupId)
   }
 }
 
@@ -59,15 +65,67 @@ object DpPlanner {
     new DpPlanner(cbo, plan, reqPropSet)
   }
 
+  private class DpExploreAlgoDef[T <: AnyRef] extends DpClusterAlgoDef[T, AnyRef, AnyRef] {
+    private val flag = new AnyRef()
+    override def solveNode(
+        node: CanonicalNode[T],
+        childrenClustersOutput: CboCluster[T] => Option[AnyRef]): Option[AnyRef] = {
+      Some(flag)
+    }
+    override def solveCluster(
+        group: CboCluster[T],
+        nodesOutput: CanonicalNode[T] => Option[AnyRef]): Option[AnyRef] = {
+      Some(flag)
+    }
+  }
+
   private class ExploreAdjustment[T <: AnyRef](
       cbo: Cbo[T],
       memoState: UnsafeMemoState[T],
       rules: Seq[RuleApplier[T]],
       enforcerRuleSet: EnforcerRuleSet[T])
     extends DpClusterAlgo.Adjustment[T] {
+    private val allGroups = memoState.allGroups()
+    private val allClusters = memoState.allClusters()
+    override def beforeXSolved(can: CanonicalNode[T]): Unit = {
+      if (rules.isEmpty) {
+        return
+      }
+      val shapes = rules.map(_.shape())
+      findPaths(can, shapes)(path => rules.foreach(rule => applyRule(rule, path)))
+    }
 
-    override def beforeXSolved(x: CanonicalNode[T]): Unit = ???
+    override def beforeYSolved(cluster: CboCluster[T]): Unit = {
+      cluster.groups().foreach {
+        group =>
+          val reqPropSet = group.propSet()
+          val enforcerRules = enforcerRuleSet.rulesOf(reqPropSet)
+          if (enforcerRules.nonEmpty) {
+            val shapes = enforcerRules.map(_.shape())
+            allClusters(group.clusterId()).nodes().foreach {
+              node =>
+                findPaths(node, shapes)(
+                  path => enforcerRules.foreach(rule => applyRule(rule, path)))
+            }
+          }
+      }
+    }
 
-    override def beforeYSolved(y: CboCluster[T]): Unit = ???
+    private def findPaths(canonical: CanonicalNode[T], shapes: Seq[Shape[T]])(
+        onFound: CboPath[T] => Unit): Unit = {
+      val finder = shapes
+        .foldLeft(
+          PathFinder
+            .builder(cbo, allGroups)) {
+          case (builder, shape) =>
+            builder.output(shape.wizard())
+        }
+        .build()
+      finder.find(canonical).foreach(path => onFound(path))
+    }
+
+    private def applyRule(rule: RuleApplier[T], path: CboPath[T]): Unit = {
+      rule.apply(path)
+    }
   }
 }

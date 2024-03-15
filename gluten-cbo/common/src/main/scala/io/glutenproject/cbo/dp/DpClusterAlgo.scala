@@ -50,9 +50,9 @@ object DpClusterAlgo {
       memoState: UnsafeMemoState[T],
       groupAlgoDef: DpClusterAlgoDef[T, NodeOutput, ClusterOutput],
       adjustment: Adjustment[T],
-      group: CboCluster[T])
+      cluster: CboCluster[T])
       : Solution[CanonicalNode[T], CboCluster[T], NodeOutput, ClusterOutput] = {
-    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), adjustment, group)
+    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), adjustment, cluster)
   }
 
   private class ZipperAlgoDefImpl[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef](
@@ -99,7 +99,7 @@ object DpClusterAlgo {
 
     override def yExistRestriction(): Boolean = {
       // Child cluster of a node cannot be excluded. (FIXME Really?)
-      true
+      false
     }
 
     override def excludeCyclesOnX(): Boolean = {
