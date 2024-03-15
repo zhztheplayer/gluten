@@ -26,12 +26,12 @@ import io.glutenproject.cbo.path.{CboPath, PathKeySet}
 import scala.collection.mutable
 
 // The best path's each sub-path is considered optimal in its own group.
-private class DpBestFinder[T <: AnyRef](
+private class GroupBasedBestFinder[T <: AnyRef](
     cbo: Cbo[T],
     memoState: UnsafeMemoState[T],
     adjustment: DpGroupAlgo.Adjustment[T])
   extends BestFinder[T] {
-  import DpBestFinder._
+  import GroupBasedBestFinder._
 
   private val allGroups = memoState.allGroups()
 
@@ -82,8 +82,7 @@ private class DpBestFinder[T <: AnyRef](
   }
 }
 
-private object DpBestFinder {
-
+private object GroupBasedBestFinder {
   private class AlgoDef[T <: AnyRef](cbo: Cbo[T], allGroups: Seq[CboGroup[T]])
     extends DpGroupAlgoDef[T, KnownCostPath[T], KnownCostGroup[T]] {
     private val costComparator = cbo.costModel.costComparator()

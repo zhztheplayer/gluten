@@ -33,7 +33,7 @@ object BestFinder {
       cbo: Cbo[T],
       memoState: UnsafeMemoState[T],
       adjustment: DpGroupAlgo.Adjustment[T]): BestFinder[T] = {
-    new DpBestFinder[T](cbo, memoState, adjustment)
+    new GroupBasedBestFinder[T](cbo, memoState, adjustment)
   }
 
   case class KnownCostGroup[T <: AnyRef](
@@ -41,4 +41,6 @@ object BestFinder {
       bestNode: CanonicalNode[T]) {
     def best(): KnownCostPath[T] = nodeToCost(bestNode)
   }
+
+  case class KnownCostCluster[T <: AnyRef](groupToCost: Map[Int, KnownCostGroup[T]])
 }
