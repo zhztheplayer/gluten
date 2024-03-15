@@ -22,9 +22,6 @@ import io.glutenproject.cbo.dp.DpZipperAlgo.Solution
 
 // Dynamic programming algorithm to solve problem against a single CBO group that can be
 // broken down to sub problems for sub groups.
-//
-// Cycle exclusion is also done internally so implementations don't have to
-// deal with cycle issues by themselves.
 trait DpGroupAlgoDef[T <: AnyRef, NodeOutput <: AnyRef, GroupOutput <: AnyRef] {
   def solveNode(
       node: CanonicalNode[T],

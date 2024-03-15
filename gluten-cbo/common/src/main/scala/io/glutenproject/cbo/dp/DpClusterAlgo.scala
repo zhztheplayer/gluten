@@ -18,251 +18,97 @@
 package io.glutenproject.cbo.dp
 
 import io.glutenproject.cbo.{CanonicalNode, CboCluster, UnsafeMemoState}
-import io.glutenproject.cbo.util.CycleDetector
-
-import scala.collection.mutable
+import io.glutenproject.cbo.dp.DpZipperAlgo.Solution
 
 // Dynamic programming algorithm to solve problem against a single CBO cluster that can be
 // broken down to sub problems for sub clusters.
 //
-// Cycle exclusion is also done internally so implementations don't have to
-// deal with cycle issues by themselves.
-trait DpClusterAlgoDef[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef] {
+// FIXME: Code is so similar with DpGroupAlgo.
+trait DpClusterAlgoDef[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef] {
   def solveNode(
       node: CanonicalNode[T],
-      childrenClustersOutput: Seq[Option[ClusterOutput]]): Option[NodeOutput]
+      childrenClustersOutput: CboCluster[T] => Option[ClusterOutput]): Option[NodeOutput]
   def solveCluster(
-      clusterId: Int,
-      nodesOutput: Map[CanonicalNode[T], Option[NodeOutput]]): Option[ClusterOutput]
+      group: CboCluster[T],
+      nodesOutput: CanonicalNode[T] => Option[NodeOutput]): Option[ClusterOutput]
 }
 
-object DpClusterAlgo {
-  def resolve[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef](
-      memoState: UnsafeMemoState[T],
-      algoDef: DpClusterAlgoDef[T, ClusterOutput, NodeOutput],
-      adjustment: Adjustment[T],
-      clusterId: Int): Solution[T, ClusterOutput, NodeOutput] = {
-    val algo = new DpClusterAlgoResolver(memoState, algoDef, adjustment)
-    algo.resolve(clusterId)
-  }
+object DpGroupAlgo {
 
-  trait Adjustment[T <: AnyRef] {
-    def afterNodeSolved(node: CanonicalNode[T]): Unit
-    def beforeClusterSolved(clusterId: Int): Unit
-  }
+  trait Adjustment[T <: AnyRef] extends DpZipperAlgo.Adjustment[CanonicalNode[T], CboCluster[T]]
 
   object Adjustment {
     private class None[T <: AnyRef] extends Adjustment[T] {
-      override def afterNodeSolved(node: CanonicalNode[T]): Unit = {}
-      override def beforeClusterSolved(clusterId: Int): Unit = {}
+      override def beforeXSolved(x: CanonicalNode[T]): Unit = {}
+      override def beforeYSolved(y: CboCluster[T]): Unit = {}
     }
-    def none[T <: AnyRef](): Adjustment[T] = new None()
+
+    def none[T <: AnyRef](): Adjustment[T] = new None[T]()
   }
 
-  private class DpClusterAlgoResolver[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef](
+  def resolve[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef](
       memoState: UnsafeMemoState[T],
-      algoDef: DpClusterAlgoDef[T, ClusterOutput, NodeOutput],
-      adjustment: Adjustment[T]) {
-    private val allClusters = memoState.allClusters()
-    private val allGroups = memoState.allGroups()
-
-    def resolve(clusterId: Int): Solution[T, ClusterOutput, NodeOutput] = {
-      val sBuilder = Solution.builder[T, ClusterOutput, NodeOutput]()
-      solveClusterRec(clusterId, sBuilder, CycleDetector[Int](Ordering.Int))
-      sBuilder.build()
-    }
-
-    private def solveClusterRec(
-        clusterId: Int,
-        sBuilder: Solution.Builder[T, ClusterOutput, NodeOutput],
-        cycleDetector: CycleDetector[Int]): Unit = {
-      if (cycleDetector.contains(clusterId)) {
-        return
-      }
-      val newDetector = cycleDetector.append(clusterId)
-      if (sBuilder.isClusterSolved(clusterId)) {
-        // The same cluster was already solved by previous traversals before bumping into
-        // this position.
-        return
-      }
-      val cluster = allClusters(clusterId)
-
-      def loop(): Unit = {
-        var prevNodeCount = 0
-
-        def getNodes(): Iterable[CanonicalNode[T]] = {
-          val nodes = cluster.inClusterNodes()
-          val nodeCount = nodes.size
-          if (nodeCount >= prevNodeCount) {
-            return nodes
-          }
-          assert(nodes.size == prevNodeCount)
-          // We have no more nodes to add.
-          // The cluster is going to be solved, try applying adjustment
-          // to see if algo caller likes to add some nodes.
-          adjustment.beforeClusterSolved(clusterId)
-          cluster.inClusterNodes()
-        }
-        while (true) {
-          val nodes = getNodes()
-          if (nodes.size == prevNodeCount) {
-            return
-          }
-          prevNodeCount = nodes.size
-          nodes.foreach(node => solveNodeRec(node, sBuilder, newDetector))
-        }
-        throw new IllegalStateException("Unreachable code")
-      }
-
-      loop()
-
-      if (sBuilder.isClusterSolved(clusterId)) {
-        // The same cluster was solved by the above recursive call on the child node.
-        return
-      }
-
-      val finalNodes = cluster.inClusterNodes()
-
-      val clusterSolution = algoDef.solveCluster(
-        clusterId,
-        finalNodes.map {
-          can =>
-            val nodeSolution = if (sBuilder.isNodeSolved(can)) {
-              sBuilder.getNodeSolution(can)
-            } else {
-              // Node was excluded by cycle.
-              None
-            }
-            can -> nodeSolution
-        }.toMap
-      )
-
-      sBuilder.addClusterSolution(clusterId, clusterSolution)
-      adjustment.beforeClusterSolved(clusterId)
-    }
-
-    private def solveNodeRec(
-        can: CanonicalNode[T],
-        sBuilder: Solution.Builder[T, ClusterOutput, NodeOutput],
-        cycleDetector: CycleDetector[Int]): Unit = {
-      if (sBuilder.isNodeSolved(can)) {
-        // The same mode was already solved by previous traversals before bumping into
-        // this position.
-        return
-      }
-      if (can.isLeaf()) {
-        sBuilder.addNodeSolution(can, algoDef.solveNode(can, List.empty))
-        adjustment.afterNodeSolved(can)
-        return
-      }
-      val childrenClusters =
-        can.getChildrenGroups(allGroups).map(gn => allClusters(allGroups(gn.groupId()).clusterId()))
-      assert(childrenClusters.nonEmpty)
-      childrenClusters.foreach {
-        childCluster =>
-          val childClusterId = childCluster.id()
-          solveClusterRec(childClusterId, sBuilder, cycleDetector)
-      }
-      val childrenClustersOutput =
-        childrenClusters.map(
-          childCluster => {
-            if (!sBuilder.isClusterSolved(childCluster.id())) {
-              // Cluster was excluded by cycle, return without solving the node.
-              // The subsequent solve-node calls from other clusters may solve the same node
-              // from other populating cluster.
-              return
-            }
-            sBuilder.getClusterSolution(childCluster.id())
-          })
-      sBuilder.addNodeSolution(can, algoDef.solveNode(can, childrenClustersOutput))
-      adjustment.afterNodeSolved(can)
-    }
-
+      groupAlgoDef: DpClusterAlgoDef[T, NodeOutput, ClusterOutput],
+      adjustment: Adjustment[T],
+      group: CboCluster[T])
+      : Solution[CanonicalNode[T], CboCluster[T], NodeOutput, ClusterOutput] = {
+    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), adjustment, group)
   }
 
-  trait Solution[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef] {
-    def clusters: Map[Int, ClusterOutput]
-    def nodes: Map[CanonicalNode[T], NodeOutput]
-  }
-
-  private object Solution {
-    private case class SolutionImpl[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef](
-        override val clusters: Map[Int, ClusterOutput],
-        override val nodes: Map[CanonicalNode[T], NodeOutput])
-      extends Solution[T, ClusterOutput, NodeOutput]
-
-    def builder[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef]()
-        : Builder[T, ClusterOutput, NodeOutput] = {
-      Builder[T, ClusterOutput, NodeOutput]()
+  private class ZipperAlgoDefImpl[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef](
+      memoState: UnsafeMemoState[T],
+      clusterAlgoDef: DpClusterAlgoDef[T, NodeOutput, ClusterOutput])
+    extends DpZipperAlgoDef[CanonicalNode[T], CboCluster[T], NodeOutput, ClusterOutput] {
+    override def idOfX(x: CanonicalNode[T]): Any = {
+      x
     }
 
-    class Builder[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef] private () {
-      private val clusters = mutable.Map[Int, Option[ClusterOutput]]()
-      private val nodes = mutable.Map[CanonicalNode[T], Option[NodeOutput]]()
-
-      def isClusterSolved(clusterId: Int): Boolean = {
-        clusters.contains(clusterId)
-      }
-
-      def isNodeSolved(node: CanonicalNode[T]): Boolean = {
-        nodes.contains(node)
-      }
-
-      def getClusterSolution(clusterId: Int): Option[ClusterOutput] = {
-        clusters(clusterId)
-      }
-
-      def getNodeSolution(node: CanonicalNode[T]): Option[NodeOutput] = {
-        nodes(node)
-      }
-
-      def addClusterSolution(
-          clusterId: Int,
-          ClusterOutput: Option[ClusterOutput]): Builder[T, ClusterOutput, NodeOutput] = {
-        assert(!clusters.contains(clusterId))
-        clusters += clusterId -> ClusterOutput
-        this
-      }
-
-      def addNodeSolution(
-          node: CanonicalNode[T],
-          nodeOutput: Option[NodeOutput]): Builder[T, ClusterOutput, NodeOutput] = {
-        assert(!nodes.contains(node))
-        nodes += (node -> nodeOutput)
-        this
-      }
-
-      def build(): Solution[T, ClusterOutput, NodeOutput] = {
-        SolutionImpl(clusters.toMap.flattenValues(), nodes.toMap.flattenValues())
-      }
+    override def idOfY(y: CboCluster[T]): Any = {
+      y.id()
     }
 
-    private object Builder {
-      def apply[T <: AnyRef, ClusterOutput <: AnyRef, NodeOutput <: AnyRef]()
-          : Builder[T, ClusterOutput, NodeOutput] = {
-        new Builder[T, ClusterOutput, NodeOutput]()
-      }
+    override def browseX(x: CanonicalNode[T]): Iterable[CboCluster[T]] = {
+      val allGroups = memoState.allGroups()
+      val allClusters = memoState.allClusters()
+      x.getChildrenGroups(allGroups)
+        .map(gn => allGroups(gn.groupId()).clusterId())
+        .map(cid => allClusters(cid))
     }
-  }
 
-  implicit class OptionMapImplicits[K, V](map: Map[K, Option[V]]) {
-    def flattenValues(): Map[K, V] = {
-      map
-        .filter {
-          case (_, v) =>
-            v.nonEmpty
-        }
-        .map {
-          case (k, v) =>
-            k -> v.get
-        }
+    override def browseY(y: CboCluster[T]): Iterable[CanonicalNode[T]] = {
+      // TODO: Why set is way faster at here than regular iterable / seq / list / vector ?
+      y.nodes().toSet
     }
-  }
 
-  implicit class ClusterImplicits[T <: AnyRef](cluster: CboCluster[T]) {
-    def inClusterNodes(): Iterable[CanonicalNode[T]] = {
-      // TODO: Why set is way faster than regular iterable / seq / list / vector ?
-      cluster.nodes().toSet
+    override def solveX(
+        x: CanonicalNode[T],
+        yOutput: CboCluster[T] => Option[ClusterOutput]): Option[NodeOutput] = {
+      clusterAlgoDef.solveNode(x, yOutput)
+    }
+
+    override def solveY(
+        y: CboCluster[T],
+        xOutput: CanonicalNode[T] => Option[NodeOutput]): Option[ClusterOutput] = {
+      clusterAlgoDef.solveCluster(y, xOutput)
+    }
+
+    override def xExistRestriction(): Boolean = {
+      // Some nodes in cluster can be excluded and we still got valid path.
+      false
+    }
+
+    override def yExistRestriction(): Boolean = {
+      // Child cluster of a node cannot be excluded. (FIXME Really?)
+      true
+    }
+
+    override def excludeCyclesOnX(): Boolean = {
+      false
+    }
+
+    override def excludeCyclesOnY(): Boolean = {
+      // Do cycle exclusion on Groups.
+      true
     }
   }
 }
