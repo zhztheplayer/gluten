@@ -55,8 +55,8 @@ private class DpPlanner[T <: AnyRef] private (cbo: Cbo[T], plan: T, reqPropSet: 
     val algoDef = new DpExploreAlgoDef[T]
     val adjustment = new ExploreAdjustment(cbo, memoState, rules, enforcerRuleSet)
     val conf = DpZipperAlgo.Conf(
-      xExistRestriction = false,
-      yExistRestriction = false,
+      xExistRestriction = true,
+      yExistRestriction = true,
       excludeCyclesOnX = false,
       excludeCyclesOnY = true)
     DpClusterAlgo.resolve(memoState, algoDef, conf, adjustment, cluster)
