@@ -228,7 +228,6 @@ object DpZipperAlgo {
 
     class Builder[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] private (
         argoDef: DpZipperAlgoDef[X, Y, XOutput, YOutput]) {
-      import Builder._
       private val xSolutions = mutable.Map[SolutionKey[X], Option[XOutput]]()
       private val ySolutions = mutable.Map[SolutionKey[Y], Option[YOutput]]()
 

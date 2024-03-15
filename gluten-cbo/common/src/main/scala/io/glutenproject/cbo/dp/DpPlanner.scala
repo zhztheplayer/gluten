@@ -70,32 +70,6 @@ object DpPlanner {
     private val allGroups = memoState.allGroups()
     private val allClusters = memoState.allClusters()
 
-    override def onNodeSolved(can: CanonicalNode[T]): Unit = {
-      if (rules.isEmpty) {
-        return
-      }
-      val shapes = rules.map(_.shape())
-      findPaths(can, shapes)(path => rules.foreach(rule => applyRule(rule, path)))
-    }
-
-    override def onGroupSolved(groupId: Int): Unit = {
-      // Do nothing
-    }
-
-    override def onEmptyGroup(groupId: Int): Unit = {
-      val group = allGroups(groupId)
-      val reqPropSet = group.propSet()
-
-      val enforcerRules = enforcerRuleSet.rulesOf(reqPropSet)
-      if (enforcerRules.nonEmpty) {
-        val shapes = enforcerRules.map(_.shape())
-        allClusters(group.clusterId()).nodes().foreach {
-          node =>
-            findPaths(node, shapes)(path => enforcerRules.foreach(rule => applyRule(rule, path)))
-        }
-      }
-    }
-
     // TODO: Code similar to exhaustive explorer. Refactors may required.
     private def findPaths(canonical: CanonicalNode[T], shapes: Seq[Shape[T]])(
         onFound: CboPath[T] => Unit): Unit = {
@@ -113,5 +87,9 @@ object DpPlanner {
     private def applyRule(rule: RuleApplier[T], path: CboPath[T]): Unit = {
       rule.apply(path)
     }
+
+    override def beforeXSolved(x: CanonicalNode[T]): Unit = ???
+
+    override def beforeYSolved(y: CboGroup[T]): Unit = ???
   }
 }

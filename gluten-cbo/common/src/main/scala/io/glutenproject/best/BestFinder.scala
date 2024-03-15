@@ -89,29 +89,32 @@ object BestFinder {
 
     private def fillBests(group: CboGroup[T]): Map[Int, KnownCostGroup[T]] = {
       val algoDef = new AlgoDef(cbo, allGroups)
-      val solution = DpGroupAlgo.resolve(memoState, algoDef, adjustment, group.id())
-      solution.groups
+      val solution = DpGroupAlgo.resolve(memoState, algoDef, adjustment, group)
+      val ySolutions: CboGroup[T] => Option[KnownCostGroup[T]] = solution.ySolutions
+      val bests = allGroups.flatMap {
+        group => ySolutions(group).map(kcg => group.id() -> kcg)
+      }.toMap
+      bests
     }
   }
 
   private object DpBestFinder {
-    import DpGroupAlgo._
 
     private class AlgoDef[T <: AnyRef](cbo: Cbo[T], allGroups: Seq[CboGroup[T]])
-      extends DpGroupAlgoDef[T, KnownCostGroup[T], KnownCostPath[T]] {
+      extends DpGroupAlgoDef[T, KnownCostPath[T], KnownCostGroup[T]] {
       private val costComparator = cbo.costModel.costComparator()
 
       override def solveNode(
           can: CanonicalNode[T],
-          childrenGroupsOutput: Seq[Option[KnownCostGroup[T]]]): Option[KnownCostPath[T]] = {
+          childrenGroupsOutput: CboGroup[T] => Option[KnownCostGroup[T]])
+          : Option[KnownCostPath[T]] = {
         if (can.isLeaf()) {
-          assert(childrenGroupsOutput.isEmpty)
           val path = CboPath.one(cbo, PathKeySet.trivial, allGroups, can)
           return Some(KnownCostPath(cbo, path))
         }
-        assert(childrenGroupsOutput.size == can.childrenCount)
-        val maybeBestChildrenPaths: Seq[Option[CboPath[T]]] = childrenGroupsOutput.map {
-          maybeKcg => maybeKcg.map(kcg => kcg.best().cboPath)
+        val childrenGroups = can.getChildrenGroups(allGroups).map(gn => allGroups(gn.groupId()))
+        val maybeBestChildrenPaths: Seq[Option[CboPath[T]]] = childrenGroups.map {
+          childGroup => childrenGroupsOutput(childGroup).map(kcg => kcg.best().cboPath)
         }
         if (maybeBestChildrenPaths.exists(_.isEmpty)) {
           return None
@@ -121,19 +124,14 @@ object BestFinder {
       }
 
       override def solveGroup(
-          groupId: Int,
-          nodesOutput: Map[CanonicalNode[T], Option[KnownCostPath[T]]])
-          : Option[KnownCostGroup[T]] = {
-        val group = allGroups(groupId)
-        assert(group.nodes().size == nodesOutput.size)
-        if (nodesOutput.isEmpty) {
+          group: CboGroup[T],
+          nodesOutput: CanonicalNode[T] => Option[KnownCostPath[T]]): Option[KnownCostGroup[T]] = {
+        val nodes = group.nodes()
+        val flatNodesOutput = nodes.flatMap(n => nodesOutput(n).map(kcp => n -> kcp)).toMap
+        if (flatNodesOutput.isEmpty) {
           return None
         }
-        if (nodesOutput.values.forall(_.isEmpty)) {
-          return None
-        }
-        val flatNodesOutput = nodesOutput.flattenValues()
-        val bestPath: KnownCostPath[T] = flatNodesOutput.values.reduce {
+        val bestPath = flatNodesOutput.values.reduce {
           (left, right) =>
             Ordering
               .by((cp: KnownCostPath[T]) => cp.cost)(costComparator)

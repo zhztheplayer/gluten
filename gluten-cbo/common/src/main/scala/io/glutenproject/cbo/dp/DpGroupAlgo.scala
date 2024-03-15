@@ -17,7 +17,8 @@
 
 package io.glutenproject.cbo.dp
 
-import io.glutenproject.cbo.{CanonicalNode, CboGroup, InGroupNode, MemoState, UnsafeMemoState}
+import io.glutenproject.cbo.{CanonicalNode, CboGroup, UnsafeMemoState}
+import io.glutenproject.cbo.dp.DpZipperAlgo.Solution
 
 // Dynamic programming algorithm to solve problem against a single CBO group that can be
 // broken down to sub problems for sub groups.
@@ -35,7 +36,26 @@ trait DpGroupAlgoDef[T <: AnyRef, NodeOutput <: AnyRef, GroupOutput <: AnyRef] {
 
 object DpGroupAlgo {
 
-  private class ZipperAlgoDefImpl[T <: AnyRef, GroupOutput <: AnyRef, NodeOutput <: AnyRef](
+  trait Adjustment[T <: AnyRef] extends DpZipperAlgo.Adjustment[CanonicalNode[T], CboGroup[T]]
+
+  object Adjustment {
+    private class None[T <: AnyRef] extends Adjustment[T] {
+      override def beforeXSolved(x: CanonicalNode[T]): Unit = {}
+      override def beforeYSolved(y: CboGroup[T]): Unit = {}
+    }
+
+    def none[T <: AnyRef](): Adjustment[T] = new None[T]()
+  }
+
+  def resolve[T <: AnyRef, NodeOutput <: AnyRef, GroupOutput <: AnyRef](
+      memoState: UnsafeMemoState[T],
+      groupAlgoDef: DpGroupAlgoDef[T, NodeOutput, GroupOutput],
+      adjustment: Adjustment[T],
+      group: CboGroup[T]): Solution[CanonicalNode[T], CboGroup[T], NodeOutput, GroupOutput] = {
+    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), adjustment, group)
+  }
+
+  private class ZipperAlgoDefImpl[T <: AnyRef, NodeOutput <: AnyRef, GroupOutput <: AnyRef](
       memoState: UnsafeMemoState[T],
       groupAlgoDef: DpGroupAlgoDef[T, NodeOutput, GroupOutput])
     extends DpZipperAlgoDef[CanonicalNode[T], CboGroup[T], NodeOutput, GroupOutput] {
