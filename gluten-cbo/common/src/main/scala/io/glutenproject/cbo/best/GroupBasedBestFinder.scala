@@ -24,8 +24,6 @@ import io.glutenproject.cbo.path.{CboPath, PathKeySet}
 
 import BestFinder.KnownCostGroup
 
-import scala.collection.mutable
-
 // The best path's each sub-path is considered optimal in its own group.
 private class GroupBasedBestFinder[T <: AnyRef](
     cbo: Cbo[T],
