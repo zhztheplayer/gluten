@@ -19,6 +19,9 @@ package io.glutenproject.cbo.best
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath
 import io.glutenproject.cbo.dp.DpGroupAlgo
+import io.glutenproject.cbo.path.CboPath
+
+import scala.collection.mutable
 
 trait BestFinder[T <: AnyRef] {
   def bestOf(groupId: Int): Best[T]
@@ -43,4 +46,35 @@ object BestFinder {
   }
 
   case class KnownCostCluster[T <: AnyRef](groupToCost: Map[Int, KnownCostGroup[T]])
+
+  private[best] def newBest[T <: AnyRef](
+      cbo: Cbo[T],
+      allGroups: Seq[CboGroup[T]],
+      group: CboGroup[T],
+      groupToCosts: Map[Int, KnownCostGroup[T]]): Best[T] = {
+    val bestPath = groupToCosts(group.id()).best()
+    val bestRoot = bestPath.cboPath.node()
+    val winnerNodes = groupToCosts.map { case (id, g) => InGroupNode(id, g.bestNode) }.toSeq
+    val bestNodeBuffer = mutable.ArrayBuffer[InGroupNode[T]]()
+    bestNodeBuffer += InGroupNode(group.id(), bestRoot.self().asCanonical())
+    def dfs(cursor: CboPath.PathNode[T]): Unit = {
+      cursor
+        .zipChildrenWithGroups(allGroups)
+        .foreach {
+          case (child, childGroup) =>
+            bestNodeBuffer += InGroupNode(childGroup.id(), child.self().asCanonical())
+            dfs(child)
+        }
+    }
+    dfs(bestRoot)
+    val costsMap = mutable.Map[InGroupNode[T], Cost]()
+    groupToCosts.foreach {
+      case (gid, g) =>
+        g.nodeToCost.foreach {
+          case (n, c) =>
+            costsMap += (InGroupNode(gid, n) -> c.cost)
+        }
+    }
+    Best(cbo, group.id(), bestNodeBuffer, winnerNodes, costsMap.get)
+  }
 }

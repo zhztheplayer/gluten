@@ -17,11 +17,12 @@
 
 package io.glutenproject.cbo.best
 
-import BestFinder.KnownCostGroup
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.{BestNotFoundException, KnownCostPath}
 import io.glutenproject.cbo.dp.{DpGroupAlgo, DpGroupAlgoDef}
 import io.glutenproject.cbo.path.{CboPath, PathKeySet}
+
+import BestFinder.KnownCostGroup
 
 import scala.collection.mutable
 
@@ -43,34 +44,7 @@ private class GroupBasedBestFinder[T <: AnyRef](
         s"Best path not found. Memo state (Graphviz): \n${memoState.toSafe().formatGraphvizWithoutBest(groupId)}")
 
     }
-    newBest(group, groupToCosts)
-  }
-
-  private def newBest(group: CboGroup[T], groupToCosts: Map[Int, KnownCostGroup[T]]): Best[T] = {
-    val bestPath = groupToCosts(group.id()).best()
-    val bestRoot = bestPath.cboPath.node()
-    val winnerNodes = groupToCosts.map { case (id, g) => InGroupNode(id, g.bestNode) }.toSeq
-    val bestNodeBuffer = mutable.ArrayBuffer[InGroupNode[T]]()
-    bestNodeBuffer += InGroupNode(group.id(), bestRoot.self().asCanonical())
-    def dfs(cursor: CboPath.PathNode[T]): Unit = {
-      cursor
-        .zipChildrenWithGroups(allGroups)
-        .foreach {
-          case (child, childGroup) =>
-            bestNodeBuffer += InGroupNode(childGroup.id(), child.self().asCanonical())
-            dfs(child)
-        }
-    }
-    dfs(bestRoot)
-    val costsMap = mutable.Map[InGroupNode[T], Cost]()
-    groupToCosts.foreach {
-      case (gid, g) =>
-        g.nodeToCost.foreach {
-          case (n, c) =>
-            costsMap += (InGroupNode(gid, n) -> c.cost)
-        }
-    }
-    Best(cbo, group.id(), bestNodeBuffer, winnerNodes, costsMap.get)
+    BestFinder.newBest(cbo, allGroups, group, groupToCosts)
   }
 
   private def fillBests(group: CboGroup[T]): Map[Int, KnownCostGroup[T]] = {
