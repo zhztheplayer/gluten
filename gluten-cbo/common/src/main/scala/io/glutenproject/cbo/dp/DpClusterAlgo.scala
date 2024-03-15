@@ -105,7 +105,6 @@ object DpClusterAlgo {
     }
 
     override def excludeCyclesOnY(): Boolean = {
-      // Do cycle exclusion on Groups.
       true
     }
   }
