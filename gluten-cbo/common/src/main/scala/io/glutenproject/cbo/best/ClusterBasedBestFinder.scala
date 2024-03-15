@@ -51,7 +51,7 @@ private class ClusterBasedBestFinder[T <: AnyRef](
       .flatMap(
         group =>
           ySolutions(allClusters(group.clusterId()))
-            .map(kcc => kcc.groupToCost(group.id()))
+            .flatMap(kcc => kcc.groupToCost.get(group.id()))
             .map(kcg => group.id() -> kcg))
       .toMap
     bests
