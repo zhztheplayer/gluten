@@ -30,9 +30,11 @@ import scala.collection.mutable
 // Cycle exclusion is also done internally so implementations don't have to
 // deal with cycle issues by themselves.
 trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] {
-  // Requires all X children outputs to exist otherwise won't register Y's output
+  // Requires all X children outputs to exist otherwise would neither call Y's #resolve with
+  // these outputs nor register Y's output
   def xExistRestriction(): Boolean
-  // Requires all Y children outputs to exist otherwise won't register X's output
+  // Requires all Y children outputs to exist otherwise would neither call X's #resolve with
+  // these outputs nor register X's output
   def yExistRestriction(): Boolean
 
   def excludeCyclesOnX(): Boolean
