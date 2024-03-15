@@ -24,8 +24,22 @@ import io.glutenproject.cbo.rule.CboRule
 
 import org.scalatest.funsuite.AnyFunSuite
 
-class CyclicSearchSpaceSuite extends AnyFunSuite {
+class GroupBastBestFinderCyclicSearchSpaceSuite extends CyclicSearchSpaceSuite {
+  override protected def newBestFinder[T <: AnyRef](
+      cbo: Cbo[T],
+      memoState: MemoState[T]): BestFinder[T] = BestFinder(cbo, memoState)
+}
+
+class ClusterBastBestFinderCyclicSearchSpaceSuite extends CyclicSearchSpaceSuite {
+  override protected def newBestFinder[T <: AnyRef](
+      cbo: Cbo[T],
+      memoState: MemoState[T]): BestFinder[T] = BestFinder.clusterBased(cbo, memoState)
+}
+
+abstract class CyclicSearchSpaceSuite extends AnyFunSuite {
   import CyclicSearchSpaceSuite._
+
+  protected def newBestFinder[T <: AnyRef](cbo: Cbo[T], memoState: MemoState[T]): BestFinder[T]
 
   test("Cyclic - find paths, simple self cycle") {
     val cbo =
@@ -83,7 +97,7 @@ class CyclicSearchSpaceSuite extends AnyFunSuite {
     cluster.addNodes(List(node1, node2))
 
     val mockState = mock.build()
-    val bestFinder = BestFinder(cbo, mockState)
+    val bestFinder = newBestFinder(cbo, mockState)
     val best = bestFinder.bestOf(groupA.id).path(mockState.allGroups)
     assert(best.cboPath.plan() == Leaf("node2", 1))
     assert(best.cost == LongCost(1))
@@ -135,7 +149,7 @@ class CyclicSearchSpaceSuite extends AnyFunSuite {
 
     val mockState = mock.build()
 
-    val bestFinder = BestFinder(cbo, mockState)
+    val bestFinder = newBestFinder(cbo, mockState)
 
     def assertBestOf(group: CboGroup[TestNode])(assertion: Best[TestNode] => Unit): Unit = {
       val best = bestFinder.bestOf(group.id())

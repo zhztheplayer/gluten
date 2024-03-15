@@ -54,6 +54,12 @@ private class GroupBasedBestFinder[T <: AnyRef](
 }
 
 private object GroupBasedBestFinder {
+  private[best] def algoDef[T <: AnyRef](
+      cbo: Cbo[T],
+      allGroups: Seq[CboGroup[T]]): DpGroupAlgoDef[T, KnownCostPath[T], KnownCostGroup[T]] = {
+    new AlgoDef(cbo, allGroups)
+  }
+
   private class AlgoDef[T <: AnyRef](cbo: Cbo[T], allGroups: Seq[CboGroup[T]])
     extends DpGroupAlgoDef[T, KnownCostPath[T], KnownCostGroup[T]] {
     private val costComparator = cbo.costModel.costComparator()

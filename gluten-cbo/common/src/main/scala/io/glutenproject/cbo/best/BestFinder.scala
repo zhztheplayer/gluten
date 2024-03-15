@@ -18,7 +18,7 @@ package io.glutenproject.cbo.best
 
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath
-import io.glutenproject.cbo.dp.DpGroupAlgo
+import io.glutenproject.cbo.dp.{DpClusterAlgo, DpGroupAlgo}
 import io.glutenproject.cbo.path.CboPath
 
 import scala.collection.mutable
@@ -32,11 +32,22 @@ object BestFinder {
     unsafe(cbo, memoState, DpGroupAlgo.Adjustment.none())
   }
 
+  def clusterBased[T <: AnyRef](cbo: Cbo[T], memoState: MemoState[T]): BestFinder[T] = {
+    clusterBasedUnsafe(cbo, memoState, DpClusterAlgo.Adjustment.none())
+  }
+
   def unsafe[T <: AnyRef](
       cbo: Cbo[T],
       memoState: UnsafeMemoState[T],
       adjustment: DpGroupAlgo.Adjustment[T]): BestFinder[T] = {
     new GroupBasedBestFinder[T](cbo, memoState, adjustment)
+  }
+
+  def clusterBasedUnsafe[T <: AnyRef](
+      cbo: Cbo[T],
+      memoState: UnsafeMemoState[T],
+      adjustment: DpClusterAlgo.Adjustment[T]): BestFinder[T] = {
+    new ClusterBasedBestFinder[T](cbo, memoState, adjustment)
   }
 
   case class KnownCostGroup[T <: AnyRef](

@@ -17,7 +17,7 @@
 
 package io.glutenproject.cbo.best
 
-import io.glutenproject.cbo.{Best, CanonicalNode, Cbo, CboCluster, CboGroup, UnsafeMemoState}
+import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.{BestNotFoundException, KnownCostPath}
 import io.glutenproject.cbo.best.BestFinder.{KnownCostCluster, KnownCostGroup}
 import io.glutenproject.cbo.dp.{DpClusterAlgo, DpClusterAlgoDef}
@@ -61,18 +61,36 @@ private class ClusterBasedBestFinder[T <: AnyRef](
 private object ClusterBasedBestFinder {
   private class AlgoDef[T <: AnyRef](cbo: Cbo[T], memoState: UnsafeMemoState[T])
     extends DpClusterAlgoDef[T, KnownCostPath[T], KnownCostCluster[T]] {
-
     private val allClusters = memoState.allClusters()
     private val allGroups = memoState.allGroups()
 
+    private val delegate = GroupBasedBestFinder.algoDef(cbo, allGroups)
+
     override def solveNode(
-        node: CanonicalNode[T],
+        can: CanonicalNode[T],
         childrenClustersOutput: CboCluster[T] => Option[KnownCostCluster[T]])
-        : Option[KnownCostPath[T]] = ???
+        : Option[KnownCostPath[T]] = {
+      delegate.solveNode(
+        can,
+        group =>
+          childrenClustersOutput(allClusters(group.clusterId())).flatMap(
+            kcc => kcc.groupToCost.get(group.id())))
+    }
 
     override def solveCluster(
         cluster: CboCluster[T],
-        nodesOutput: CanonicalNode[T] => Option[KnownCostPath[T]]): Option[KnownCostCluster[T]] =
-      ???
+        nodesOutput: CanonicalNode[T] => Option[KnownCostPath[T]]): Option[KnownCostCluster[T]] = {
+      Some(
+        KnownCostCluster(
+          cluster
+            .groups()
+            .flatMap {
+              group =>
+                delegate
+                  .solveGroup(group, nodesOutput)
+                  .flatMap((kcg: KnownCostGroup[T]) => Some(group.id() -> kcg))
+            }
+            .toMap))
+    }
   }
 }
