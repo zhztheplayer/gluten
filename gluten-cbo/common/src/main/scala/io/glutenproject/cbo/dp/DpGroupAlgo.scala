@@ -73,7 +73,7 @@ object DpGroupAlgo {
     }
 
     override def browseY(y: CboGroup[T]): Iterable[CanonicalNode[T]] = {
-      // TODO: Why set is way faster than regular iterable / seq / list / vector ?
+      // TODO: Why set is way faster at here than regular iterable / seq / list / vector ?
       y.nodes().toSet
     }
 
