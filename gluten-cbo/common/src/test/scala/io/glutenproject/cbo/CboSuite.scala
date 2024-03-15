@@ -122,8 +122,6 @@ abstract class CboSuite extends AnyFunSuite {
     val planner = cbo.newPlanner(plan)
     val optimized = planner.plan()
 
-    planner.printGraphviz()
-
     assert(optimized == Unary(23, Unary(23, Leaf(70))))
   }
 
@@ -314,7 +312,6 @@ abstract class CboSuite extends AnyFunSuite {
     val plan = Unary(50, Unary2(50, Unary2(50, Unary2(50, Leaf(30)))))
     val planner = cbo.newPlanner(plan)
     val optimized = planner.plan()
-    planner.printGraphviz()
 
     assert(optimized == Unary2(49, Unary2(50, Unary2(50, Unary2(50, Leaf2(29))))))
   }
