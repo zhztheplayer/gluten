@@ -31,14 +31,14 @@ import scala.collection.mutable
 // deal with cycle issues by themselves.
 
 trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] {
-  def idOfX(x: X): Int
-  def idOfY(y: Y): Int
-
-  def solveX(x: X, yOutput: Map[Y, Option[YOutput]]): Option[XOutput]
-  def solveY(y: Y, xOutput: Map[X, Option[XOutput]]): Option[YOutput]
+  def idOfX(x: X): Any
+  def idOfY(y: Y): Any
 
   def browseX(x: X): Iterable[Y]
   def browseY(y: Y): Iterable[X]
+
+  def solveX(x: X, yOutput: Y => Option[YOutput]): Option[XOutput]
+  def solveY(y: Y, xOutput: X => Option[XOutput]): Option[YOutput]
 }
 
 object DpZipperAlgo {
@@ -81,7 +81,7 @@ object DpZipperAlgo {
         y: Y,
         sBuilder: Solution.Builder[X, Y, XOutput, YOutput],
         yCycleDetector: CycleDetector[Int]): Unit = {
-      val yid = algoDef.idOfY(y)
+      val yid = System.identityHashCode(algoDef.idOfY(y))
       if (yCycleDetector.contains(yid)) {
         return
       }
@@ -129,18 +129,19 @@ object DpZipperAlgo {
 
       val finalXs = algoDef.browseY(y)
 
-      val ySolution = algoDef.solveY(
-        y,
-        finalXs.map {
-          x =>
-            val xSolution = if (sBuilder.isXResolved(x)) {
-              sBuilder.getXSolution(x)
-            } else {
-              // Node was excluded by cycle.
-              None
-            }
-            x -> xSolution
-        }.toMap)
+      val xSolutions = finalXs.map {
+        x =>
+          val xSolution = if (sBuilder.isXResolved(x)) {
+            sBuilder.getXSolution(x)
+          } else {
+            // Node was excluded by cycle.
+            None
+          }
+          Solution.SolutionKey(algoDef.idOfX(x), x) -> xSolution
+      }.toMap
+
+      val ySolution =
+        algoDef.solveY(y, x => xSolutions.get(Solution.SolutionKey(algoDef.idOfX(x), x)).flatten)
 
       sBuilder.addYSolution(y, ySolution)
     }
@@ -191,32 +192,33 @@ object DpZipperAlgo {
       }
 
       val finalYs = algoDef.browseX(x)
-      val xSolution = algoDef.solveX(
-        x,
-        finalYs.map {
-          y =>
-            val ySolution = if (sBuilder.isYResolved(y)) {
-              sBuilder.getYSolution(y)
-            } else {
-              // Node was excluded by cycle.
-              None
-            }
-            y -> ySolution
-        }.toMap)
+      val ySolutions = finalYs.map {
+        y =>
+          val ySolution = if (sBuilder.isYResolved(y)) {
+            sBuilder.getYSolution(y)
+          } else {
+            // Node was excluded by cycle.
+            None
+          }
+          Solution.SolutionKey(algoDef.idOfY(y), y) -> ySolution
+      }.toMap
+
+      val xSolution =
+        algoDef.solveX(x, y => ySolutions.get(Solution.SolutionKey(algoDef.idOfY(y), y)).flatten)
 
       sBuilder.addXSolution(x, xSolution)
     }
 
   }
   trait Solution[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] {
-    def xSolutions: Map[X, XOutput]
-    def ySolutions: Map[Y, YOutput]
+    def xSolutions: X => Option[XOutput]
+    def ySolutions: Y => Option[YOutput]
   }
 
   private object Solution {
     private case class SolutionImpl[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef](
-        override val xSolutions: Map[X, XOutput],
-        override val ySolutions: Map[Y, YOutput])
+        override val xSolutions: X => Option[XOutput],
+        override val ySolutions: Y => Option[YOutput])
       extends Solution[X, Y, XOutput, YOutput]
 
     def builder[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef](
@@ -275,30 +277,32 @@ object DpZipperAlgo {
       }
 
       def build(): Solution[X, Y, XOutput, YOutput] = {
+        val xSolutionsImmutable = xSolutions.toMap
+        val ySolutionsImmutable = ySolutions.toMap
         SolutionImpl(
-          xSolutions.map { case (key, solution) => key.ele -> solution }.toMap.flattenValues(),
-          ySolutions.map { case (key, solution) => key.ele -> solution }.toMap.flattenValues()
+          x => xSolutionsImmutable.get(keyOfX(x)).flatten,
+          y => ySolutionsImmutable.get(keyOfY(y)).flatten
         )
       }
     }
 
+    class SolutionKey[T <: AnyRef] private (private val id: Any, val ele: T) {
+      override def hashCode(): Int = id.hashCode()
+      override def equals(obj: Any): Boolean = {
+        obj match {
+          case other: SolutionKey[T] => id == other.id
+          case _ => false
+        }
+      }
+    }
+
+    object SolutionKey {
+      def apply[T <: AnyRef](id: Any, ele: T): SolutionKey[T] = {
+        new SolutionKey[T](id, ele)
+      }
+    }
+
     private object Builder {
-      class SolutionKey[T <: AnyRef] private (val id: Int, val ele: T) {
-        override def hashCode(): Int = id
-        override def equals(obj: Any): Boolean = {
-          obj match {
-            case other: SolutionKey[T] => id == other.id && ele == other.ele
-            case _ => false
-          }
-        }
-      }
-
-      private object SolutionKey {
-        def apply[T <: AnyRef](id: Int, ele: T): SolutionKey[T] = {
-          new SolutionKey[T](id, ele)
-        }
-      }
-
       def apply[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef](
           argoDef: DpZipperAlgoDef[X, Y, XOutput, YOutput]): Builder[X, Y, XOutput, YOutput] = {
         new Builder[X, Y, XOutput, YOutput](argoDef)
