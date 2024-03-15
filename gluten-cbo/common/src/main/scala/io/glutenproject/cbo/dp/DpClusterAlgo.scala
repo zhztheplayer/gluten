@@ -93,11 +93,11 @@ object DpClusterAlgo {
     }
 
     override def xExistRestriction(): Boolean = {
-      false
+      true
     }
 
     override def yExistRestriction(): Boolean = {
-      false
+      true
     }
 
     override def excludeCyclesOnX(): Boolean = {
