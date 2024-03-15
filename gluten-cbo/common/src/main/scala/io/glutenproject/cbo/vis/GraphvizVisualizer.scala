@@ -91,11 +91,14 @@ class GraphvizVisualizer[T <: AnyRef](
           node =>
             node.getChildrenGroups(allGroups).map(_.group(allGroups)).foreach {
               childGroup =>
-                val randomChild = childGroup.nodes().head
-                buf.append(
-                  s"  ${'"'}${describeNode(costs, group, node)}${'"'} -> " +
-                    s"${'"'}${describeNode(costs, childGroup, randomChild)}${'"'}  " +
-                    s"[lhead=${'"'}cluster${groupToDotClusterId(childGroup.id())}${'"'}]\n")
+                val childGroupNodes = childGroup.nodes()
+                if (childGroupNodes.nonEmpty) {
+                  val randomChild = childGroupNodes.head
+                  buf.append(
+                    s"  ${'"'}${describeNode(costs, group, node)}${'"'} -> " +
+                      s"${'"'}${describeNode(costs, childGroup, randomChild)}${'"'}  " +
+                      s"[lhead=${'"'}cluster${groupToDotClusterId(childGroup.id())}${'"'}]\n")
+                }
             }
         }
     }
