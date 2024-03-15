@@ -148,7 +148,37 @@ abstract class CboPropertySuite extends AnyFunSuite {
         TypedLeaf(TypeB, 10)))
   }
 
-  test(s"Property convert - (A, B), Unary only has TypeA, TypeB has lowest cost") {
+  test(s"Property convert - (A, B), Unary only has TypeA, TypeB has lowest cost - 1") {
+    object ReduceTypeBCost extends CboRule[TestNode] {
+      override def shift(node: TestNode): Iterable[TestNode] = {
+        node match {
+          case TypedLeaf(TypeB, _) => List(TypedLeaf(TypeB, 0))
+          case TypedUnary(TypeB, _, child) => List(TypedUnary(TypeB, 0, child))
+          case TypedBinary(TypeB, _, left, right) => List(TypedBinary(TypeB, 0, left, right))
+          case other => List.empty
+        }
+      }
+
+      override def shape(): Shape[TestNode] = Shapes.fixedHeight(1)
+    }
+
+    val cbo =
+      Cbo[TestNode](
+        CostModelImpl,
+        PlanModelImpl,
+        NodeTypePropertyModel,
+        ExplainImpl,
+        CboRule.Factory.reuse(List(ReduceTypeBCost)))
+        .withNewConfig(_ => conf)
+
+    val plan =
+      TypedUnary(TypeB, 10, TypedLeaf(TypeA, 20))
+    val planner = cbo.newPlanner(plan, PropertySet(Seq(TypeB)))
+    val out = planner.plan()
+    assert(out == TypedUnary(TypeB, 0, TypeEnforcer(TypeB, 1, TypedLeaf(TypeA, 20))))
+  }
+
+  test(s"Property convert - (A, B), Unary only has TypeA, TypeB has lowest cost - 2") {
     // TODO: Apply enforce rules on low-cost nodes to propagate it to other groups.
     object ReduceTypeBCost extends CboRule[TestNode] {
       override def shift(node: TestNode): Iterable[TestNode] = {
