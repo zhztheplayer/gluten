@@ -148,7 +148,7 @@ abstract class CboPropertySuite extends AnyFunSuite {
         TypedLeaf(TypeB, 10)))
   }
 
-  test(s"Property convert - (A, B), TypeC has lowest cost") {
+  test(s"Property convert - (A, B, C), TypeC has lowest cost") {
     object ReduceTypeBCost extends CboRule[TestNode] {
       override def shift(node: TestNode): Iterable[TestNode] = {
         node match {
