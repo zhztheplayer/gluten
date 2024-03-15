@@ -49,10 +49,11 @@ object DpClusterAlgo {
   def resolve[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef](
       memoState: UnsafeMemoState[T],
       groupAlgoDef: DpClusterAlgoDef[T, NodeOutput, ClusterOutput],
+      conf: DpZipperAlgo.Conf,
       adjustment: Adjustment[T],
       cluster: CboCluster[T])
       : Solution[CanonicalNode[T], CboCluster[T], NodeOutput, ClusterOutput] = {
-    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), adjustment, cluster)
+    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), conf, adjustment, cluster)
   }
 
   private class ZipperAlgoDefImpl[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef](
@@ -90,22 +91,6 @@ object DpClusterAlgo {
         y: CboCluster[T],
         xOutput: CanonicalNode[T] => Option[NodeOutput]): Option[ClusterOutput] = {
       clusterAlgoDef.solveCluster(y, xOutput)
-    }
-
-    override def xExistRestriction(): Boolean = {
-      true
-    }
-
-    override def yExistRestriction(): Boolean = {
-      true
-    }
-
-    override def excludeCyclesOnX(): Boolean = {
-      false
-    }
-
-    override def excludeCyclesOnY(): Boolean = {
-      true
     }
   }
 }

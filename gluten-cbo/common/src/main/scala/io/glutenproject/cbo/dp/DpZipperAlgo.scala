@@ -30,16 +30,6 @@ import scala.collection.mutable
 // Cycle exclusion is also done internally so implementations don't have to
 // deal with cycle issues by themselves.
 trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] {
-  // Requires all X children outputs to exist otherwise would neither call Y's #resolve with
-  // these outputs nor register Y's output
-  def xExistRestriction(): Boolean
-  // Requires all Y children outputs to exist otherwise would neither call X's #resolve with
-  // these outputs nor register X's output
-  def yExistRestriction(): Boolean
-
-  def excludeCyclesOnX(): Boolean
-  def excludeCyclesOnY(): Boolean
-
   def idOfX(x: X): Any
   def idOfY(y: Y): Any
 
@@ -51,11 +41,41 @@ trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: An
 }
 
 object DpZipperAlgo {
+  trait Conf {
+    // Requires all X children outputs to exist otherwise would neither call Y's #resolve with
+    // these outputs nor register Y's output
+    def xExistRestriction(): Boolean
+    // Requires all Y children outputs to exist otherwise would neither call X's #resolve with
+    // these outputs nor register X's output
+    def yExistRestriction(): Boolean
+
+    def excludeCyclesOnX(): Boolean
+    def excludeCyclesOnY(): Boolean
+  }
+
+  object Conf {
+    def apply(
+        xExistRestriction: Boolean,
+        yExistRestriction: Boolean,
+        excludeCyclesOnX: Boolean,
+        excludeCyclesOnY: Boolean): Conf = {
+      ConfImpl(xExistRestriction, yExistRestriction, excludeCyclesOnX, excludeCyclesOnY)
+    }
+
+    private case class ConfImpl(
+        override val xExistRestriction: Boolean,
+        override val yExistRestriction: Boolean,
+        override val excludeCyclesOnX: Boolean,
+        override val excludeCyclesOnY: Boolean)
+      extends Conf
+  }
+
   def resolve[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef](
       algoDef: DpZipperAlgoDef[X, Y, XOutput, YOutput],
+      algoConf: Conf,
       adjustment: Adjustment[X, Y],
       root: Y): Solution[X, Y, XOutput, YOutput] = {
-    val algo = new DpZipperAlgoResolver(algoDef, adjustment)
+    val algo = new DpZipperAlgoResolver(algoDef, algoConf, adjustment)
     algo.resolve(root)
   }
 
@@ -78,16 +98,17 @@ object DpZipperAlgo {
       XOutput <: AnyRef,
       YOutput <: AnyRef](
       algoDef: DpZipperAlgoDef[X, Y, XOutput, YOutput],
+      conf: Conf,
       adjustment: Adjustment[X, Y]) {
 
     def resolve(root: Y): Solution[X, Y, XOutput, YOutput] = {
       val sBuilder = Solution.builder[X, Y, XOutput, YOutput](algoDef)
-      val xCycleDetector = if (algoDef.excludeCyclesOnX()) {
+      val xCycleDetector = if (conf.excludeCyclesOnX()) {
         CycleDetector[X](Ordering.by(x => System.identityHashCode(algoDef.idOfX(x))))
       } else {
         CycleDetector.noop[X]()
       }
-      val yCycleDetector = if (algoDef.excludeCyclesOnY()) {
+      val yCycleDetector = if (conf.excludeCyclesOnY()) {
         CycleDetector[Y](Ordering.by(y => System.identityHashCode(algoDef.idOfY(y))))
       } else {
         CycleDetector.noop[Y]()
@@ -154,7 +175,7 @@ object DpZipperAlgo {
             sBuilder.getXSolution(x)
           } else {
             // X does not exist.
-            if (algoDef.xExistRestriction()) {
+            if (conf.xExistRestriction()) {
               return
             }
             None
@@ -225,7 +246,7 @@ object DpZipperAlgo {
             sBuilder.getYSolution(y)
           } else {
             // Y does not exist.
-            if (algoDef.yExistRestriction()) {
+            if (conf.yExistRestriction()) {
               return
             }
             None

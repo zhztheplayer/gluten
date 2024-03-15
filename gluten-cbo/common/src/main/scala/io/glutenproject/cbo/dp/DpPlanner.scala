@@ -54,7 +54,12 @@ private class DpPlanner[T <: AnyRef] private (cbo: Cbo[T], plan: T, reqPropSet: 
     val cluster = memoState.allClusters()(memoState.allGroups()(groupId).clusterId())
     val algoDef = new DpExploreAlgoDef[T]
     val adjustment = new ExploreAdjustment(cbo, memoState, rules, enforcerRuleSet)
-    DpClusterAlgo.resolve(memoState, algoDef, adjustment, cluster)
+    val conf = DpZipperAlgo.Conf(
+      xExistRestriction = false,
+      yExistRestriction = false,
+      excludeCyclesOnX = false,
+      excludeCyclesOnY = true)
+    DpClusterAlgo.resolve(memoState, algoDef, conf, adjustment, cluster)
     val finder = BestFinder(cbo, memoState.toSafe())
     finder.bestOf(groupId)
   }

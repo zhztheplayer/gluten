@@ -47,9 +47,10 @@ object DpGroupAlgo {
   def resolve[T <: AnyRef, NodeOutput <: AnyRef, GroupOutput <: AnyRef](
       memoState: UnsafeMemoState[T],
       groupAlgoDef: DpGroupAlgoDef[T, NodeOutput, GroupOutput],
+      conf: DpZipperAlgo.Conf,
       adjustment: Adjustment[T],
       group: CboGroup[T]): Solution[CanonicalNode[T], CboGroup[T], NodeOutput, GroupOutput] = {
-    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), adjustment, group)
+    DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), conf, adjustment, group)
   }
 
   private class ZipperAlgoDefImpl[T <: AnyRef, NodeOutput <: AnyRef, GroupOutput <: AnyRef](
@@ -84,25 +85,6 @@ object DpGroupAlgo {
         y: CboGroup[T],
         xOutput: CanonicalNode[T] => Option[NodeOutput]): Option[GroupOutput] = {
       groupAlgoDef.solveGroup(y, xOutput)
-    }
-
-    override def xExistRestriction(): Boolean = {
-      // Some nodes in group can be excluded and we still got valid path.
-      false
-    }
-
-    override def yExistRestriction(): Boolean = {
-      // Child groups of a node cannot be excluded.
-      true
-    }
-
-    override def excludeCyclesOnX(): Boolean = {
-      false
-    }
-
-    override def excludeCyclesOnY(): Boolean = {
-      // Do cycle exclusion on Groups.
-      true
     }
   }
 }

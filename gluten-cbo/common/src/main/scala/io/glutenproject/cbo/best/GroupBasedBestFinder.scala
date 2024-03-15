@@ -19,7 +19,7 @@ package io.glutenproject.cbo.best
 
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.{BestNotFoundException, KnownCostPath}
-import io.glutenproject.cbo.dp.{DpGroupAlgo, DpGroupAlgoDef}
+import io.glutenproject.cbo.dp.{DpGroupAlgo, DpGroupAlgoDef, DpZipperAlgo}
 import io.glutenproject.cbo.path.{CboPath, PathKeySet}
 
 import BestFinder.KnownCostGroup
@@ -46,7 +46,12 @@ private class GroupBasedBestFinder[T <: AnyRef](
 
   private def fillBests(group: CboGroup[T]): Map[Int, KnownCostGroup[T]] = {
     val algoDef = new AlgoDef(cbo, allGroups)
-    val solution = DpGroupAlgo.resolve(memoState, algoDef, adjustment, group)
+    val conf = DpZipperAlgo.Conf(
+      xExistRestriction = false,
+      yExistRestriction = true,
+      excludeCyclesOnX = false,
+      excludeCyclesOnY = true)
+    val solution = DpGroupAlgo.resolve(memoState, algoDef, conf, adjustment, group)
     val ySolutions: CboGroup[T] => Option[KnownCostGroup[T]] = solution.ySolutions
     val bests = allGroups.flatMap(group => ySolutions(group).map(kcg => group.id() -> kcg)).toMap
     bests
