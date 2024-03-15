@@ -33,7 +33,7 @@ trait DpClusterAlgoDef[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRe
       nodesOutput: CanonicalNode[T] => Option[NodeOutput]): Option[ClusterOutput]
 }
 
-object DpGroupAlgo {
+object DpClusterAlgo {
 
   trait Adjustment[T <: AnyRef] extends DpZipperAlgo.Adjustment[CanonicalNode[T], CboCluster[T]]
 
