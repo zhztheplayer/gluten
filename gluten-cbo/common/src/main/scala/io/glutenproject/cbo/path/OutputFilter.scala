@@ -29,26 +29,26 @@ object FilterWizard {
 object FilterWizards {
   def omitCycles[T <: AnyRef](): FilterWizard[T] = {
     // Compares against group ID to identify cycles.
-    OmitCycles[T](CycleDetector[Int]())
+    OmitCycles[T](CycleDetector[GroupNode[T]](Ordering.by(gn => gn.groupId())))
   }
 
   // Cycle detection starts from the first visited group in the input path.
-  private class OmitCycles[T <: AnyRef] private (detector: CycleDetector[Int])
+  private class OmitCycles[T <: AnyRef] private (detector: CycleDetector[GroupNode[T]])
     extends FilterWizard[T] {
     override def omit(can: CanonicalNode[T]): FilterAction[T] = {
       FilterAction.Continue(this)
     }
 
     override def omit(group: GroupNode[T], offset: Int, count: Int): FilterAction[T] = {
-      if (detector.contains(group.groupId())) {
+      if (detector.contains(group)) {
         return FilterAction.omit
       }
-      FilterAction.Continue(new OmitCycles(detector.append(group.groupId())))
+      FilterAction.Continue(new OmitCycles(detector.append(group)))
     }
   }
 
   private object OmitCycles {
-    def apply[T <: AnyRef](detector: CycleDetector[Int]): OmitCycles[T] = {
+    def apply[T <: AnyRef](detector: CycleDetector[GroupNode[T]]): OmitCycles[T] = {
       new OmitCycles(detector)
     }
   }

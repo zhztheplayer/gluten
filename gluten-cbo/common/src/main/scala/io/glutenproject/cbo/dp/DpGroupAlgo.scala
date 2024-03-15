@@ -87,5 +87,24 @@ object DpGroupAlgo {
         xOutput: CanonicalNode[T] => Option[NodeOutput]): Option[GroupOutput] = {
       groupAlgoDef.solveGroup(y, xOutput)
     }
+
+    override def xExistRestriction(): Boolean = {
+      // Some nodes in group can be excluded and we still got valid path.
+      false
+    }
+
+    override def yExistRestriction(): Boolean = {
+      // Child groups of a node cannot be excluded.
+      true
+    }
+
+    override def excludeCyclesOnX(): Boolean = {
+      false
+    }
+
+    override def excludeCyclesOnY(): Boolean = {
+      // Do cycle exclusion on Groups.
+      true
+    }
   }
 }

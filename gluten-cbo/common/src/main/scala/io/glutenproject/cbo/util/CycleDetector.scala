@@ -22,18 +22,27 @@ trait CycleDetector[T <: Any] {
 }
 
 object CycleDetector {
-  def apply[T <: Any](): CycleDetector[T] = {
-    new LinkedCycleDetector[T](null.asInstanceOf[T], null)
+  def apply[T <: Any](ordering: Ordering[T]): CycleDetector[T] = {
+    new LinkedCycleDetector[T](ordering, null.asInstanceOf[T], null)
+  }
+
+  def noop[T <: Any](): CycleDetector[T] = new NoopCycleDetector[T]()
+
+  private case class NoopCycleDetector[T <: Any]() extends CycleDetector[T] {
+    override def append(obj: T): CycleDetector[T] = this
+    override def contains(obj: T): Boolean = false
   }
 
   // Immutable, append-only linked list for detecting cycle during path finding.
-  // Do not use this on case classes. The code compares elements through their
-  // 'equals' method which is slow on case classes (or other user defined equals code).
-  private case class LinkedCycleDetector[T <: Any](obj: T, last: LinkedCycleDetector[T])
+  // The code compares elements through a passed ordering function.
+  private case class LinkedCycleDetector[T <: Any](
+      ordering: Ordering[T],
+      obj: T,
+      last: LinkedCycleDetector[T])
     extends CycleDetector[T] {
 
     override def append(obj: T): CycleDetector[T] = {
-      LinkedCycleDetector(obj, this)
+      LinkedCycleDetector(ordering, obj, this)
     }
 
     override def contains(obj: T): Boolean = {
@@ -41,7 +50,7 @@ object CycleDetector {
       assert(obj != null)
       var cursor = this
       while (cursor.obj != null) {
-        if (obj == cursor.obj) {
+        if (ordering.equiv(obj, cursor.obj)) {
           return true
         }
         cursor = cursor.last

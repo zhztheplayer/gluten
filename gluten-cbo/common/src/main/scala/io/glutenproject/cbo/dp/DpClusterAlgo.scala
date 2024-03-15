@@ -68,7 +68,7 @@ object DpClusterAlgo {
 
     def resolve(clusterId: Int): Solution[T, ClusterOutput, NodeOutput] = {
       val sBuilder = Solution.builder[T, ClusterOutput, NodeOutput]()
-      solveClusterRec(clusterId, sBuilder, CycleDetector[Int]())
+      solveClusterRec(clusterId, sBuilder, CycleDetector[Int](Ordering.Int))
       sBuilder.build()
     }
 

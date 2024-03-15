@@ -31,6 +31,12 @@ import scala.collection.mutable
 // deal with cycle issues by themselves.
 
 trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] {
+  def xExistRestriction(): Boolean
+  def yExistRestriction(): Boolean
+
+  def excludeCyclesOnX(): Boolean
+  def excludeCyclesOnY(): Boolean
+
   def idOfX(x: X): Any
   def idOfY(y: Y): Any
 
@@ -73,19 +79,29 @@ object DpZipperAlgo {
 
     def resolve(root: Y): Solution[X, Y, XOutput, YOutput] = {
       val sBuilder = Solution.builder[X, Y, XOutput, YOutput](algoDef)
-      solveYRec(root, sBuilder, CycleDetector[Int]())
+      val xCycleDetector = if (algoDef.excludeCyclesOnX()) {
+        CycleDetector[X](Ordering.by(x => System.identityHashCode(algoDef.idOfX(x))))
+      } else {
+        CycleDetector.noop[X]()
+      }
+      val yCycleDetector = if (algoDef.excludeCyclesOnY()) {
+        CycleDetector[Y](Ordering.by(y => System.identityHashCode(algoDef.idOfY(y))))
+      } else {
+        CycleDetector.noop[Y]()
+      }
+      solveYRec(root, sBuilder, xCycleDetector, yCycleDetector)
       sBuilder.build()
     }
 
     private def solveYRec(
         y: Y,
         sBuilder: Solution.Builder[X, Y, XOutput, YOutput],
-        yCycleDetector: CycleDetector[Int]): Unit = {
-      val yid = System.identityHashCode(algoDef.idOfY(y))
-      if (yCycleDetector.contains(yid)) {
+        xCycleDetector: CycleDetector[X],
+        yCycleDetector: CycleDetector[Y]): Unit = {
+      if (yCycleDetector.contains(y)) {
         return
       }
-      val newDetector = yCycleDetector.append(yid)
+      val newYCycleDetector = yCycleDetector.append(y)
       if (sBuilder.isYResolved(y)) {
         // The same Y was already solved by previous traversals before bumping into
         // this position.
@@ -115,7 +131,7 @@ object DpZipperAlgo {
             return
           }
           prevXCount = xs.size
-          xs.foreach(x => solveXRec(x, sBuilder, newDetector))
+          xs.foreach(x => solveXRec(x, sBuilder, xCycleDetector, newYCycleDetector))
         }
         throw new IllegalStateException("Unreachable code")
       }
@@ -134,7 +150,10 @@ object DpZipperAlgo {
           val xSolution = if (sBuilder.isXResolved(x)) {
             sBuilder.getXSolution(x)
           } else {
-            // X was excluded by cycle.
+            // X does not exist.
+            if (algoDef.xExistRestriction()) {
+              return
+            }
             None
           }
           Solution.SolutionKey(algoDef.idOfX(x), x) -> xSolution
@@ -149,7 +168,12 @@ object DpZipperAlgo {
     private def solveXRec(
         x: X,
         sBuilder: Solution.Builder[X, Y, XOutput, YOutput],
-        yCycleDetector: CycleDetector[Int]): Unit = {
+        xCycleDetector: CycleDetector[X],
+        yCycleDetector: CycleDetector[Y]): Unit = {
+      if (xCycleDetector.contains(x)) {
+        return
+      }
+      val newXCycleDetector = xCycleDetector.append(x)
       if (sBuilder.isXResolved(x)) {
         // The same X was already solved by previous traversals before bumping into
         // this position.
@@ -179,7 +203,7 @@ object DpZipperAlgo {
             return
           }
           prevYCount = ys.size
-          ys.foreach(y => solveYRec(y, sBuilder, yCycleDetector))
+          ys.foreach(y => solveYRec(y, sBuilder, newXCycleDetector, yCycleDetector))
         }
         throw new IllegalStateException("Unreachable code")
       }
@@ -197,8 +221,11 @@ object DpZipperAlgo {
           val ySolution = if (sBuilder.isYResolved(y)) {
             sBuilder.getYSolution(y)
           } else {
-            // Y was excluded by cycle.
-            return
+            // Y does not exist.
+            if (algoDef.yExistRestriction()) {
+              return
+            }
+            None
           }
           Solution.SolutionKey(algoDef.idOfY(y), y) -> ySolution
       }.toMap
