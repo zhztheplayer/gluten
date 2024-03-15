@@ -92,11 +92,6 @@ object Best {
     }
   }
 
-  trait KnownCostNode[T <: AnyRef] {
-    def node: CanonicalNode[T]
-    def cost: Cost
-  }
-
   trait KnownCostPath[T <: AnyRef] {
     def cboPath: CboPath[T]
     def cost: Cost

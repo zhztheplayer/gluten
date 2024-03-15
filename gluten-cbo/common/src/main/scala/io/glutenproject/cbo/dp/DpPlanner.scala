@@ -20,13 +20,11 @@ package io.glutenproject.cbo.dp
 import io.glutenproject.best.BestFinder
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath
-import io.glutenproject.cbo.path.{CboPath, PathFinder}
-import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier, Shape}
+import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier}
 
 // TODO: Branch and bound pruning.
 private class DpPlanner[T <: AnyRef] private (cbo: Cbo[T], plan: T, reqPropSet: PropertySet[T])
   extends CboPlanner[T] {
-  import DpPlanner._
   private val memo = Memo.unsafe(cbo)
   private val rules = cbo.ruleFactory.create().map(rule => RuleApplier(cbo, memo, rule))
   private val enforcerRuleSet = EnforcerRuleSet[T](cbo, memo)
@@ -51,7 +49,7 @@ private class DpPlanner[T <: AnyRef] private (cbo: Cbo[T], plan: T, reqPropSet: 
 
   private def findBest(memoState: UnsafeMemoState[T], groupId: Int): Best[T] = {
     BestFinder
-      .unsafe(cbo, memoState, new ExploreAdjustment(cbo, memoState, rules, enforcerRuleSet))
+      .unsafe(cbo, memoState, ???)
       .bestOf(groupId)
   }
 }
@@ -66,30 +64,10 @@ object DpPlanner {
       memoState: UnsafeMemoState[T],
       rules: Seq[RuleApplier[T]],
       enforcerRuleSet: EnforcerRuleSet[T])
-    extends DpGroupAlgo.Adjustment[T] {
-    private val allGroups = memoState.allGroups()
-    private val allClusters = memoState.allClusters()
-
-    // TODO: Code similar to exhaustive explorer. Refactors may required.
-    private def findPaths(canonical: CanonicalNode[T], shapes: Seq[Shape[T]])(
-        onFound: CboPath[T] => Unit): Unit = {
-      val finder = shapes
-        .foldLeft(
-          PathFinder
-            .builder(cbo, allGroups)) {
-          case (builder, shape) =>
-            builder.output(shape.wizard())
-        }
-        .build()
-      finder.find(canonical).foreach(path => onFound(path))
-    }
-
-    private def applyRule(rule: RuleApplier[T], path: CboPath[T]): Unit = {
-      rule.apply(path)
-    }
+    extends DpClusterAlgo.Adjustment[T] {
 
     override def beforeXSolved(x: CanonicalNode[T]): Unit = ???
 
-    override def beforeYSolved(y: CboGroup[T]): Unit = ???
+    override def beforeYSolved(y: CboCluster[T]): Unit = ???
   }
 }
