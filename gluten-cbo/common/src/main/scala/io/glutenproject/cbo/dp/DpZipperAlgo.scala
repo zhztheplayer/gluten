@@ -29,7 +29,6 @@ import scala.collection.mutable
 //
 // Cycle exclusion is also done internally so implementations don't have to
 // deal with cycle issues by themselves.
-
 trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef] {
   def xExistRestriction(): Boolean
   def yExistRestriction(): Boolean
