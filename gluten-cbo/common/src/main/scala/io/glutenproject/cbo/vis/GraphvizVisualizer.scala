@@ -16,8 +16,8 @@
  */
 package io.glutenproject.cbo.vis
 
-import io.glutenproject.best.BestFinder
 import io.glutenproject.cbo._
+import io.glutenproject.cbo.best.BestFinder
 import io.glutenproject.cbo.path._
 
 import scala.collection.mutable

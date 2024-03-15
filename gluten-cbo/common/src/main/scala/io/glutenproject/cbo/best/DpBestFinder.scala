@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-package io.glutenproject.best
+package io.glutenproject.cbo.best
 
-import io.glutenproject.best.BestFinder.KnownCostGroup
+import BestFinder.KnownCostGroup
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.{BestNotFoundException, KnownCostPath}
 import io.glutenproject.cbo.dp.{DpGroupAlgo, DpGroupAlgoDef}

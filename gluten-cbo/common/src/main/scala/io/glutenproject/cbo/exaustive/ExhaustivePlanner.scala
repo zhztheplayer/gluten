@@ -16,9 +16,9 @@
  */
 package io.glutenproject.cbo.exaustive
 
-import io.glutenproject.best.BestFinder
 import io.glutenproject.cbo.Best.KnownCostPath
 import io.glutenproject.cbo._
+import io.glutenproject.cbo.best.BestFinder
 import io.glutenproject.cbo.exaustive.ExhaustivePlanner.ExhaustiveExplorer
 import io.glutenproject.cbo.path._
 import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier, Shape}

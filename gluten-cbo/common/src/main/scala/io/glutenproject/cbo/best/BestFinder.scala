@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.glutenproject.best
+package io.glutenproject.cbo.best
 
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath

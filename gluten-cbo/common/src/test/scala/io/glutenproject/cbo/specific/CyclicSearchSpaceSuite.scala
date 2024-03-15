@@ -16,8 +16,8 @@
  */
 package io.glutenproject.cbo.specific
 
-import io.glutenproject.best.BestFinder
 import io.glutenproject.cbo._
+import io.glutenproject.cbo.best.BestFinder
 import io.glutenproject.cbo.mock.MockMemoState
 import io.glutenproject.cbo.path.{CboPath, PathFinder}
 import io.glutenproject.cbo.rule.CboRule

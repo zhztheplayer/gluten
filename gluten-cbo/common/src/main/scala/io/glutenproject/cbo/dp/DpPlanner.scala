@@ -17,9 +17,9 @@
 
 package io.glutenproject.cbo.dp
 
-import io.glutenproject.best.BestFinder
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath
+import io.glutenproject.cbo.best.BestFinder
 import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier}
 
 // TODO: Branch and bound pruning.
