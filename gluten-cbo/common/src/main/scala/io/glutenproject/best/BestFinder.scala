@@ -94,7 +94,7 @@ object BestFinder {
     }
   }
 
-  object DpBestFinder {
+  private object DpBestFinder {
     import DpGroupAlgo._
 
     private class AlgoDef[T <: AnyRef](cbo: Cbo[T], allGroups: Seq[CboGroup[T]])
