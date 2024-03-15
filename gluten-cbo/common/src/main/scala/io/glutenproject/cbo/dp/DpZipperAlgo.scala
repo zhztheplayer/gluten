@@ -134,7 +134,7 @@ object DpZipperAlgo {
           val xSolution = if (sBuilder.isXResolved(x)) {
             sBuilder.getXSolution(x)
           } else {
-            // Node was excluded by cycle.
+            // X was excluded by cycle.
             None
           }
           Solution.SolutionKey(algoDef.idOfX(x), x) -> xSolution
@@ -197,8 +197,8 @@ object DpZipperAlgo {
           val ySolution = if (sBuilder.isYResolved(y)) {
             sBuilder.getYSolution(y)
           } else {
-            // Node was excluded by cycle.
-            None
+            // Y was excluded by cycle.
+            return
           }
           Solution.SolutionKey(algoDef.idOfY(y), y) -> ySolution
       }.toMap
