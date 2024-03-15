@@ -117,7 +117,7 @@ object DpZipperAlgo {
         def getXs(): Iterable[X] = {
           val xs = algoDef.browseY(y)
           val xCount = xs.size
-          if (xCount >= prevXCount) {
+          if (xCount > prevXCount) {
             return xs
           }
           assert(xCount == prevXCount)
@@ -189,7 +189,7 @@ object DpZipperAlgo {
         def getYs(): Iterable[Y] = {
           val ys = algoDef.browseX(x)
           val yCount = ys.size
-          if (yCount >= prevYCount) {
+          if (yCount > prevYCount) {
             return ys
           }
           assert(yCount == prevYCount)
