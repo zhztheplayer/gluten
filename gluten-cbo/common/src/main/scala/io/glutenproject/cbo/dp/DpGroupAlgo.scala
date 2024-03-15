@@ -71,6 +71,7 @@ object DpGroupAlgo {
       val allGroups = memoState.allGroups()
       x.getChildrenGroups(allGroups).map(gn => allGroups(gn.groupId()))
     }
+
     override def browseY(y: CboGroup[T]): Iterable[CanonicalNode[T]] = {
       // TODO: Why set is way faster than regular iterable / seq / list / vector ?
       y.nodes().toSet
