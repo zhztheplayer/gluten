@@ -30,12 +30,6 @@ class GroupBastBestFinderCyclicSearchSpaceSuite extends CyclicSearchSpaceSuite {
       memoState: MemoState[T]): BestFinder[T] = BestFinder(cbo, memoState)
 }
 
-class ClusterBastBestFinderCyclicSearchSpaceSuite extends CyclicSearchSpaceSuite {
-  override protected def newBestFinder[T <: AnyRef](
-      cbo: Cbo[T],
-      memoState: MemoState[T]): BestFinder[T] = BestFinder.clusterBased(cbo, memoState)
-}
-
 abstract class CyclicSearchSpaceSuite extends AnyFunSuite {
   import CyclicSearchSpaceSuite._
 
