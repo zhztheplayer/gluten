@@ -17,20 +17,62 @@
 
 package io.glutenproject.cbo.best
 
-import io.glutenproject.cbo.{Best, Cbo, UnsafeMemoState}
-import io.glutenproject.cbo.dp.DpGroupAlgo
+import io.glutenproject.cbo.{Best, CanonicalNode, Cbo, CboCluster, CboGroup, UnsafeMemoState}
+import io.glutenproject.cbo.Best.{BestNotFoundException, KnownCostPath}
+import io.glutenproject.cbo.best.BestFinder.{KnownCostCluster, KnownCostGroup}
+import io.glutenproject.cbo.dp.{DpClusterAlgo, DpClusterAlgoDef}
 
-private class GroupBasedBestFinder[T <: AnyRef](
+private class ClusterBasedBestFinder[T <: AnyRef](
     cbo: Cbo[T],
     memoState: UnsafeMemoState[T],
-    adjustment: DpGroupAlgo.Adjustment[T])
+    adjustment: DpClusterAlgo.Adjustment[T])
   extends BestFinder[T] {
   import ClusterBasedBestFinder._
 
   private val allClusters = memoState.allClusters()
   private val allGroups = memoState.allGroups()
 
-  override def bestOf(groupId: Int): Best[T] = {}
+  override def bestOf(groupId: Int): Best[T] = {
+    val group = allGroups(groupId)
+    val cluster = allClusters(group.clusterId())
+    val groupToCosts = fillBests(cluster)
+    if (!groupToCosts.contains(groupId)) {
+      throw BestNotFoundException(
+        s"Best path not found. Memo state (Graphviz): \n${memoState.toSafe().formatGraphvizWithoutBest(groupId)}")
+    }
+    BestFinder.newBest(cbo, allGroups, group, groupToCosts)
+  }
+
+  private def fillBests(cluster: CboCluster[T]): Map[Int, KnownCostGroup[T]] = {
+    val algoDef = new AlgoDef(cbo, memoState)
+    val solution = DpClusterAlgo.resolve(memoState, algoDef, adjustment, cluster)
+    val ySolutions: CboCluster[T] => Option[KnownCostCluster[T]] = solution.ySolutions
+    val bests = allGroups
+      .flatMap(
+        group =>
+          ySolutions(allClusters(group.clusterId()))
+            .map(kcc => kcc.groupToCost(group.id()))
+            .map(kcg => group.id() -> kcg))
+      .toMap
+    bests
+  }
 }
 
-object ClusterBasedBestFinder {}
+private object ClusterBasedBestFinder {
+  private class AlgoDef[T <: AnyRef](cbo: Cbo[T], memoState: UnsafeMemoState[T])
+    extends DpClusterAlgoDef[T, KnownCostPath[T], KnownCostCluster[T]] {
+
+    private val allClusters = memoState.allClusters()
+    private val allGroups = memoState.allGroups()
+
+    override def solveNode(
+        node: CanonicalNode[T],
+        childrenClustersOutput: CboCluster[T] => Option[KnownCostCluster[T]])
+        : Option[KnownCostPath[T]] = ???
+
+    override def solveCluster(
+        cluster: CboCluster[T],
+        nodesOutput: CanonicalNode[T] => Option[KnownCostPath[T]]): Option[KnownCostCluster[T]] =
+      ???
+  }
+}

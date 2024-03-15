@@ -39,10 +39,9 @@ private class GroupBasedBestFinder[T <: AnyRef](
   override def bestOf(groupId: Int): Best[T] = {
     val group = allGroups(groupId)
     val groupToCosts = fillBests(group)
-    if (!groupToCosts.contains(group.id())) {
+    if (!groupToCosts.contains(groupId)) {
       throw BestNotFoundException(
         s"Best path not found. Memo state (Graphviz): \n${memoState.toSafe().formatGraphvizWithoutBest(groupId)}")
-
     }
     BestFinder.newBest(cbo, allGroups, group, groupToCosts)
   }
