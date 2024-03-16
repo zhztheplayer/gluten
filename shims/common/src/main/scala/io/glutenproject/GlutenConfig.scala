@@ -661,7 +661,6 @@ object GlutenConfig {
           "may still adopt a subset of its advanced CBO capabilities even this option " +
           "is off. Enabling it would cause Gluten consider using CBO for optimization " +
           "more aggressively.")
-      .version("2.2.0")
       .booleanConf
       .createWithDefault(false)
 
