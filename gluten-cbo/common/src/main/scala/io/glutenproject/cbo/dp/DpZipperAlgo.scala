@@ -174,7 +174,7 @@ object DpZipperAlgo {
           val xSolution = if (sBuilder.isXResolved(x)) {
             sBuilder.getXSolution(x)
           } else {
-            // X does not exist.
+            // X was not solved
             if (conf.xExistRestriction()) {
               return
             }
@@ -245,7 +245,7 @@ object DpZipperAlgo {
           val ySolution = if (sBuilder.isYResolved(y)) {
             sBuilder.getYSolution(y)
           } else {
-            // Y does not exist.
+            // Y was not solved
             if (conf.yExistRestriction()) {
               return
             }
