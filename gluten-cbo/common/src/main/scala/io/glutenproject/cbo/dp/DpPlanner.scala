@@ -165,19 +165,27 @@ object DpPlanner {
         .map(_.clusterId())
         .toSet
 
+      val newClusterSet = diff.newClusters.map(_.id()).toSet
+
       newGroups.foreach {
         newGroup =>
           val residentClusterId = newGroup.clusterId()
           residentClusterId match {
+            case cid if newClusterSet.contains(cid) =>
+            // New group created in a brand-new cluster. It means the rule shifted out a new node
+            // below the input root. The new cluster should not ever been solved so we don't have
+            // to invalidate.
             case cid if cid == clusterId =>
-            // New group created in this node's cluster.
+            // New group created in this node's cluster. This cluster is being solved so we
+            // don't have to invalidate.
             case cid if childrenClusterIds.contains(cid) =>
-              // New group created in this node's children's clusters.
+              // New group created in one of this node's children's clusters. The cluster
+              // should already been solved so we conduct invalidate.
               panel.invalidateYSolution(allClusters(newGroup.clusterId()))
             case _ =>
               throw new IllegalStateException(
-                "New groups should only be created inside this" +
-                  " or children's clusters when applying rules")
+                "When applying rules, if new group was created in an existing cluster, it" +
+                  " should only be created inside this or one of children's clusters")
           }
       }
     }
