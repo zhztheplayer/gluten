@@ -154,6 +154,7 @@ object DpPlanner {
         .node()
         .self()
         .asCanonical()
+
       // New groups created. We should withdraw the DP result for resident clusters to trigger
       // re-computation. Since new groups were created with new required properties which could
       // expand the clusters' search spaces again.
