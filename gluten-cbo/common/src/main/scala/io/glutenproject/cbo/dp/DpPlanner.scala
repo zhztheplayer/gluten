@@ -181,7 +181,7 @@ object DpPlanner {
             // don't have to invalidate.
             case cid if childrenClusterIds.contains(cid) =>
               // New group created in one of this node's children's clusters. The cluster
-              // should already been solved so we conduct invalidate.
+              // should already been solved so we order invalidate.
               panel.invalidateYSolution(allClusters(newGroup.clusterId()))
             case _ =>
               throw new IllegalStateException(
