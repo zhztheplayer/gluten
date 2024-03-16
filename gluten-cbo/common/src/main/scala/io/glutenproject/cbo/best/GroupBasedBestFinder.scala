@@ -48,6 +48,7 @@ private class GroupBasedBestFinder[T <: AnyRef](
     val algoDef = new AlgoDef(cbo, allGroups)
     val conf = DpZipperAlgo.Conf(
       solveYWithUnresolvedXs = true,
+      // Requires children groups to be solved so that a node can solve.
       solveXWithUnresolvedYs = false,
       excludeCyclesOnX = false,
       excludeCyclesOnY = true)
