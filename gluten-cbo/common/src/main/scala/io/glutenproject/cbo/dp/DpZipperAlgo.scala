@@ -42,12 +42,10 @@ trait DpZipperAlgoDef[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: An
 
 object DpZipperAlgo {
   trait Conf {
-    // Requires all X children outputs to exist otherwise would neither call Y's #resolve with
-    // these outputs nor register Y's output
-    def solveYOnlyAllXsSolved(): Boolean
-    // Requires all Y children outputs to exist otherwise would neither call X's #resolve with
-    // these outputs nor register X's output
-    def solveXOnlyAllYsSolved(): Boolean
+    // If not all X children outputs exist we still solve a Y.
+    def solveYWithUnresolvedXs(): Boolean
+    // If not all Y children outputs exist we still solve a X.
+    def solveXWithUnresolvedYs(): Boolean
 
     def excludeCyclesOnX(): Boolean
     def excludeCyclesOnY(): Boolean
@@ -55,16 +53,16 @@ object DpZipperAlgo {
 
   object Conf {
     def apply(
-        solveYOnlyAllXsSolved: Boolean,
-        solveXOnlyAllYsSolved: Boolean,
+        solveYWithUnresolvedXs: Boolean,
+        solveXWithUnresolvedYs: Boolean,
         excludeCyclesOnX: Boolean,
         excludeCyclesOnY: Boolean): Conf = {
-      ConfImpl(solveYOnlyAllXsSolved, solveXOnlyAllYsSolved, excludeCyclesOnX, excludeCyclesOnY)
+      ConfImpl(solveYWithUnresolvedXs, solveXWithUnresolvedYs, excludeCyclesOnX, excludeCyclesOnY)
     }
 
     private case class ConfImpl(
-        override val solveYOnlyAllXsSolved: Boolean,
-        override val solveXOnlyAllYsSolved: Boolean,
+        override val solveYWithUnresolvedXs: Boolean,
+        override val solveXWithUnresolvedYs: Boolean,
         override val excludeCyclesOnX: Boolean,
         override val excludeCyclesOnY: Boolean)
       extends Conf
@@ -175,7 +173,7 @@ object DpZipperAlgo {
             sBuilder.getXSolution(x)
           } else {
             // X was not solved
-            if (conf.solveYOnlyAllXsSolved()) {
+            if (!conf.solveYWithUnresolvedXs()) {
               return
             }
             None
@@ -246,7 +244,7 @@ object DpZipperAlgo {
             sBuilder.getYSolution(y)
           } else {
             // Y was not solved
-            if (conf.solveXOnlyAllYsSolved()) {
+            if (!conf.solveXWithUnresolvedYs()) {
               return
             }
             None

@@ -47,8 +47,8 @@ private class GroupBasedBestFinder[T <: AnyRef](
   private def fillBests(group: CboGroup[T]): Map[Int, KnownCostGroup[T]] = {
     val algoDef = new AlgoDef(cbo, allGroups)
     val conf = DpZipperAlgo.Conf(
-      solveYOnlyAllXsSolved = false,
-      solveXOnlyAllYsSolved = true,
+      solveYWithUnresolvedXs = true,
+      solveXWithUnresolvedYs = false,
       excludeCyclesOnX = false,
       excludeCyclesOnY = true)
     val solution = DpGroupAlgo.resolve(memoState, algoDef, conf, adjustment, group)
