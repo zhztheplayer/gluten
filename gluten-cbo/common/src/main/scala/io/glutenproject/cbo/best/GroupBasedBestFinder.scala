@@ -51,7 +51,8 @@ private class GroupBasedBestFinder[T <: AnyRef](
       // Requires children groups to be solved so that a node can solve.
       solveXWithUnresolvedYs = false,
       excludeCyclesOnX = false,
-      excludeCyclesOnY = true)
+      excludeCyclesOnY = true
+    )
     val solution = DpGroupAlgo.resolve(memoState, algoDef, conf, adjustment, group)
     val ySolutions: CboGroup[T] => Option[KnownCostGroup[T]] = solution.ySolutions
     val bests = allGroups.flatMap(group => ySolutions(group).map(kcg => group.id() -> kcg)).toMap
