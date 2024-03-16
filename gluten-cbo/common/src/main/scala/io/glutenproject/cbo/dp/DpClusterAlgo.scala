@@ -17,7 +17,7 @@
 
 package io.glutenproject.cbo.dp
 
-import io.glutenproject.cbo.{CanonicalNode, CboCluster, UnsafeMemoState}
+import io.glutenproject.cbo.{CboCluster, InClusterNode, UnsafeMemoState}
 import io.glutenproject.cbo.dp.DpZipperAlgo.Solution
 
 // Dynamic programming algorithm to solve problem against a single CBO cluster that can be
@@ -26,25 +26,25 @@ import io.glutenproject.cbo.dp.DpZipperAlgo.Solution
 // FIXME: Code is so similar with DpGroupAlgo.
 trait DpClusterAlgoDef[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef] {
   def solveNode(
-      node: CanonicalNode[T],
+      node: InClusterNode[T],
       childrenClustersOutput: CboCluster[T] => Option[ClusterOutput]): Option[NodeOutput]
   def solveCluster(
       group: CboCluster[T],
-      nodesOutput: CanonicalNode[T] => Option[NodeOutput]): Option[ClusterOutput]
+      nodesOutput: InClusterNode[T] => Option[NodeOutput]): Option[ClusterOutput]
 }
 
 object DpClusterAlgo {
 
-  trait Adjustment[T <: AnyRef] extends DpZipperAlgo.Adjustment[CanonicalNode[T], CboCluster[T]]
+  trait Adjustment[T <: AnyRef] extends DpZipperAlgo.Adjustment[InClusterNode[T], CboCluster[T]]
 
   object Adjustment {
     private class None[T <: AnyRef] extends Adjustment[T] {
       override def beforeXSolved(
-          panel: DpZipperAlgo.Adjustment.Panel[CanonicalNode[T], CboCluster[T]],
-          x: CanonicalNode[T]): Unit = {}
+          panel: DpZipperAlgo.Adjustment.Panel[InClusterNode[T], CboCluster[T]],
+          x: InClusterNode[T]): Unit = {}
 
       override def beforeYSolved(
-          panel: DpZipperAlgo.Adjustment.Panel[CanonicalNode[T], CboCluster[T]],
+          panel: DpZipperAlgo.Adjustment.Panel[InClusterNode[T], CboCluster[T]],
           y: CboCluster[T]): Unit = {}
     }
 
@@ -57,15 +57,15 @@ object DpClusterAlgo {
       conf: DpZipperAlgo.Conf,
       adjustment: Adjustment[T],
       cluster: CboCluster[T])
-      : Solution[CanonicalNode[T], CboCluster[T], NodeOutput, ClusterOutput] = {
+      : Solution[InClusterNode[T], CboCluster[T], NodeOutput, ClusterOutput] = {
     DpZipperAlgo.resolve(new ZipperAlgoDefImpl(memoState, groupAlgoDef), conf, adjustment, cluster)
   }
 
   private class ZipperAlgoDefImpl[T <: AnyRef, NodeOutput <: AnyRef, ClusterOutput <: AnyRef](
       memoState: UnsafeMemoState[T],
       clusterAlgoDef: DpClusterAlgoDef[T, NodeOutput, ClusterOutput])
-    extends DpZipperAlgoDef[CanonicalNode[T], CboCluster[T], NodeOutput, ClusterOutput] {
-    override def idOfX(x: CanonicalNode[T]): Any = {
+    extends DpZipperAlgoDef[InClusterNode[T], CboCluster[T], NodeOutput, ClusterOutput] {
+    override def idOfX(x: InClusterNode[T]): Any = {
       x
     }
 
@@ -73,28 +73,29 @@ object DpClusterAlgo {
       y.id()
     }
 
-    override def browseX(x: CanonicalNode[T]): Iterable[CboCluster[T]] = {
+    override def browseX(x: InClusterNode[T]): Iterable[CboCluster[T]] = {
       val allGroups = memoState.allGroups()
       val allClusters = memoState.allClusters()
-      x.getChildrenGroups(allGroups)
+      x.can
+        .getChildrenGroups(allGroups)
         .map(gn => allGroups(gn.groupId()).clusterId())
         .map(cid => allClusters(cid))
     }
 
-    override def browseY(y: CboCluster[T]): Iterable[CanonicalNode[T]] = {
+    override def browseY(y: CboCluster[T]): Iterable[InClusterNode[T]] = {
       // TODO: Why set is way faster at here than regular iterable / seq / list / vector ?
-      y.nodes().toSet
+      y.nodes().map(n => InClusterNode(y.id(), n)).toSet
     }
 
     override def solveX(
-        x: CanonicalNode[T],
+        x: InClusterNode[T],
         yOutput: CboCluster[T] => Option[ClusterOutput]): Option[NodeOutput] = {
       clusterAlgoDef.solveNode(x, yOutput)
     }
 
     override def solveY(
         y: CboCluster[T],
-        xOutput: CanonicalNode[T] => Option[NodeOutput]): Option[ClusterOutput] = {
+        xOutput: InClusterNode[T] => Option[NodeOutput]): Option[ClusterOutput] = {
       clusterAlgoDef.solveCluster(y, xOutput)
     }
   }

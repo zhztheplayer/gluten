@@ -74,13 +74,13 @@ object DpPlanner {
   private class DpExploreAlgoDef[T <: AnyRef] extends DpClusterAlgoDef[T, AnyRef, AnyRef] {
     private val flag = new AnyRef()
     override def solveNode(
-        node: CanonicalNode[T],
+        node: InClusterNode[T],
         childrenClustersOutput: CboCluster[T] => Option[AnyRef]): Option[AnyRef] = {
       Some(flag)
     }
     override def solveCluster(
         group: CboCluster[T],
-        nodesOutput: CanonicalNode[T] => Option[AnyRef]): Option[AnyRef] = {
+        nodesOutput: InClusterNode[T] => Option[AnyRef]): Option[AnyRef] = {
       Some(flag)
     }
   }
@@ -95,17 +95,18 @@ object DpPlanner {
     private val allGroups = memoState.allGroups()
     private val allClusters = memoState.allClusters()
     override def beforeXSolved(
-        panel: Panel[CanonicalNode[T], CboCluster[T]],
-        can: CanonicalNode[T]): Unit = {
+        panel: Panel[InClusterNode[T], CboCluster[T]],
+        can: InClusterNode[T]): Unit = {
       if (rules.isEmpty) {
         return
       }
       val shapes = rules.map(_.shape())
-      findPaths(can, shapes)(path => rules.foreach(rule => applyRule(rule, path)))
+      findPaths(can.can, shapes)(
+        path => rules.foreach(rule => applyRule(panel, can.clusterId, rule, path)))
     }
 
     override def beforeYSolved(
-        panel: Panel[CanonicalNode[T], CboCluster[T]],
+        panel: Panel[InClusterNode[T], CboCluster[T]],
         cluster: CboCluster[T]): Unit = {
       cluster.groups().foreach {
         group =>
@@ -113,10 +114,11 @@ object DpPlanner {
           val enforcerRules = enforcerRuleSet.rulesOf(reqPropSet)
           if (enforcerRules.nonEmpty) {
             val shapes = enforcerRules.map(_.shape())
-            allClusters(group.clusterId()).nodes().foreach {
+            val cluster = allClusters(group.clusterId())
+            cluster.nodes().foreach {
               node =>
                 findPaths(node, shapes)(
-                  path => enforcerRules.foreach(rule => applyRule(rule, path)))
+                  path => enforcerRules.foreach(rule => applyRule(panel, cluster.id(), rule, path)))
             }
           }
       }
@@ -135,20 +137,56 @@ object DpPlanner {
       finder.find(canonical).foreach(path => onFound(path))
     }
 
-    private def applyRule(rule: RuleApplier[T], path: CboPath[T]): Unit = {
+    private def applyRule(
+        panel: Panel[InClusterNode[T], CboCluster[T]],
+        clusterId: Int,
+        rule: RuleApplier[T],
+        path: CboPath[T]): Unit = {
       val probe = UnsafeMemoStateDiff.probe(memoState)
       rule.apply(path)
       val diff = probe.toDiff
-      println(diff)
+      val newGroups = diff.newGroups
+      if (newGroups.isEmpty) {
+        return
+      }
+
+      val can = path
+        .node()
+        .self()
+        .asCanonical()
+      // New groups created. We should withdraw the DP result for resident clusters to trigger
+      // re-computation. Since new groups were created with new required properties which could
+      // expand the clusters' search spaces again.
+      val childrenClusterIds = can
+        .getChildrenGroups(allGroups)
+        .map(_.group(allGroups))
+        .map(_.clusterId())
+        .toSet
+
+      newGroups.foreach {
+        newGroup =>
+          val residentClusterId = newGroup.clusterId()
+          residentClusterId match {
+            case cid if cid == clusterId =>
+            // New group created in this node's cluster.
+            case cid if childrenClusterIds.contains(cid) =>
+              // New group created in this node's children's clusters.
+              panel.invalidateYSolution(allClusters(newGroup.clusterId()))
+            case _ =>
+              throw new IllegalStateException(
+                "New groups should only be created inside this" +
+                  " or children's clusters when applying rules")
+          }
+      }
     }
   }
 
   private object ExploreAdjustment {
-    class UnsafeMemoStateDiff[T <: AnyRef](
+    private class UnsafeMemoStateDiff[T <: AnyRef](
         val newClusters: Seq[CboCluster[T]],
         val newGroups: Seq[CboGroup[T]])
 
-    object UnsafeMemoStateDiff {
+    private object UnsafeMemoStateDiff {
       def probe[T <: AnyRef](memoState: UnsafeMemoState[T]): Probe[T] = {
         Probe[T](memoState, memoState.allClusters().size, memoState.allGroups().size)
       }

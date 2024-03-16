@@ -112,3 +112,16 @@ object InGroupNode {
   private case class InGroupNodeImpl[T <: AnyRef](groupId: Int, can: CanonicalNode[T])
     extends InGroupNode[T]
 }
+
+trait InClusterNode[T <: AnyRef] {
+  def clusterId: Int
+  def can: CanonicalNode[T]
+}
+
+object InClusterNode {
+  def apply[T <: AnyRef](clusterId: Int, node: CanonicalNode[T]): InClusterNode[T] = {
+    InClusterNodeImpl(clusterId, node)
+  }
+  private case class InClusterNodeImpl[T <: AnyRef](clusterId: Int, can: CanonicalNode[T])
+    extends InClusterNode[T]
+}
