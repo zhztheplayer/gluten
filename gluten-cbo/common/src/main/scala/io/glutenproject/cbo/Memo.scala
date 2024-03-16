@@ -184,17 +184,17 @@ object MemoState {
       cbo: Cbo[T],
       allClusters: Seq[CboCluster[T]],
       allGroups: Seq[CboGroup[T]]): MemoState[T] = {
-    UnsafeMemoStateImpl(cbo, allClusters, allGroups).toSafe()
+    new UnsafeMemoStateImpl(cbo, allClusters, allGroups).toSafe()
   }
 
   def unsafe[T <: AnyRef](
       cbo: Cbo[T],
       allClusters: Seq[MutableCboCluster[T]],
       allGroups: Seq[MutableCboGroup[T]]): UnsafeMemoState[T] = {
-    UnsafeMemoStateImpl(cbo, allClusters, allGroups)
+    new UnsafeMemoStateImpl(cbo, allClusters, allGroups)
   }
 
-  private case class UnsafeMemoStateImpl[T <: AnyRef](
+  private class UnsafeMemoStateImpl[T <: AnyRef](
       override val cbo: Cbo[T],
       override val allClusters: Seq[CboCluster[T]],
       override val allGroups: Seq[CboGroup[T]])

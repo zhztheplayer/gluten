@@ -78,14 +78,33 @@ object DpZipperAlgo {
   }
 
   trait Adjustment[X <: AnyRef, Y <: AnyRef] {
-    def beforeXSolved(x: X): Unit
-    def beforeYSolved(y: Y): Unit
+    import Adjustment._
+    def beforeXSolved(panel: Panel[X, Y], x: X): Unit
+    def beforeYSolved(panel: Panel[X, Y], y: Y): Unit
   }
 
   object Adjustment {
+    trait Panel[X <: AnyRef, Y <: AnyRef] {
+      def invalidateXSolution(x: X): Unit
+      def invalidateYSolution(y: Y): Unit
+    }
+
+    object Panel {
+      def apply[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef](
+          sBuilder: Solution.Builder[X, Y, XOutput, YOutput]): Panel[X, Y] =
+        new PanelImpl[X, Y, XOutput, YOutput](sBuilder)
+
+      private class PanelImpl[X <: AnyRef, Y <: AnyRef, XOutput <: AnyRef, YOutput <: AnyRef](
+          sBuilder: Solution.Builder[X, Y, XOutput, YOutput])
+        extends Panel[X, Y] {
+        override def invalidateXSolution(x: X): Unit = sBuilder.invalidateXSolution(x)
+        override def invalidateYSolution(y: Y): Unit = sBuilder.invalidateYSolution(y)
+      }
+    }
+
     private class None[X <: AnyRef, Y <: AnyRef] extends Adjustment[X, Y] {
-      override def beforeXSolved(x: X): Unit = {}
-      override def beforeYSolved(y: Y): Unit = {}
+      override def beforeXSolved(panel: Panel[X, Y], x: X): Unit = {}
+      override def beforeYSolved(panel: Panel[X, Y], y: Y): Unit = {}
     }
     def none[X <: AnyRef, Y <: AnyRef](): Adjustment[X, Y] = new None()
   }
@@ -99,8 +118,11 @@ object DpZipperAlgo {
       conf: Conf,
       adjustment: Adjustment[X, Y]) {
 
+    private val sBuilder: Solution.Builder[X, Y, XOutput, YOutput] =
+      Solution.builder[X, Y, XOutput, YOutput](algoDef)
+    private val adjustmentPanel = Adjustment.Panel[X, Y, XOutput, YOutput](sBuilder)
+
     def resolve(root: Y): Solution[X, Y, XOutput, YOutput] = {
-      val sBuilder = Solution.builder[X, Y, XOutput, YOutput](algoDef)
       val xCycleDetector = if (conf.excludeCyclesOnX()) {
         CycleDetector[X](Ordering.by(x => System.identityHashCode(algoDef.idOfX(x))))
       } else {
@@ -111,13 +133,12 @@ object DpZipperAlgo {
       } else {
         CycleDetector.noop[Y]()
       }
-      solveYRec(root, sBuilder, xCycleDetector, yCycleDetector)
+      solveYRec(root, xCycleDetector, yCycleDetector)
       sBuilder.build()
     }
 
     private def solveYRec(
         y: Y,
-        sBuilder: Solution.Builder[X, Y, XOutput, YOutput],
         xCycleDetector: CycleDetector[X],
         yCycleDetector: CycleDetector[Y]): Unit = {
       if (yCycleDetector.contains(y)) {
@@ -143,7 +164,7 @@ object DpZipperAlgo {
           // We have no more Xs to add.
           // The Y is going to be solved, try applying adjustment
           // to see if algo caller likes to add some nodes.
-          adjustment.beforeYSolved(y)
+          adjustment.beforeYSolved(adjustmentPanel, y)
           algoDef.browseY(y)
         }
 
@@ -153,7 +174,7 @@ object DpZipperAlgo {
             return
           }
           prevXCount = xs.size
-          xs.foreach(x => solveXRec(x, sBuilder, xCycleDetector, newYCycleDetector))
+          xs.foreach(x => solveXRec(x, xCycleDetector, newYCycleDetector))
         }
         throw new IllegalStateException("Unreachable code")
       }
@@ -189,7 +210,6 @@ object DpZipperAlgo {
 
     private def solveXRec(
         x: X,
-        sBuilder: Solution.Builder[X, Y, XOutput, YOutput],
         xCycleDetector: CycleDetector[X],
         yCycleDetector: CycleDetector[Y]): Unit = {
       if (xCycleDetector.contains(x)) {
@@ -215,7 +235,7 @@ object DpZipperAlgo {
           // We have no more Ys to add.
           // The Y is going to be solved, try applying adjustment
           // to see if algo caller likes to add some nodes.
-          adjustment.beforeXSolved(x)
+          adjustment.beforeXSolved(adjustmentPanel, x)
           algoDef.browseX(x)
         }
 
@@ -225,7 +245,7 @@ object DpZipperAlgo {
             return
           }
           prevYCount = ys.size
-          ys.foreach(y => solveYRec(y, sBuilder, newXCycleDetector, yCycleDetector))
+          ys.foreach(y => solveYRec(y, newXCycleDetector, yCycleDetector))
         }
         throw new IllegalStateException("Unreachable code")
       }
@@ -288,6 +308,18 @@ object DpZipperAlgo {
       private def keyOfY(y: Y): SolutionKey[Y] = {
         val yid = argoDef.idOfY(y)
         SolutionKey(yid, y)
+      }
+
+      def invalidateXSolution(x: X): Unit = {
+        val xKey = keyOfX(x)
+        assert(xSolutions.contains(xKey))
+        xSolutions -= xKey
+      }
+
+      def invalidateYSolution(y: Y): Unit = {
+        val yKey = keyOfY(y)
+        assert(ySolutions.contains(yKey))
+        ySolutions -= yKey
       }
 
       def isXResolved(x: X): Boolean = {

@@ -37,8 +37,13 @@ object DpGroupAlgo {
 
   object Adjustment {
     private class None[T <: AnyRef] extends Adjustment[T] {
-      override def beforeXSolved(x: CanonicalNode[T]): Unit = {}
-      override def beforeYSolved(y: CboGroup[T]): Unit = {}
+      override def beforeXSolved(
+          panel: DpZipperAlgo.Adjustment.Panel[CanonicalNode[T], CboGroup[T]],
+          x: CanonicalNode[T]): Unit = {}
+
+      override def beforeYSolved(
+          panel: DpZipperAlgo.Adjustment.Panel[CanonicalNode[T], CboGroup[T]],
+          y: CboGroup[T]): Unit = {}
     }
 
     def none[T <: AnyRef](): Adjustment[T] = new None[T]()

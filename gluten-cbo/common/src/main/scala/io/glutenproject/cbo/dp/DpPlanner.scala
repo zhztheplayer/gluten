@@ -20,6 +20,7 @@ package io.glutenproject.cbo.dp
 import io.glutenproject.cbo._
 import io.glutenproject.cbo.Best.KnownCostPath
 import io.glutenproject.cbo.best.BestFinder
+import io.glutenproject.cbo.dp.DpZipperAlgo.Adjustment.Panel
 import io.glutenproject.cbo.path.{CboPath, PathFinder}
 import io.glutenproject.cbo.rule.{EnforcerRuleSet, RuleApplier, Shape}
 
@@ -90,9 +91,12 @@ object DpPlanner {
       rules: Seq[RuleApplier[T]],
       enforcerRuleSet: EnforcerRuleSet[T])
     extends DpClusterAlgo.Adjustment[T] {
+    import ExploreAdjustment._
     private val allGroups = memoState.allGroups()
     private val allClusters = memoState.allClusters()
-    override def beforeXSolved(can: CanonicalNode[T]): Unit = {
+    override def beforeXSolved(
+        panel: Panel[CanonicalNode[T], CboCluster[T]],
+        can: CanonicalNode[T]): Unit = {
       if (rules.isEmpty) {
         return
       }
@@ -100,7 +104,9 @@ object DpPlanner {
       findPaths(can, shapes)(path => rules.foreach(rule => applyRule(rule, path)))
     }
 
-    override def beforeYSolved(cluster: CboCluster[T]): Unit = {
+    override def beforeYSolved(
+        panel: Panel[CanonicalNode[T], CboCluster[T]],
+        cluster: CboCluster[T]): Unit = {
       cluster.groups().foreach {
         group =>
           val reqPropSet = group.propSet()
@@ -130,7 +136,49 @@ object DpPlanner {
     }
 
     private def applyRule(rule: RuleApplier[T], path: CboPath[T]): Unit = {
+      val probe = UnsafeMemoStateDiff.probe(memoState)
       rule.apply(path)
+      val diff = probe.toDiff
+      println(diff)
+    }
+  }
+
+  private object ExploreAdjustment {
+    class UnsafeMemoStateDiff[T <: AnyRef](
+        val newClusters: Seq[CboCluster[T]],
+        val newGroups: Seq[CboGroup[T]])
+
+    object UnsafeMemoStateDiff {
+      def probe[T <: AnyRef](memoState: UnsafeMemoState[T]): Probe[T] = {
+        Probe[T](memoState, memoState.allClusters().size, memoState.allGroups().size)
+      }
+
+      class Probe[T <: AnyRef] private (
+          memoState: UnsafeMemoState[T],
+          probedClusterCount: Int,
+          probedGroupCount: Int) {
+
+        def toDiff: UnsafeMemoStateDiff[T] = {
+          val allClusters = memoState.allClusters()
+          val allGroups = memoState.allGroups()
+          val newClusterCount = allClusters.size
+          val newGroupCount = allGroups.size
+          assert(newClusterCount >= probedClusterCount)
+          assert(newGroupCount >= probedGroupCount)
+          new UnsafeMemoStateDiff[T](
+            allClusters.slice(probedClusterCount, newClusterCount),
+            allGroups.slice(probedGroupCount, newGroupCount))
+        }
+      }
+
+      private object Probe {
+        def apply[T <: AnyRef](
+            memoState: UnsafeMemoState[T],
+            probedClusterCount: Int,
+            probedGroupCount: Int): Probe[T] = {
+          new Probe(memoState, probedClusterCount, probedGroupCount)
+        }
+      }
     }
   }
 }
