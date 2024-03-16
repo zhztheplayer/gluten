@@ -150,15 +150,16 @@ object DpPlanner {
         return
       }
 
+      // New groups created. If they're not created in current cluster, we should withdraw
+      // the DP results for resident clusters to trigger re-computation. Since new groups
+      // were created with new required properties which could expand the clusters'
+      // search spaces again.
+
       val can = path
         .node()
         .self()
         .asCanonical()
 
-      // New groups created. If they're not created in current cluster, we should withdraw
-      // the DP results for resident clusters to trigger re-computation. Since new groups
-      // were created with new required properties which could expand the clusters'
-      // search spaces again.
       val childrenClusterIds = can
         .getChildrenGroups(allGroups)
         .map(_.group(allGroups))
