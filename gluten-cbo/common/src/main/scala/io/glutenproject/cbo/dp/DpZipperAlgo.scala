@@ -44,10 +44,10 @@ object DpZipperAlgo {
   trait Conf {
     // Requires all X children outputs to exist otherwise would neither call Y's #resolve with
     // these outputs nor register Y's output
-    def xExistRestriction(): Boolean
+    def solveYOnlyAllXsSolved(): Boolean
     // Requires all Y children outputs to exist otherwise would neither call X's #resolve with
     // these outputs nor register X's output
-    def yExistRestriction(): Boolean
+    def solveXOnlyAllYsSolved(): Boolean
 
     def excludeCyclesOnX(): Boolean
     def excludeCyclesOnY(): Boolean
@@ -55,16 +55,16 @@ object DpZipperAlgo {
 
   object Conf {
     def apply(
-        xExistRestriction: Boolean,
-        yExistRestriction: Boolean,
+        solveYOnlyAllXsSolved: Boolean,
+        solveXOnlyAllYsSolved: Boolean,
         excludeCyclesOnX: Boolean,
         excludeCyclesOnY: Boolean): Conf = {
-      ConfImpl(xExistRestriction, yExistRestriction, excludeCyclesOnX, excludeCyclesOnY)
+      ConfImpl(solveYOnlyAllXsSolved, solveXOnlyAllYsSolved, excludeCyclesOnX, excludeCyclesOnY)
     }
 
     private case class ConfImpl(
-        override val xExistRestriction: Boolean,
-        override val yExistRestriction: Boolean,
+        override val solveYOnlyAllXsSolved: Boolean,
+        override val solveXOnlyAllYsSolved: Boolean,
         override val excludeCyclesOnX: Boolean,
         override val excludeCyclesOnY: Boolean)
       extends Conf
@@ -175,7 +175,7 @@ object DpZipperAlgo {
             sBuilder.getXSolution(x)
           } else {
             // X was not solved
-            if (conf.xExistRestriction()) {
+            if (conf.solveYOnlyAllXsSolved()) {
               return
             }
             None
@@ -246,7 +246,7 @@ object DpZipperAlgo {
             sBuilder.getYSolution(y)
           } else {
             // Y was not solved
-            if (conf.yExistRestriction()) {
+            if (conf.solveXOnlyAllYsSolved()) {
               return
             }
             None
