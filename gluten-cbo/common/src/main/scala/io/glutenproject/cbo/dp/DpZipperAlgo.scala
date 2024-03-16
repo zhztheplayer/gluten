@@ -163,7 +163,7 @@ object DpZipperAlgo {
           assert(xCount == prevXCount)
           // We have no more Xs to add.
           // The Y is going to be solved, try applying adjustment
-          // to see if algo caller likes to add some nodes.
+          // to see if algo caller likes to add some Xs.
           adjustment.beforeYSolved(adjustmentPanel, y)
           algoDef.browseY(y)
         }
@@ -234,7 +234,7 @@ object DpZipperAlgo {
           assert(yCount == prevYCount)
           // We have no more Ys to add.
           // The Y is going to be solved, try applying adjustment
-          // to see if algo caller likes to add some nodes.
+          // to see if algo caller likes to add some Ys.
           adjustment.beforeXSolved(adjustmentPanel, x)
           algoDef.browseX(x)
         }
