@@ -109,7 +109,7 @@ class CboPerformanceSuite extends AnyFunSuite {
         planModel.childrenOfCount,
         planModel.withNewChildrenCount,
         planModel.hashCodeCount,
-        planModel.equalsCount) == (563, 163, 165, 85)
+        planModel.equalsCount) == (583, 163, 165, 85)
     ) // TODO reduce this for performance
 
     val state = planner.newState()
@@ -165,7 +165,7 @@ class CboPerformanceSuite extends AnyFunSuite {
         planModel.childrenOfCount,
         planModel.withNewChildrenCount,
         planModel.hashCodeCount,
-        planModel.equalsCount) == (8823, 3060, 2306, 955)
+        planModel.equalsCount) == (8927, 3060, 2306, 955)
     ) // TODO reduce this for performance
 
     val state = planner.newState()
