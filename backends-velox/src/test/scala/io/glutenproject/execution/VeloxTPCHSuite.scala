@@ -83,7 +83,7 @@ abstract class VeloxTPCHSuite extends VeloxTPCHTableSupport {
 
   def subType(): String = ""
   def shouldCheckGoldenFiles(): Boolean = {
-    Seq("v1", "v1-bhj").contains(subType()) && (
+    Seq("v1", "v1-bhj", "v1-acbo").contains(subType()) && (
       formatSparkVersion match {
         case "32" => true
         case "33" => true
@@ -282,6 +282,17 @@ class VeloxTPCHV1Suite extends VeloxTPCHSuite {
     super.sparkConf
       .set("spark.sql.sources.useV1SourceList", "parquet")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+  }
+}
+
+class VeloxTPCHV1AdvancedCboSuite extends VeloxTPCHSuite {
+  override def subType(): String = "v1-acbo"
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.sql.sources.useV1SourceList", "parquet")
+      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      .set("spark.gluten.sql.advanced.cbo.enabled", "true")
   }
 }
 
