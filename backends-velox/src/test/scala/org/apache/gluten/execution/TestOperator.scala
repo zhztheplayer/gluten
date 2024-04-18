@@ -18,9 +18,8 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
-
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.{AnalysisException, Row}
+import org.apache.spark.sql.{AnalysisException, Row, SaveMode}
 import org.apache.spark.sql.execution.{FilterExec, GenerateExec, ProjectExec, RDDScanExec}
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions.{avg, col, lit, to_date, udf}
@@ -28,7 +27,6 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StringType, StructField, StructType}
 
 import java.util.concurrent.TimeUnit
-
 import scala.collection.JavaConverters
 
 class TestOperator extends VeloxWholeStageTransformerSuite {
@@ -44,15 +42,41 @@ class TestOperator extends VeloxWholeStageTransformerSuite {
     createTPCHNotNullTables()
   }
 
+
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
-      .set("spark.sql.files.maxPartitionBytes", "1g")
-      .set("spark.sql.shuffle.partitions", "1")
-      .set("spark.memory.offHeap.size", "2g")
+      //      .set("spark.sql.files.maxPartitionBytes", "1g")
+      //      .set("spark.sql.shuffle.partitions", "1")
+      .set("spark.memory.offHeap.size", "1g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
-      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set("spark.sql.sources.useV1SourceList", "avro,parquet")
+    //      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+    //      .set("spark.sql.sources.useV1SourceList", "avro")
+  }
+
+  test("SF data gen") {
+    val df1 = spark.sql(
+      "CREATE TABLE test_spill_02(f1 string, f2 string, f3 string, f4 string) USING csv " +
+        "OPTIONS (path '/root/Workloads/SF/bug1/data.txt', delimiter '\t')")
+
+    df1.collect()
+
+    val df2 = spark.sql("select * from test_spill_02 distribute by f1")
+    df2.write.mode(SaveMode.Overwrite).parquet("/root/Workloads/SF/bug1/parquet")
+  }
+
+  test("simple select") {
+    val df1 = spark.sql(
+      "CREATE TABLE test_spill_03(f1 string, f2 string, f3 string, f4 string) USING parquet " +
+        "OPTIONS (path '/root/Workloads/SF/bug1/parquet')")
+
+    df1.collect()
+
+    val df2 = spark.sql("select f1, f2, f3, f4\n," +
+      "lag(f2) over(partition by f1 order by cast(f4 as bigint) asc) f5\n" +
+      "from test_spill_03")
+
+    df2.write.mode(SaveMode.Overwrite).parquet("/root/Workloads/SF/bug1/parquet2")
   }
 
   test("simple_select") {
