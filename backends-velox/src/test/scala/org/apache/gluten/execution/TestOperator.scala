@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{AnalysisException, Row, SaveMode}
 import org.apache.spark.sql.execution.{FilterExec, GenerateExec, ProjectExec, RDDScanExec}
@@ -27,6 +28,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DecimalType, StringType, StructField, StructType}
 
 import java.util.concurrent.TimeUnit
+
 import scala.collection.JavaConverters
 
 class TestOperator extends VeloxWholeStageTransformerSuite {
@@ -42,7 +44,6 @@ class TestOperator extends VeloxWholeStageTransformerSuite {
     createTPCHNotNullTables()
   }
 
-
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
@@ -50,8 +51,15 @@ class TestOperator extends VeloxWholeStageTransformerSuite {
       //      .set("spark.sql.shuffle.partitions", "1")
       .set("spark.memory.offHeap.size", "1g")
       .set("spark.unsafe.exceptionOnMemoryLeak", "true")
-    //      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-    //      .set("spark.sql.sources.useV1SourceList", "avro")
+      //      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      //      .set("spark.sql.sources.useV1SourceList", "avro")
+      .set("spark.shuffle.manager", "org.apache.spark.shuffle.gluten.uniffle.UniffleShuffleManager")
+      .set("spark.rss.coordinator.quorum", "localhost:19999")
+      .set("spark.rss.storage.type", "MEMORY_LOCALFILE")
+      .set("spark.rss.client.type", "GRPC_NETTY")
+      .set("spark.shuffle.service.enabled", "false")
+      .set("spark.sql.adaptive.localShuffleReader.enabled", "false")
+      .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
   }
 
   test("SF data gen") {
@@ -72,9 +80,10 @@ class TestOperator extends VeloxWholeStageTransformerSuite {
 
     df1.collect()
 
-    val df2 = spark.sql("select f1, f2, f3, f4\n," +
-      "lag(f2) over(partition by f1 order by cast(f4 as bigint) asc) f5\n" +
-      "from test_spill_03")
+    val df2 = spark.sql(
+      "select f1, f2, f3, f4\n," +
+        "lag(f2) over(partition by f1 order by cast(f4 as bigint) asc) f5\n" +
+        "from test_spill_03")
 
     df2.write.mode(SaveMode.Overwrite).parquet("/root/Workloads/SF/bug1/parquet2")
   }
