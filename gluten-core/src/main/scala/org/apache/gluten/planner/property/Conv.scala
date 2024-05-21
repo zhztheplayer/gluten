@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.planner.property
 
-import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq, Transition}
+import org.apache.gluten.extension.columnar.transition.{Convention, ConventionFunc, ConventionReq, Transition}
 import org.apache.gluten.planner.plan.GlutenPlanModel.GroupLeafExec
 import org.apache.gluten.ras.{Property, PropertyDef}
 import org.apache.gluten.ras.rule.{RasRule, Shape, Shapes}
@@ -46,6 +46,18 @@ object Conv {
   def of(conv: Convention): Conv = Prop(conv)
   def req(req: ConventionReq): Conv = Req(req)
 
+  def get(plan: SparkPlan): Conv = {
+    val o = ConventionFunc.createWithOverride {
+      case g: GroupLeafExec =>
+        g.conv.req.requiredBatchType match {
+          case ConventionReq.BatchType.Any => Convention.BatchType.None
+          case ConventionReq.BatchType.Is(b) => b
+        }
+    }
+
+    Conv.of(o.conventionOf(plan))
+  }
+
   def findTransition(from: Conv, to: Conv): Transition = {
     val prop = from.asInstanceOf[Prop]
     val req = to.asInstanceOf[Req]
@@ -60,6 +72,21 @@ object Conv {
       req.requiredRowType == ConventionReq.RowType.Any
     }
   }
+
+  implicit private class ConventionReqOps(req: ConventionReq) {
+    def asConv(): Convention = {
+      val rowType = req.requiredRowType match {
+        case ConventionReq.RowType.Any => Convention.RowType.None
+        case ConventionReq.RowType.Is(r) => r
+      }
+
+      val batchType = req.requiredBatchType match {
+        case ConventionReq.BatchType.Any => Convention.BatchType.None
+        case ConventionReq.BatchType.Is(b) => b
+      }
+      Convention.of(rowType, batchType)
+    }
+  }
 }
 
 object ConvDef extends PropertyDef[SparkPlan, Conv] {
@@ -70,9 +97,12 @@ object ConvDef extends PropertyDef[SparkPlan, Conv] {
     case other => conventionOf(other)
   }
 
-  private def conventionOf(plan: SparkPlan): Conv = {
-    val out = Conv.of(Convention.get(plan))
-    out
+  private def conventionOf(plan: SparkPlan): Conv = plan match {
+    case g: GroupLeafExec =>
+      g.propertySet.get(ConvDef)
+    case other =>
+      val out = Conv.of(Convention.get(other))
+      out
   }
 
   override def getChildrenConstraints(

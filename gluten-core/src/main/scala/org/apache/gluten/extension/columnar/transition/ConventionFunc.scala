@@ -49,14 +49,24 @@ object ConventionFunc {
   }
 
   def create(): ConventionFunc = {
+    val batchOverride = newOverride()
+    new BuiltinFunc(batchOverride)
+  }
+
+  def createWithOverride(userOverride: BatchOverride): ConventionFunc = {
+    val backendOverride = newOverride()
+    val batchOverride = userOverride.orElse(backendOverride)
+    new BuiltinFunc(batchOverride)
+  }
+
+  private def newOverride(): BatchOverride = {
     synchronized {
       if (ignoreBackend) {
         // For testing
-        return new BuiltinFunc(PartialFunction.empty)
+        return PartialFunction.empty
       }
     }
-    val batchOverride = BackendsApiManager.getSparkPlanExecApiInstance.batchTypeFunc()
-    new BuiltinFunc(batchOverride)
+    BackendsApiManager.getSparkPlanExecApiInstance.batchTypeFunc()
   }
 
   private class BuiltinFunc(o: BatchOverride) extends ConventionFunc {
