@@ -72,21 +72,6 @@ object Conv {
       req.requiredRowType == ConventionReq.RowType.Any
     }
   }
-
-  implicit private class ConventionReqOps(req: ConventionReq) {
-    def asConv(): Convention = {
-      val rowType = req.requiredRowType match {
-        case ConventionReq.RowType.Any => Convention.RowType.None
-        case ConventionReq.RowType.Is(r) => r
-      }
-
-      val batchType = req.requiredBatchType match {
-        case ConventionReq.BatchType.Any => Convention.BatchType.None
-        case ConventionReq.BatchType.Is(b) => b
-      }
-      Convention.of(rowType, batchType)
-    }
-  }
 }
 
 object ConvDef extends PropertyDef[SparkPlan, Conv] {
@@ -97,12 +82,9 @@ object ConvDef extends PropertyDef[SparkPlan, Conv] {
     case other => conventionOf(other)
   }
 
-  private def conventionOf(plan: SparkPlan): Conv = plan match {
-    case g: GroupLeafExec =>
-      g.propertySet.get(ConvDef)
-    case other =>
-      val out = Conv.of(Convention.get(other))
-      out
+  private def conventionOf(plan: SparkPlan): Conv = {
+    val out = Conv.get(plan)
+    out
   }
 
   override def getChildrenConstraints(
@@ -121,7 +103,7 @@ case class ConvEnforcerRule(reqConv: Conv) extends RasRule[SparkPlan] {
       // Disable transitions for node that has output with empty schema.
       return List.empty
     }
-    val conv = Conv.of(Convention.get(node))
+    val conv = Conv.get(node)
     if (conv.satisfies(reqConv)) {
       return List.empty
     }
