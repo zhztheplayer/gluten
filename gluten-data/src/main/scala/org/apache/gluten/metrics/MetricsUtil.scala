@@ -54,10 +54,13 @@ object MetricsUtil extends Logging {
           MetricsUpdaterTree(
             smj.metricsUpdater(),
             Seq(treeifyMetricsUpdaters(smj.bufferedPlan), treeifyMetricsUpdaters(smj.streamedPlan)))
+        case t: TransformSupport if t.metricsUpdater() == MetricsUpdater.None =>
+          assert(t.children.size == 1, "MetricsUpdater.None can only be used on unary operator")
+          treeifyMetricsUpdaters(t.children.head)
         case t: TransformSupport =>
           MetricsUpdaterTree(t.metricsUpdater(), t.children.map(treeifyMetricsUpdaters))
         case _ =>
-          MetricsUpdaterTree(MetricsUpdaterTree.Terminate, Seq())
+          MetricsUpdaterTree(MetricsUpdater.Terminate, Seq())
       }
     }
 
@@ -194,7 +197,7 @@ object MetricsUtil extends Logging {
       metricsIdx: Int,
       joinParamsMap: JMap[JLong, JoinParams],
       aggParamsMap: JMap[JLong, AggregationParams]): (JLong, Int) = {
-    if (mutNode.updater == MetricsUpdaterTree.Terminate) {
+    if (mutNode.updater == MetricsUpdater.Terminate) {
       return (operatorIdx, metricsIdx)
     }
     val operatorMetrics = new JArrayList[OperatorMetrics]()

@@ -29,11 +29,22 @@ trait MetricsUpdater extends Serializable {
   def updateNativeMetrics(operatorMetrics: IOperatorMetrics): Unit = {}
 }
 
-object NoopMetricsUpdater extends MetricsUpdater {}
+object MetricsUpdater {
+  // An empty metrics updater. Used when the operator generates native metrics but
+  // it's unwanted to update the metrics in JVM side.
+  object Todo extends MetricsUpdater {}
 
-final case class MetricsUpdaterTree(updater: MetricsUpdater, children: Seq[MetricsUpdaterTree])
+  // Used when the operator doesn't generate native metrics. It's could because
+  // the operator doesn't generate any native query plan.
+  object None extends MetricsUpdater {
+    override def updateInputMetrics(inputMetrics: InputMetricsWrapper): Unit =
+      throw new UnsupportedOperationException()
+    override def updateNativeMetrics(operatorMetrics: IOperatorMetrics): Unit =
+      throw new UnsupportedOperationException()
+  }
 
-object MetricsUpdaterTree {
+  // Indicates a branch of a MetricsUpdaterTree is terminated. It's not bound to
+  // any operators.
   object Terminate extends MetricsUpdater {
     override def updateInputMetrics(inputMetrics: InputMetricsWrapper): Unit =
       throw new UnsupportedOperationException()
@@ -41,3 +52,7 @@ object MetricsUpdaterTree {
       throw new UnsupportedOperationException()
   }
 }
+
+final case class MetricsUpdaterTree(updater: MetricsUpdater, children: Seq[MetricsUpdaterTree])
+
+object MetricsUpdaterTree {}
