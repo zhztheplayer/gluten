@@ -120,7 +120,7 @@ object MetricsUtil extends Logging {
             aggParamsMap)
         }
       } catch {
-        case e: Throwable =>
+        case e: Exception =>
           logWarning(s"Updating native metrics failed due to ${e.getCause}.")
           ()
       }

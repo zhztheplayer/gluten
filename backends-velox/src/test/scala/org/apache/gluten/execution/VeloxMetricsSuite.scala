@@ -19,7 +19,8 @@ package org.apache.gluten.execution
 import org.apache.gluten.GlutenConfig
 import org.apache.gluten.sql.shims.SparkShimLoader
 
-import org.apache.spark.sql.execution.CommandResultExec
+import org.apache.spark.SparkConf
+import org.apache.spark.sql.execution.{CommandResultExec, InputIteratorTransformer}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.internal.SQLConf
 
@@ -50,6 +51,11 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     spark.sql("drop table metrics_t2")
 
     super.afterAll()
+  }
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.shuffle.manager", "org.apache.spark.shuffle.sort.ColumnarShuffleManager")
   }
 
   test("test sort merge join metrics") {
@@ -162,6 +168,20 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             assert(metrics("numWrittenFiles").value == 1)
         }
       }
+    }
+  }
+
+  test("Metrics of top-n's children") {
+    runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 order by c2 limit 5") {
+      df =>
+        val iit = find(df.queryExecution.executedPlan) {
+          case _: InputIteratorTransformer => true
+          case _ => false
+        }
+        assert(iit.isDefined)
+        val metrics = iit.get.metrics
+        assert(metrics("numOutputRows").value == 5)
+        assert(metrics("outputVectors").value == 1)
     }
   }
 }

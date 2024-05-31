@@ -16,7 +16,6 @@
  */
 package org.apache.gluten.metrics
 
-import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.utils.OASPackageBridge.InputMetricsWrapper
 
 /**
@@ -26,16 +25,19 @@ import org.apache.spark.sql.utils.OASPackageBridge.InputMetricsWrapper
  * TODO: place it to some other where since it's used not only by whole stage facilities
  */
 trait MetricsUpdater extends Serializable {
-
-  def metrics: Map[String, SQLMetric]
-
   def updateInputMetrics(inputMetrics: InputMetricsWrapper): Unit = {}
-
   def updateNativeMetrics(operatorMetrics: IOperatorMetrics): Unit = {}
 }
 
+object NoopMetricsUpdater extends MetricsUpdater {}
+
 final case class MetricsUpdaterTree(updater: MetricsUpdater, children: Seq[MetricsUpdaterTree])
 
-object NoopMetricsUpdater extends MetricsUpdater {
-  override def metrics: Map[String, SQLMetric] = Map.empty
+object MetricsUpdaterTree {
+  object Terminate extends MetricsUpdater {
+    override def updateInputMetrics(inputMetrics: InputMetricsWrapper): Unit =
+      throw new UnsupportedOperationException()
+    override def updateNativeMetrics(operatorMetrics: IOperatorMetrics): Unit =
+      throw new UnsupportedOperationException()
+  }
 }
