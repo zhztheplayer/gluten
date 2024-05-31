@@ -118,9 +118,11 @@ class HeuristicApplier(session: SparkSession)
       List(
         (spark: SparkSession) => MergeTwoPhasesHashBaseAggregate(spark),
         (_: SparkSession) => RewriteSparkPlanRulesManager(),
-        (_: SparkSession) => AddTransformHintRule()
+        (_: SparkSession) => PartitioningDerivation.Add,
+        (_: SparkSession) => AddTransformHintRule(),
+        (_: SparkSession) => TransformPreOverrides(),
+        (_: SparkSession) => PartitioningDerivation.Remove
       ) :::
-      List((_: SparkSession) => TransformPreOverrides()) :::
       List(
         (_: SparkSession) => RemoveNativeWriteFilesSortAndProject(),
         (spark: SparkSession) => RewriteTransformer(spark),

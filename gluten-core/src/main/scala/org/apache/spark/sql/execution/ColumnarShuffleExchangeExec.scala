@@ -18,8 +18,7 @@ package org.apache.spark.sql.execution
 
 import org.apache.gluten.GlutenConfig
 import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.extension.GlutenPlan
-import org.apache.gluten.extension.ValidationResult
+import org.apache.gluten.extension.{GlutenPlan, ValidationResult}
 import org.apache.gluten.sql.shims.SparkShimLoader
 
 import org.apache.spark._
@@ -115,6 +114,16 @@ case class ColumnarShuffleExchangeExec(
   var cachedShuffleRDD: ShuffledColumnarBatchRDD = _
 
   override protected def doValidateInternal(): ValidationResult = {
+    val maxInputPartitions = GlutenConfig.getConf.columnarShuffleMaxInputPartitions
+    if (
+      maxInputPartitions != Integer.MAX_VALUE &&
+      child.outputPartitioning.numPartitions > maxInputPartitions
+    ) {
+      return ValidationResult.notOk(
+        s"Shuffle's input partition number " +
+          s"${child.outputPartitioning.numPartitions} exceeds the max allowed number " +
+          s"$maxInputPartitions")
+    }
     BackendsApiManager.getValidatorApiInstance
       .doColumnarShuffleExchangeExecValidate(outputPartitioning, child)
       .map {

@@ -28,7 +28,6 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 import scala.collection.JavaConverters._
-import scala.collection.JavaConverters.collectionAsScalaIterableConverter
 
 case class GlutenNumaBindingInfo(
     enableNumaBinding: Boolean,
@@ -162,6 +161,10 @@ class GlutenConfig(conf: SQLConf) extends Logging {
   def tmpFile: Option[String] = conf.getConf(COLUMNAR_TEMP_DIR)
 
   @deprecated def broadcastCacheTimeout: Int = conf.getConf(COLUMNAR_BROADCAST_CACHE_TIMEOUT)
+
+  def partitioningDerivation: Boolean = conf.getConf(COLUMNAR_PARTITIONING_DERIVATION)
+
+  def columnarShuffleMaxInputPartitions: Int = conf.getConf(COLUMNAR_SHUFFLE_MAX_INPUT_PARTITIONS)
 
   def columnarShuffleSortThreshold: Int = conf.getConf(COLUMNAR_SHUFFLE_SORT_THRESHOLD)
 
@@ -911,6 +914,21 @@ object GlutenConfig {
       .doc("Enable or disable columnar shuffle.")
       .booleanConf
       .createWithDefault(true)
+
+  val COLUMNAR_PARTITIONING_DERIVATION =
+    buildConf("spark.gluten.sql.columnar.partitioningDerivation")
+      .internal()
+      .doc("Derive accurate scan partitioning information at planning time.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COLUMNAR_SHUFFLE_MAX_INPUT_PARTITIONS =
+    buildConf("spark.gluten.sql.columnar.shuffle.maxInputPartitions")
+      .internal()
+      .doc("Only use columnar shuffle if partition number of the input plan is less than " +
+        "or equals this threshold.")
+      .intConf
+      .createWithDefault(Integer.MAX_VALUE)
 
   val COLUMNAR_SHUFFLE_SORT_THRESHOLD =
     buildConf("spark.gluten.sql.columnar.shuffle.sort.threshold")
