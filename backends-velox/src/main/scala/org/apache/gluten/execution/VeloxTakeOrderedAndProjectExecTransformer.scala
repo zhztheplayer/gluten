@@ -51,6 +51,7 @@ object VeloxTakeOrderedAndProjectExecTransformer extends TakeOrderedAndProjectEx
   }
 
   def offload(from: TakeOrderedAndProjectExec): SparkPlan = {
+    // TODO child ordering and partitioning not found from group leaf
     val (limit, offset) = SparkShimLoader.getSparkShims.getLimitAndOffsetFromTopK(from)
     val child = from.child
     val orderingSatisfies = SortOrder.orderingSatisfies(child.outputOrdering, from.sortOrder)
