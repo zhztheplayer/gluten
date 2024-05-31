@@ -38,9 +38,6 @@ object MetricsUtil extends Logging {
           j.metricsUpdater(),
           // must put the buildPlan first
           Seq(treeifyMetricsUpdaters(j.buildPlan), treeifyMetricsUpdaters(j.streamedPlan)))
-      case t: TransformSupport if t.metricsUpdater() == MetricsUpdater.None =>
-        assert(t.children.size == 1, "MetricsUpdater.None can only be used on unary operator")
-        treeifyMetricsUpdaters(t.children.head)
       case t: TransformSupport =>
         MetricsUpdaterTree(t.metricsUpdater(), t.children.map(treeifyMetricsUpdaters))
       case _ =>
@@ -110,6 +107,8 @@ object MetricsUtil extends Logging {
             s"Updating native metrics failed due to the wrong size of metrics data: " +
               s"$numNativeMetrics")
           ()
+        } else if (mutNode.updater == MetricsUpdater.Terminate) {
+          ()
         } else {
           updateTransformerMetricsInternal(
             mutNode,
@@ -121,7 +120,7 @@ object MetricsUtil extends Logging {
             aggParamsMap)
         }
       } catch {
-        case e: Exception =>
+        case e: Throwable =>
           logWarning(s"Updating native metrics failed due to ${e.getCause}.")
           ()
       }
@@ -139,9 +138,6 @@ object MetricsUtil extends Logging {
       metricsIdx: Int,
       joinParamsMap: JMap[JLong, JoinParams],
       aggParamsMap: JMap[JLong, AggregationParams]): (JLong, Int) = {
-    if (mutNode.updater == MetricsUpdater.Terminate) {
-      return (operatorIdx, metricsIdx)
-    }
     val nodeMetricsList = new JArrayList[MetricsData]()
     var curMetricsIdx = metricsIdx
     relMap
@@ -163,16 +159,18 @@ object MetricsUtil extends Logging {
 
     mutNode.children.foreach {
       child =>
-        val result = updateTransformerMetricsInternal(
-          child,
-          relMap,
-          newOperatorIdx,
-          metrics,
-          curMetricsIdx,
-          joinParamsMap,
-          aggParamsMap)
-        newOperatorIdx = result._1
-        curMetricsIdx = result._2
+        if (child.updater != MetricsUpdater.Terminate) {
+          val result = updateTransformerMetricsInternal(
+            child,
+            relMap,
+            newOperatorIdx,
+            metrics,
+            curMetricsIdx,
+            joinParamsMap,
+            aggParamsMap)
+          newOperatorIdx = result._1
+          curMetricsIdx = result._2
+        }
     }
     (newOperatorIdx, curMetricsIdx)
   }
