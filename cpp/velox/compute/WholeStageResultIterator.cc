@@ -18,6 +18,7 @@
 #include "VeloxBackend.h"
 #include "VeloxRuntime.h"
 #include "config/VeloxConfig.h"
+#include "utils/Common.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
@@ -317,7 +318,18 @@ void WholeStageResultIterator::collectMetrics() {
     std::ostringstream oss;
     oss << "Native Plan with stats for: " << taskInfo_;
     oss << "\n" << planWithStats << std::endl;
-    LOG(INFO) << oss.str();
+    std::string logStr = oss.str();
+    // Split the log message in case its length exceeds the maximum allowed number.
+    const std::vector<std::string>& splits = gluten::splitString(logStr, google::LogMessage::kMaxLogMessageLen);
+    for (int32_t i = 0; i < splits.size(); i++) {
+      auto split = splits.at(i);
+      if (i == 0) {
+        LOG(INFO) << split;
+        continue;
+      }
+      // i >= 1
+      LOG(INFO) << std::endl << "... (last message was truncated)" << std::endl << split;
+    }
   }
 
   auto planStats = velox::exec::toPlanStats(task_->taskStats());

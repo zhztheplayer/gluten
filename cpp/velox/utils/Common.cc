@@ -16,6 +16,7 @@
  */
 
 #include "Common.h"
+#include "utils/exception.h"
 
 namespace gluten {
 
@@ -59,6 +60,21 @@ bool validatePattern(const std::string& pattern, std::string& error) {
     return false;
   }
   return ensureRegexIsCompatible(pattern, error);
+}
+
+std::vector<std::string> splitString(const std::string& str, const size_t length) {
+  GLUTEN_CHECK(!str.empty(), "String to split should not be empty");
+  GLUTEN_CHECK(length > 0, "Splitting length should be positive number");
+  std::vector<std::string> out;
+  for (size_t offset = 0; offset < str.size(); offset += length) {
+    if (offset + length >= str.size()) {
+      // Reaches the last split.
+      out.push_back(str.substr(offset));
+      break;
+    }
+    out.push_back(str.substr(offset, length));
+  }
+  return out;
 }
 
 } // namespace gluten

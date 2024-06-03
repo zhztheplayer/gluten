@@ -35,6 +35,8 @@ static inline void fastCopy(void* dst, const void* src, size_t n) {
   facebook::velox::simd::memcpy(dst, src, n);
 }
 
+std::vector<std::string> splitString(const std::string& str, const size_t length);
+
 #define START_TIMING(timing)                  \
   {                                           \
     auto ptiming = &timing;                   \
