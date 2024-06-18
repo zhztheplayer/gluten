@@ -18,7 +18,7 @@ package org.apache.gluten.integration.clickbench
 
 import org.apache.commons.io.FileUtils
 import org.apache.gluten.integration.DataGen
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{SaveMode, SparkSession}
 
 import java.io.File
 import scala.language.postfixOps
@@ -29,20 +29,35 @@ class ClickBenchDataGen(val spark: SparkSession, dir: String) extends DataGen {
   override def gen(): Unit = {
     println(s"Start to download ClickBench Parquet dataset from URL: $DATA_URL... ")
     // Directly download from official URL.
-    val target = new File(dir + File.separator + FILE_NAME)
-    FileUtils.forceMkdirParent(target)
+    val tmpTarget = new File(dir + File.separator + TMP_FILE_NAME)
+    FileUtils.forceMkdirParent(tmpTarget)
     val cmd =
-      s"wget --no-verbose --show-progress --progress=bar:force:noscroll -O $target $DATA_URL"
+      s"wget --no-verbose --show-progress --progress=bar:force:noscroll -O $tmpTarget $DATA_URL"
     println(s"Executing command: $cmd")
     val code = Process(cmd) !;
     if (code != 0) {
       throw new RuntimeException("Download failed")
     }
-    println(s"ClickBench Parquet dataset successfully downloaded to $target.")
+    println(s"ClickBench Parquet dataset successfully downloaded to $tmpTarget.")
+
+    // Rewrite out the downloaded data to avoid compatibility issues.
+    // This is an operation making the benchmarking more non-standard. We'd find a way
+    // to make Spark be able to load the downloaded data directly.
+    println(s"Rewriting the dataset for Spark compatibility... ")
+    val target = new File(dir + File.separator + FILE_NAME)
+    spark.withConf("spark.sql.parquet.enableVectorizedReader" -> "false") {
+      spark.read
+        .parquet(tmpTarget.getAbsolutePath)
+        .write
+        .mode(SaveMode.Overwrite)
+        .parquet(target.getAbsolutePath)
+    }
+    println(s"Data successfully rewritten and saved to $target. ")
   }
 }
 
 object ClickBenchDataGen {
   private val DATA_URL = "https://datasets.clickhouse.com/hits_compatible/hits.parquet"
+  private val TMP_FILE_NAME = "hits.parquet.tmp"
   private[clickbench] val FILE_NAME = "hits.parquet"
 }
