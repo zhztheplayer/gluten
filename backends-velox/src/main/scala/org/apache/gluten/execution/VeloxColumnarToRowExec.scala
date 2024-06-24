@@ -32,6 +32,8 @@ import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
+import java.util.concurrent.atomic.AtomicLong
+
 import scala.collection.JavaConverters._
 
 case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBase(child = child) {
@@ -111,12 +113,47 @@ case class VeloxColumnarToRowExec(child: SparkPlan) extends ColumnarToRowExecBas
 
 object VeloxColumnarToRowExec {
   def toRowIterator(
-      batches: Iterator[ColumnarBatch],
-      output: Seq[Attribute],
+      in: Iterator[ColumnarBatch],
+      schema: Seq[Attribute],
       numOutputRows: SQLMetric,
       numInputBatches: SQLMetric,
       convertTime: SQLMetric): Iterator[InternalRow] = {
-    if (batches.isEmpty) {
+    val accumulatedInMillis = new AtomicLong(0L)
+    val accumulatedOutMillis = new AtomicLong(0L)
+    val wrappedIn = Iterators
+      .wrap(in)
+      .collectReadMillis(inMillis => accumulatedInMillis.getAndAdd(inMillis))
+      .create()
+      .map {
+        inBatch =>
+          numInputBatches += 1
+          inBatch
+      }
+    val out = {
+      val prev = System.currentTimeMillis()
+      val cItr = toRowIterator0(wrappedIn, schema)
+      convertTime += (System.currentTimeMillis() - prev)
+      cItr
+    }
+    val wrappedOut = Iterators
+      .wrap(out)
+      .collectReadMillis(outMillis => accumulatedOutMillis.getAndAdd(outMillis))
+      .recycleIterator {
+        convertTime += (accumulatedOutMillis.get() - accumulatedInMillis.get())
+      }
+      .create()
+      .map {
+        outRow =>
+          numOutputRows += 1
+          outRow
+      }
+    wrappedOut
+  }
+
+  private def toRowIterator0(
+      in: Iterator[ColumnarBatch],
+      schema: Seq[Attribute]): Iterator[InternalRow] = {
+    if (in.isEmpty) {
       return Iterator.empty
     }
 
@@ -128,13 +165,11 @@ object VeloxColumnarToRowExec {
     val res: Iterator[Iterator[InternalRow]] = new Iterator[Iterator[InternalRow]] {
 
       override def hasNext: Boolean = {
-        batches.hasNext
+        in.hasNext
       }
 
       override def next(): Iterator[InternalRow] = {
-        val batch = batches.next()
-        numInputBatches += 1
-        numOutputRows += batch.numRows()
+        val batch = in.next()
 
         if (batch.numRows == 0) {
           batch.close()
@@ -144,24 +179,19 @@ object VeloxColumnarToRowExec {
           !ColumnarBatches.isLightBatch(batch)
         ) {
           // Fallback to ColumnarToRow of vanilla Spark.
-          val localOutput = output
+          val localOutput = schema
           val toUnsafe = UnsafeProjection.create(localOutput, localOutput)
           batch.rowIterator().asScala.map(toUnsafe)
-        } else if (output.isEmpty) {
-          numInputBatches += 1
-          numOutputRows += batch.numRows()
+        } else if (schema.isEmpty) {
           val rows = ColumnarBatches.emptyRowIterator(batch.numRows()).asScala
           batch.close()
           rows
         } else {
           val cols = batch.numCols()
           val rows = batch.numRows()
-          val beforeConvert = System.currentTimeMillis()
           val batchHandle = ColumnarBatches.getNativeHandle(batch)
           val info =
             jniWrapper.nativeColumnarToRowConvert(batchHandle, c2rId)
-
-          convertTime += (System.currentTimeMillis() - beforeConvert)
 
           new Iterator[InternalRow] {
             var rowId = 0

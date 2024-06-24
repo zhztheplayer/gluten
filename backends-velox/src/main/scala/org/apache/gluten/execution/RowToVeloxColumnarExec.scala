@@ -41,6 +41,8 @@ import org.apache.spark.util.TaskResources
 import org.apache.arrow.c.ArrowSchema
 import org.apache.arrow.memory.ArrowBuf
 
+import java.util.concurrent.atomic.AtomicLong
+
 import scala.collection.mutable.ListBuffer
 
 case class RowToVeloxColumnarExec(child: SparkPlan) extends RowToColumnarExecBase(child = child) {
@@ -108,13 +110,49 @@ case class RowToVeloxColumnarExec(child: SparkPlan) extends RowToColumnarExecBas
 
 object RowToVeloxColumnarExec {
   def toColumnarBatchIterator(
-      it: Iterator[InternalRow],
+      in: Iterator[InternalRow],
       schema: StructType,
       numInputRows: SQLMetric,
       numOutputBatches: SQLMetric,
       convertTime: SQLMetric,
       columnBatchSize: Int): Iterator[ColumnarBatch] = {
-    if (it.isEmpty) {
+    val accumulatedInMillis = new AtomicLong(0L)
+    val accumulatedOutMillis = new AtomicLong(0L)
+    val wrappedIn = Iterators
+      .wrap(in)
+      .collectReadMillis(inMillis => accumulatedInMillis.getAndAdd(inMillis))
+      .create()
+      .map {
+        inRow =>
+          numInputRows += 1
+          inRow
+      }
+    val out = {
+      val prev = System.currentTimeMillis()
+      val cItr = toColumnarBatchIterator0(wrappedIn, schema, columnBatchSize)
+      convertTime += (System.currentTimeMillis() - prev)
+      cItr
+    }
+    val wrappedOut = Iterators
+      .wrap(out)
+      .collectReadMillis(outMillis => accumulatedOutMillis.getAndAdd(outMillis))
+      .recycleIterator {
+        convertTime += (accumulatedOutMillis.get() - accumulatedInMillis.get())
+      }
+      .create()
+      .map {
+        outBatch =>
+          numOutputBatches += 1
+          outBatch
+      }
+    wrappedOut
+  }
+
+  private def toColumnarBatchIterator0(
+      in: Iterator[InternalRow],
+      schema: StructType,
+      columnBatchSize: Int): Iterator[ColumnarBatch] = {
+    if (in.isEmpty) {
       return Iterator.empty
     }
 
@@ -141,7 +179,7 @@ object RowToVeloxColumnarExec {
         if (finished) {
           false
         } else {
-          it.hasNext
+          in.hasNext
         }
       }
 
@@ -154,8 +192,7 @@ object RowToVeloxColumnarExec {
       }
 
       override def next(): ColumnarBatch = {
-        val firstRow = it.next()
-        val start = System.currentTimeMillis()
+        val firstRow = in.next()
         val row = convertToUnsafeRow(firstRow)
         var arrowBuf: ArrowBuf = null
         TaskResources.addRecycler("RowToColumnar_arrowBuf", 100) {
@@ -185,14 +222,12 @@ object RowToVeloxColumnarExec {
         rowLength += sizeInBytes.toLong
         rowCount += 1
 
-        convertTime += System.currentTimeMillis() - start
         while (rowCount < columnBatchSize && !finished) {
-          val iterHasNext = it.hasNext
+          val iterHasNext = in.hasNext
           if (!iterHasNext) {
             finished = true
           } else {
-            val row = it.next()
-            val start2 = System.currentTimeMillis()
+            val row = in.next()
             val unsafeRow = convertToUnsafeRow(row)
             val sizeInBytes = unsafeRow.getSizeInBytes
             if ((offset + sizeInBytes) > arrowBuf.capacity()) {
@@ -210,17 +245,12 @@ object RowToVeloxColumnarExec {
             offset += sizeInBytes
             rowLength += sizeInBytes.toLong
             rowCount += 1
-            convertTime += System.currentTimeMillis() - start2
           }
         }
-        numInputRows += rowCount
-        numOutputBatches += 1
-        val startNative = System.currentTimeMillis()
         try {
           val handle = jniWrapper
             .nativeConvertRowToColumnar(r2cHandle, rowLength.toArray, arrowBuf.memoryAddress())
           val cb = ColumnarBatches.create(Runtimes.contextInstance(), handle)
-          convertTime += System.currentTimeMillis() - startNative
           cb
         } finally {
           arrowBuf.close()
@@ -231,10 +261,10 @@ object RowToVeloxColumnarExec {
     Iterators
       .wrap(res)
       .protectInvocationFlow()
+      .recyclePayload(_.close())
       .recycleIterator {
         jniWrapper.close(r2cHandle)
       }
-      .recyclePayload(_.close())
       .create()
   }
 }
