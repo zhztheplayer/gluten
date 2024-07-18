@@ -602,6 +602,7 @@ jobs:
             /root/.m2/repository/org/apache/arrow/
           key: cache-velox-build-centos-8-${{ hashFiles('./cache-key') }}
       - name: Update mirror list
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         run: |
           sed -i -e "s|mirrorlist=|#mirrorlist=|g" /etc/yum.repos.d/CentOS-* || true
           sed -i -e "s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g" /etc/yum.repos.d/CentOS-* || true
@@ -622,6 +623,7 @@ jobs:
           ./dev/builddeps-veloxbe.sh --run_setup_script=OFF --enable_ep_cache=OFF --build_tests=ON \
               --build_examples=ON --build_benchmarks=ON --build_protobuf=ON
       - name: Gluten CPP Test
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         run: |
           cd ./cpp/build && \
           ctest -V
