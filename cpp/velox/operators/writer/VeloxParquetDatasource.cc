@@ -22,7 +22,7 @@
 #include <string>
 
 #include "arrow/c/bridge.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "config/GlutenConfig.h"
 
 #include "utils/ConfigExtractor.h"

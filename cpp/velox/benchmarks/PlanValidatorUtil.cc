@@ -17,7 +17,7 @@
 
 #include "benchmarks/common/BenchmarkUtils.h"
 #include "compute/VeloxBackend.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "config/GlutenConfig.h"
 #include "memory/VeloxMemoryManager.h"
 #include "substrait/SubstraitToVeloxPlanValidator.h"

@@ -172,7 +172,7 @@ endmacro()
 # Build Velox backend.
 set(VELOX_SRCS
     compute/VeloxBackend.cc
-    compute/VeloxRuntime.cc
+        compute/VeloxExecution.cc
     compute/WholeStageResultIterator.cc
     compute/VeloxPlanConverter.cc
     compute/iceberg/IcebergPlanConverter.cc

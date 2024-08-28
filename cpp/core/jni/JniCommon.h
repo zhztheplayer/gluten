@@ -22,6 +22,7 @@
 #include <execinfo.h>
 #include <jni.h>
 
+#include "compute/Execution.h"
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
 #include "config/GlutenConfig.h"

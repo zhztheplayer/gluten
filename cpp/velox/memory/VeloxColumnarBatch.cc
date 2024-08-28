@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 #include "VeloxColumnarBatch.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "utils/Timer.h"
 #include "utils/VeloxArrowUtils.h"
 #include "velox/row/UnsafeRowFast.h"

@@ -18,6 +18,7 @@
 #pragma once
 
 #include "memory/ColumnarBatch.h"
+#include "memory/ColumnarBatchIterator.h"
 
 #include <arrow/ipc/message.h>
 #include <arrow/ipc/options.h>

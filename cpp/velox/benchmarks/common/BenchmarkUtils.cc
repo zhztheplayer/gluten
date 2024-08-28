@@ -17,7 +17,7 @@
 
 #include "BenchmarkUtils.h"
 #include "compute/VeloxBackend.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "config/VeloxConfig.h"
 #include "shuffle/Utils.h"
 #include "utils/StringUtil.h"

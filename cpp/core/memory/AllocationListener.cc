@@ -26,8 +26,9 @@ class NoopAllocationListener : public gluten::AllocationListener {
   }
 };
 
-std::unique_ptr<AllocationListener> AllocationListener::noop() {
-  return std::make_unique<NoopAllocationListener>();
+AllocationListener* AllocationListener::noop() {
+  static auto l = std::make_unique<NoopAllocationListener>();
+  return l.get();
 }
 
 } // namespace gluten

@@ -27,8 +27,8 @@
 #include "benchmarks/common/BenchmarkUtils.h"
 #include "benchmarks/common/FileReaderIterator.h"
 #include "compute/VeloxBackend.h"
+#include "compute/VeloxExecution.h"
 #include "compute/VeloxPlanConverter.h"
-#include "compute/VeloxRuntime.h"
 #include "config/GlutenConfig.h"
 #include "config/VeloxConfig.h"
 #include "shuffle/LocalPartitionWriter.h"
@@ -593,7 +593,7 @@ int main(int argc, char** argv) {
   }
 
   RuntimeFactory runtimeFactory = [=](std::unique_ptr<AllocationListener> listener) {
-    return dynamic_cast<VeloxRuntime*>(Runtime::create(kVeloxRuntimeKind, std::move(listener), sessionConf));
+    return dynamic_cast<VeloxRuntime*>(Runtime::create(kVeloxExecutionKind, std::move(listener), sessionConf));
   };
 
 #define GENERIC_BENCHMARK(READER_TYPE)                                                                             \

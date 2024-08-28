@@ -17,6 +17,7 @@
 #include <filesystem>
 
 #include "VeloxBackend.h"
+#include "compute/Execution.h"
 
 #include <folly/executors/IOThreadPoolExecutor.h>
 
@@ -30,7 +31,7 @@
 #ifdef GLUTEN_ENABLE_IAA
 #include "utils/qpl/qpl_codec.h"
 #endif
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "config/VeloxConfig.h"
 #include "jni/JniFileSystem.h"
 #include "operators/functions/SparkTokenizer.h"
@@ -56,10 +57,8 @@ using namespace facebook;
 namespace gluten {
 
 namespace {
-gluten::Runtime* veloxRuntimeFactory(
-    std::unique_ptr<AllocationListener> listener,
-    const std::unordered_map<std::string, std::string>& sessionConf) {
-  return new gluten::VeloxRuntime(std::move(listener), sessionConf);
+gluten::Execution* veloxExecutionFactory(Runtime* runtime) {
+  return new gluten::VeloxExecution(runtime);
 }
 } // namespace
 
@@ -67,8 +66,8 @@ void VeloxBackend::init(const std::unordered_map<std::string, std::string>& conf
   backendConf_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(conf));
 
-  // Register Velox runtime factory
-  gluten::Runtime::registerFactory(gluten::kVeloxRuntimeKind, veloxRuntimeFactory);
+  // Register Velox execution factory.
+  gluten::Execution::registerFactory(gluten::kVeloxExecutionKind, veloxExecutionFactory);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
     LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 
 #include <gtest/gtest.h>
 #include "compute/VeloxBackend.h"
@@ -135,7 +135,7 @@ TEST(TestRuntime, CreateRuntime) {
 
 TEST(TestRuntime, CreateVeloxRuntime) {
   VeloxBackend::create({});
-  auto runtime = Runtime::create(kVeloxRuntimeKind, AllocationListener::noop());
+  auto runtime = Runtime::create(kVeloxExecutionKind, AllocationListener::noop());
   ASSERT_EQ(typeid(*runtime), typeid(VeloxRuntime));
   Runtime::release(runtime);
 }

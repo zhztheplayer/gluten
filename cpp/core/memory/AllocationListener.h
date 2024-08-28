@@ -25,7 +25,7 @@ namespace gluten {
 
 class AllocationListener {
  public:
-  static std::unique_ptr<AllocationListener> noop();
+  static AllocationListener* noop();
 
   virtual ~AllocationListener() = default;
 

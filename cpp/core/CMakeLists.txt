@@ -179,6 +179,7 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     ${SUBSTRAIT_PROTO_SRCS}
     ${GLUTEN_PROTO_SRCS}
     compute/Runtime.cc
+        compute/Execution.cc
     compute/ProtobufUtils.cc
     compute/ResultIterator.cc
     config/GlutenConfig.cc

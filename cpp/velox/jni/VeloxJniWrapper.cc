@@ -24,7 +24,7 @@
 #include "JniUdf.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxBackend.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "config/GlutenConfig.h"
 #include "jni/JniError.h"
 #include "jni/JniFileSystem.h"

@@ -16,6 +16,7 @@
  */
 #pragma once
 
+#include "compute/Execution.h"
 #include "compute/Runtime.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "memory/ColumnarBatchIterator.h"

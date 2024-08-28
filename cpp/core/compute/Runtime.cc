@@ -20,52 +20,14 @@
 
 namespace gluten {
 
-namespace {
-class FactoryRegistry {
- public:
-  void registerFactory(const std::string& kind, Runtime::Factory factory) {
-    std::lock_guard<std::mutex> l(mutex_);
-    GLUTEN_CHECK(map_.find(kind) == map_.end(), "Runtime factory already registered for " + kind);
-    map_[kind] = std::move(factory);
-  }
-
-  Runtime::Factory& getFactory(const std::string& kind) {
-    std::lock_guard<std::mutex> l(mutex_);
-    GLUTEN_CHECK(map_.find(kind) != map_.end(), "Runtime factory not registered for " + kind);
-    return map_[kind];
-  }
-
-  bool unregisterFactory(const std::string& kind) {
-    std::lock_guard<std::mutex> l(mutex_);
-    GLUTEN_CHECK(map_.find(kind) != map_.end(), "Runtime factory not registered for " + kind);
-    return map_.erase(kind);
-  }
-
- private:
-  std::mutex mutex_;
-  std::unordered_map<std::string, Runtime::Factory> map_;
-};
-
-FactoryRegistry& runtimeFactories() {
-  static FactoryRegistry registry;
-  return registry;
-}
-} // namespace
-
-void Runtime::registerFactory(const std::string& kind, Runtime::Factory factory) {
-  runtimeFactories().registerFactory(kind, std::move(factory));
-}
-
 Runtime* Runtime::create(
     const std::string& kind,
     std::unique_ptr<AllocationListener> listener,
     const std::unordered_map<std::string, std::string>& sessionConf) {
-  auto& factory = runtimeFactories().getFactory(kind);
-  return factory(std::move(listener), sessionConf);
+  return new Runtime(kind, std::move(listener), sessionConf);
 }
 
 void Runtime::release(Runtime* runtime) {
   delete runtime;
 }
-
 } // namespace gluten

@@ -34,7 +34,7 @@
 #include <chrono>
 
 #include "benchmarks/common/BenchmarkUtils.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 #include "memory/ArrowMemoryPool.h"
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
@@ -257,7 +257,7 @@ class GoogleBenchmarkVeloxParquetWriteCacheScanBenchmark : public GoogleBenchmar
     // reuse the ParquetWriteConverter for batches caused system % increase a lot
     auto fileName = "velox_parquet_write.parquet";
 
-    auto runtime = Runtime::create(kVeloxRuntimeKind, AllocationListener::noop());
+    auto runtime = Runtime::create(kVeloxExecutionKind, AllocationListener::noop());
     auto memoryManager = getDefaultMemoryManager();
     auto veloxPool = memoryManager->getAggregateMemoryPool();
 

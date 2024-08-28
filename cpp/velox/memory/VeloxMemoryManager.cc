@@ -200,17 +200,17 @@ class ArbitratorFactoryRegister {
   gluten::AllocationListener* listener_;
 };
 
-VeloxMemoryManager::VeloxMemoryManager(std::unique_ptr<AllocationListener> listener)
-    : MemoryManager(), listener_(std::move(listener)) {
+VeloxMemoryManager::VeloxMemoryManager(AllocationListener* listener)
+    : MemoryManager(), listener_(listener) {
   auto reservationBlockSize = VeloxBackend::get()->getBackendConf()->get<uint64_t>(
       kMemoryReservationBlockSize, kMemoryReservationBlockSizeDefault);
   auto memInitCapacity =
       VeloxBackend::get()->getBackendConf()->get<uint64_t>(kVeloxMemInitCapacity, kVeloxMemInitCapacityDefault);
-  blockListener_ = std::make_unique<BlockAllocationListener>(listener_.get(), reservationBlockSize);
+  blockListener_ = std::make_unique<BlockAllocationListener>(listener_, reservationBlockSize);
   listenableAlloc_ = std::make_unique<ListenableMemoryAllocator>(defaultMemoryAllocator().get(), blockListener_.get());
   arrowPool_ = std::make_unique<ArrowMemoryPool>(listenableAlloc_.get());
 
-  ArbitratorFactoryRegister afr(listener_.get());
+  ArbitratorFactoryRegister afr(listener_);
   velox::memory::MemoryManagerOptions mmOptions{
       .alignment = velox::memory::MemoryAllocator::kMaxAlignment,
       .trackDefaultUsage = true, // memory usage tracking

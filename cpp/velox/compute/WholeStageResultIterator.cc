@@ -16,7 +16,7 @@
  */
 #include "WholeStageResultIterator.h"
 #include "VeloxBackend.h"
-#include "VeloxRuntime.h"
+#include "VeloxExecution.h"
 #include "config/VeloxConfig.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"

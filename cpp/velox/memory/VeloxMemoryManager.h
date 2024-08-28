@@ -28,7 +28,7 @@ namespace gluten {
 // Make sure the class is thread safe
 class VeloxMemoryManager final : public MemoryManager {
  public:
-  VeloxMemoryManager(std::unique_ptr<AllocationListener> listener);
+  VeloxMemoryManager(AllocationListener* listener);
 
   ~VeloxMemoryManager() override;
   VeloxMemoryManager(const VeloxMemoryManager&) = delete;
@@ -64,7 +64,7 @@ class VeloxMemoryManager final : public MemoryManager {
   }
 
   AllocationListener* getListener() const {
-    return listener_.get();
+    return listener_;
   }
 
  private:
@@ -76,7 +76,7 @@ class VeloxMemoryManager final : public MemoryManager {
 
   // This is a listenable allocator used for arrow.
   std::unique_ptr<MemoryAllocator> listenableAlloc_;
-  std::unique_ptr<AllocationListener> listener_;
+  AllocationListener* listener_;
   std::unique_ptr<AllocationListener> blockListener_;
   std::unique_ptr<arrow::MemoryPool> arrowPool_;
 

@@ -18,7 +18,7 @@
 #pragma once
 
 #include "WholeStageResultIterator.h"
-#include "compute/Runtime.h"
+#include "compute/Execution.h"
 #include "memory/VeloxMemoryManager.h"
 #include "operators/serializer/VeloxColumnarBatchSerializer.h"
 #include "operators/serializer/VeloxColumnarToRowConverter.h"
@@ -29,19 +29,15 @@
 namespace gluten {
 
 // This kind string must be same with VeloxBackend#name in java side.
-inline static const std::string kVeloxRuntimeKind{"velox"};
+inline static const std::string kVeloxExecutionKind{"velox"};
 
-class VeloxRuntime final : public Runtime {
+class VeloxExecution final : public Execution {
  public:
-  explicit VeloxRuntime(
-      std::unique_ptr<AllocationListener> listener,
-      const std::unordered_map<std::string, std::string>& confMap);
+  explicit VeloxExecution(Runtime* runtime);
 
   void parsePlan(const uint8_t* data, int32_t size, std::optional<std::string> dumpFile) override;
 
   void parseSplitInfo(const uint8_t* data, int32_t size, std::optional<std::string> dumpFile) override;
-
-  VeloxMemoryManager* memoryManager() override;
 
   // FIXME This is not thread-safe?
   std::shared_ptr<ResultIterator> createResultIterator(
@@ -83,6 +79,8 @@ class VeloxRuntime final : public Runtime {
 
   void dumpConf(const std::string& path) override;
 
+  VeloxMemoryManager* memoryManager();
+
   std::shared_ptr<const facebook::velox::core::PlanNode> getVeloxPlan() {
     return veloxPlan_;
   }
@@ -99,7 +97,7 @@ class VeloxRuntime final : public Runtime {
       std::vector<facebook::velox::core::PlanNodeId>& streamIds);
 
  private:
-  VeloxMemoryManager* vmm_;
+  std::unique_ptr<VeloxMemoryManager> vmm_;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
   std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg_;
   bool debugModeEnabled_{false};

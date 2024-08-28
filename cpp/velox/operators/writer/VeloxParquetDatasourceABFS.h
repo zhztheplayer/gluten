@@ -24,7 +24,7 @@
 #include <string>
 
 #include "arrow/c/bridge.h"
-#include "compute/VeloxRuntime.h"
+#include "compute/VeloxExecution.h"
 
 #include "velox/common/compression/Compression.h"
 #include "velox/core/QueryConfig.h"
