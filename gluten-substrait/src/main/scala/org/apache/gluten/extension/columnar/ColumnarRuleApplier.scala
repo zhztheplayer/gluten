@@ -18,8 +18,8 @@ package org.apache.gluten.extension.columnar
 
 import org.apache.gluten.GlutenConfig
 import org.apache.gluten.extension.columnar.util.AdaptiveContext
+import org.apache.gluten.logging.LogLevelUtil
 import org.apache.gluten.metrics.GlutenTimeMetric
-import org.apache.gluten.utils.LogLevelUtil
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession

@@ -24,8 +24,7 @@ import org.apache.gluten.init.NativeBackendInitializer
 import org.apache.gluten.jni.{JniLibLoader, JniWorkspace}
 import org.apache.gluten.udf.UdfJniWrapper
 import org.apache.gluten.utils._
-
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.{HdfsConfGenerator, SparkConf, SparkContext}
 import org.apache.spark.api.plugin.PluginContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.network.util.ByteUnit
@@ -33,7 +32,6 @@ import org.apache.spark.sql.execution.datasources.velox.{VeloxOrcWriterInjects, 
 import org.apache.spark.sql.expression.UDFResolver
 import org.apache.spark.sql.internal.{GlutenConfigUtil, StaticSQLConf}
 import org.apache.spark.util.{SparkDirectoryUtil, SparkResourceUtil}
-
 import org.apache.commons.lang3.StringUtils
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,6 +41,9 @@ class VeloxListenerApi extends ListenerApi with Logging {
 
   override def onDriverStart(sc: SparkContext, pc: PluginContext): Unit = {
     val conf = pc.conf()
+
+    // Generate HDFS client configurations.
+    HdfsConfGenerator.addHdfsClientToSparkWorkDirectory(sc)
 
     // Overhead memory limits.
     val offHeapSize = conf.getSizeAsBytes(GlutenConfig.SPARK_OFFHEAP_SIZE_KEY)

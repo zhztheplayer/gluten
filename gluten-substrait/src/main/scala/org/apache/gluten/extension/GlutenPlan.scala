@@ -24,12 +24,10 @@ import org.apache.gluten.extension.columnar.transition.Convention
 import org.apache.gluten.substrait.SubstraitContext
 import org.apache.gluten.substrait.plan.PlanBuilder
 import org.apache.gluten.substrait.rel.RelNode
-import org.apache.gluten.test.TestStats
-import org.apache.gluten.utils.LogLevelUtil
-
+import org.apache.gluten.utils.TestStats
 import org.apache.spark.sql.execution.SparkPlan
-
 import com.google.common.collect.Lists
+import org.apache.gluten.logging.LogLevelUtil
 
 sealed trait ValidationResult {
   def ok(): Boolean

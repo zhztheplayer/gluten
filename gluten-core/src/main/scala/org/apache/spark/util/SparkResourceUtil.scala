@@ -16,11 +16,11 @@
  */
 package org.apache.spark.util
 
-import org.apache.spark.{SparkConf, SparkMasterRegex}
 import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config.{EXECUTOR_MEMORY, EXECUTOR_MEMORY_OVERHEAD}
 import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.{SparkConf, SparkMasterRegex}
 
 object SparkResourceUtil extends Logging {
   private val MEMORY_OVERHEAD_FACTOR = "spark.executor.memoryOverheadFactor"

@@ -19,7 +19,8 @@ package org.apache.gluten.extension.columnar.enumerated
 import org.apache.gluten.extension.columnar._
 import org.apache.gluten.extension.columnar.ColumnarRuleApplier.{ColumnarRuleBuilder, ColumnarRuleCall}
 import org.apache.gluten.extension.columnar.util.AdaptiveContext
-import org.apache.gluten.utils.{LogLevelUtil, PhysicalPlanSelector}
+import org.apache.gluten.logging.LogLevelUtil
+import org.apache.gluten.utils.PhysicalPlanSelector
 
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.internal.Logging

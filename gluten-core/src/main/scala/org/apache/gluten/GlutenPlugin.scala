@@ -17,26 +17,22 @@
 package org.apache.gluten
 
 import org.apache.gluten.GlutenConfig.GLUTEN_DEFAULT_SESSION_TIMEZONE_KEY
-import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.events.GlutenBuildInfoEvent
 import org.apache.gluten.exception.GlutenException
-import org.apache.gluten.extension.GlutenSessionExtensions.{GLUTEN_SESSION_EXTENSION_NAME, SPARK_SESSION_EXTS_KEY}
+import org.apache.gluten.extension.GlutenSessionExtensions
 import org.apache.gluten.task.TaskListener
-import org.apache.gluten.test.TestStats
-
-import org.apache.spark.{HdfsConfGenerator, SparkConf, SparkContext, TaskFailedReason}
 import org.apache.spark.api.plugin.{DriverPlugin, ExecutorPlugin, PluginContext, SparkPlugin}
 import org.apache.spark.internal.Logging
-import org.apache.spark.listener.GlutenListenerFactory
 import org.apache.spark.network.util.JavaUtils
-import org.apache.spark.sql.execution.ui.GlutenEventUtils
+import org.apache.spark.softaffinity.SoftAffinityListener
+import org.apache.spark.sql.execution.ui.{GlutenEventUtils, GlutenSQLAppStatusListener}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.task.TaskResources
 import org.apache.spark.util.SparkResourceUtil
+import org.apache.spark.{SparkConf, SparkContext, TaskFailedReason}
 
 import java.util
 import java.util.Collections
-
 import scala.collection.mutable
 
 class GlutenPlugin extends SparkPlugin {
@@ -54,33 +50,29 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
   override def init(sc: SparkContext, pluginContext: PluginContext): util.Map[String, String] = {
     _sc = Some(sc)
-    GlutenEventUtils.registerListener(sc)
+    GlutenSQLAppStatusListener.register(sc)
     postBuildInfoEvent(sc)
 
     val conf = pluginContext.conf()
-    if (conf.getBoolean(GlutenConfig.UT_STATISTIC.key, defaultValue = false)) {
-      // Only statistic in UT, not thread safe
-      TestStats.beginStatistic()
-    }
 
     setPredefinedConfigs(sc, conf)
-    if (BackendsApiManager.getSettings.generateHdfsConfForLibhdfs()) {
-      HdfsConfGenerator.addHdfsClientToSparkWorkDirectory(sc)
-    }
     // Initialize Backends API
     BackendsApiManager.initialize()
     BackendsApiManager.getListenerApiInstance.onDriverStart(sc, pluginContext)
-    GlutenListenerFactory.addToSparkListenerBus(sc)
+    if (sc.getConf.getBoolean(
+        GlutenConfig.GLUTEN_SOFT_AFFINITY_ENABLED,
+        GlutenConfig.GLUTEN_SOFT_AFFINITY_ENABLED_DEFAULT_VALUE)) {
+      SoftAffinityListener.register(sc)
+    }
 
     Collections.emptyMap()
   }
 
   override def registerMetrics(appId: String, pluginContext: PluginContext): Unit = {
     if (pluginContext.conf().getBoolean(GlutenConfig.GLUTEN_UI_ENABLED, true)) {
-      _sc.foreach {
-        sc =>
-          GlutenEventUtils.attachUI(sc)
-          logInfo("Gluten SQL Tab has attached.")
+      _sc.foreach { sc =>
+        GlutenEventUtils.attachUI(sc)
+        logInfo("Gluten SQL Tab has attached.")
       }
     }
   }
@@ -114,15 +106,13 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
     val infoMap = glutenBuildInfo.toMap
     val loggingInfo = infoMap.toSeq
       .sortBy(_._1)
-      .map {
-        case (name, value) =>
-          s"$name: $value"
+      .map { case (name, value) =>
+        s"$name: $value"
       }
       .mkString(
         "Gluten build info:\n==============================================================\n",
         "\n",
-        "\n=============================================================="
-      )
+        "\n==============================================================")
     logInfo(loggingInfo)
     val event = GlutenBuildInfoEvent(infoMap)
     GlutenEventUtils.post(sc, event)
@@ -130,12 +120,12 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
   private def setPredefinedConfigs(sc: SparkContext, conf: SparkConf): Unit = {
     // sql extensions
-    val extensions = if (conf.contains(SPARK_SESSION_EXTS_KEY)) {
-      s"${conf.get(SPARK_SESSION_EXTS_KEY)},$GLUTEN_SESSION_EXTENSION_NAME"
+    val extensions = if (conf.contains(GlutenSessionExtensions.SPARK_SESSION_EXTS_KEY)) {
+      s"${conf.get(GlutenSessionExtensions.SPARK_SESSION_EXTS_KEY)},${GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME}"
     } else {
-      s"$GLUTEN_SESSION_EXTENSION_NAME"
+      s"${GlutenSessionExtensions.GLUTEN_SESSION_EXTENSION_NAME}"
     }
-    conf.set(SPARK_SESSION_EXTS_KEY, extensions)
+    conf.set(GlutenSessionExtensions.SPARK_SESSION_EXTS_KEY, extensions)
 
     // adaptive custom cost evaluator class
     if (GlutenConfig.getConf.enableGluten && GlutenConfig.getConf.enableGlutenCostEvaluator) {
@@ -145,12 +135,10 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
     // check memory off-heap enabled and size
     val minOffHeapSize = "1MB"
-    if (
-      !conf.getBoolean(GlutenConfig.GLUTEN_DYNAMIC_OFFHEAP_SIZING_ENABLED, false) &&
+    if (!conf.getBoolean(GlutenConfig.GLUTEN_DYNAMIC_OFFHEAP_SIZING_ENABLED, false) &&
       (!conf.getBoolean(GlutenConfig.SPARK_OFFHEAP_ENABLED, false) ||
         conf.getSizeAsBytes(GlutenConfig.SPARK_OFFHEAP_SIZE_KEY, 0) < JavaUtils.byteStringAsBytes(
-          minOffHeapSize))
-    ) {
+          minOffHeapSize))) {
       throw new GlutenException(
         s"Must set '${GlutenConfig.SPARK_OFFHEAP_ENABLED}' to true " +
           s"and set '${GlutenConfig.SPARK_OFFHEAP_SIZE_KEY}' to be greater than $minOffHeapSize")
@@ -158,7 +146,9 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
 
     // Session's local time zone must be set. If not explicitly set by user, its default
     // value (detected for the platform) is used, consistent with spark.
-    conf.set(GLUTEN_DEFAULT_SESSION_TIMEZONE_KEY, SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString)
+    conf.set(
+      GLUTEN_DEFAULT_SESSION_TIMEZONE_KEY,
+      SQLConf.SESSION_LOCAL_TIMEZONE.defaultValueString)
 
     // Task slots.
     val taskSlots = SparkResourceUtil.getTaskSlots(conf)
@@ -244,13 +234,12 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
     }
     // When the Velox cache is enabled, the Velox file handle cache should also be enabled.
     // Otherwise, a 'reference id not found' error may occur.
-    if (
-      conf.getBoolean(GlutenConfig.COLUMNAR_VELOX_CACHE_ENABLED.key, false) && !conf.getBoolean(
+    if (conf.getBoolean(GlutenConfig.COLUMNAR_VELOX_CACHE_ENABLED.key, false) && !conf.getBoolean(
         GlutenConfig.COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED.key,
-        false)
-    ) {
-      throw new IllegalArgumentException(s"${GlutenConfig.COLUMNAR_VELOX_CACHE_ENABLED.key} and " +
-        s"${GlutenConfig.COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED.key} should be enabled together.")
+        false)) {
+      throw new IllegalArgumentException(
+        s"${GlutenConfig.COLUMNAR_VELOX_CACHE_ENABLED.key} and " +
+          s"${GlutenConfig.COLUMNAR_VELOX_FILE_HANDLE_CACHE_ENABLED.key} should be enabled together.")
     }
   }
 }

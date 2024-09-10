@@ -17,7 +17,6 @@
 package org.apache.spark.sql
 
 import org.apache.gluten.test.TestStats
-
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql.catalyst.expressions._
 

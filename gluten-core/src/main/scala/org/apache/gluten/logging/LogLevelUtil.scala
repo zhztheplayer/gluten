@@ -14,22 +14,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.spark.listener
+package org.apache.gluten.logging
 
-import org.apache.gluten.GlutenConfig
-import org.apache.gluten.softaffinity.scheduler.SoftAffinityListener
+import org.apache.spark.internal.Logging
 
-import org.apache.spark.SparkContext
+trait LogLevelUtil { self: Logging =>
 
-object GlutenListenerFactory {
-  def addToSparkListenerBus(sc: SparkContext): Unit = {
-    if (
-      sc.getConf.getBoolean(
-        GlutenConfig.GLUTEN_SOFT_AFFINITY_ENABLED,
-        GlutenConfig.GLUTEN_SOFT_AFFINITY_ENABLED_DEFAULT_VALUE
-      )
-    ) {
-      sc.listenerBus.addToStatusQueue(new SoftAffinityListener())
+  protected def logOnLevel(level: String, msg: => String): Unit =
+    level match {
+      case "TRACE" => logTrace(msg)
+      case "DEBUG" => logDebug(msg)
+      case "INFO" => logInfo(msg)
+      case "WARN" => logWarning(msg)
+      case "ERROR" => logError(msg)
+      case _ => logDebug(msg)
     }
-  }
+
+  protected def logOnLevel(level: String, msg: => String, e: Throwable): Unit =
+    level match {
+      case "TRACE" => logTrace(msg, e)
+      case "DEBUG" => logDebug(msg, e)
+      case "INFO" => logInfo(msg, e)
+      case "WARN" => logWarning(msg, e)
+      case "ERROR" => logError(msg, e)
+      case _ => logDebug(msg, e)
+    }
 }

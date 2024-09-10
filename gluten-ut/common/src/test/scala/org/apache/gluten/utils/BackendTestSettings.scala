@@ -17,11 +17,9 @@
 package org.apache.gluten.utils
 
 import org.apache.gluten.test.TestStats
-
 import org.apache.spark.sql.GlutenTestConstants.GLUTEN_TEST
 
 import java.util
-
 import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
 

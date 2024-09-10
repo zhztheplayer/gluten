@@ -16,9 +16,6 @@
  */
 package org.apache.gluten.extension
 
-import org.apache.gluten.backendsapi.BackendsApiManager
-import org.apache.gluten.extension.injector.RuleInjector
-
 import org.apache.spark.sql.SparkSessionExtensions
 import org.apache.spark.sql.internal.StaticSQLConf
 

@@ -19,7 +19,6 @@ package org.apache
 import org.apache.gluten.exception.GlutenException
 
 import java.util.Properties
-
 import scala.util.Try
 
 package object gluten {

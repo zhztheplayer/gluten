@@ -18,7 +18,7 @@ package org.apache.gluten.extension
 
 import org.apache.gluten.extension.columnar._
 import org.apache.gluten.extension.columnar.transition.Transitions
-import org.apache.gluten.utils.LogLevelUtil
+import org.apache.gluten.logging.LogLevelUtil
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
