@@ -72,11 +72,6 @@ trait BackendSettingsApi {
   // Whether to fallback aggregate at the same time if its empty-output child is fallen back.
   def fallbackAggregateWithEmptyOutputChild(): Boolean = false
 
-  def disableVanillaColumnarReaders(conf: SparkConf): Boolean =
-    !conf.getBoolean(
-      GlutenConfig.VANILLA_VECTORIZED_READERS_ENABLED.key,
-      GlutenConfig.VANILLA_VECTORIZED_READERS_ENABLED.defaultValue.get)
-
   def recreateJoinExecOnFallback(): Boolean = false
 
   /**

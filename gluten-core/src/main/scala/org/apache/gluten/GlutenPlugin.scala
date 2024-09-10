@@ -220,13 +220,17 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
         conservativeOffHeapPerTask.toString)
     }
 
-    // disable vanilla columnar readers, to prevent columnar-to-columnar conversions
-    if (BackendsApiManager.getSettings.disableVanillaColumnarReaders(conf)) {
+    // Disable vanilla columnar readers, to prevent columnar-to-columnar conversions.
+    // FIXME: Do we still need this trick since
+    //  https://github.com/apache/incubator-gluten/pull/1931 was merged?
+    if (!conf.getBoolean(
+        GlutenConfig.VANILLA_VECTORIZED_READERS_ENABLED.key,
+        GlutenConfig.VANILLA_VECTORIZED_READERS_ENABLED.defaultValue.get)) {
       // FIXME Hongze 22/12/06
       //  BatchScan.scala in shim was not always loaded by class loader.
       //  The file should be removed and the "ClassCastException" issue caused by
       //  spark.sql.<format>.enableVectorizedReader=true should be fixed in another way.
-      //  Before the issue was fixed we force the use of vanilla row reader by using
+      //  Before the issue is fixed we force the use of vanilla row reader by using
       //  the following statement.
       conf.set("spark.sql.parquet.enableVectorizedReader", "false")
       conf.set("spark.sql.orc.enableVectorizedReader", "false")
