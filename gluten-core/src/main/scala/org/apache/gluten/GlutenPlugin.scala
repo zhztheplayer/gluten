@@ -56,7 +56,7 @@ private[gluten] class GlutenDriverPlugin extends DriverPlugin with Logging {
     val conf = pluginContext.conf()
 
     setPredefinedConfigs(sc, conf)
-    // Initialize Backends API
+    // Initialize Backends API.
     BackendsApiManager.initialize()
     BackendsApiManager.getListenerApiInstance.onDriverStart(sc, pluginContext)
     if (sc.getConf.getBoolean(
@@ -255,8 +255,7 @@ private[gluten] class GlutenExecutorPlugin extends ExecutorPlugin {
   override def init(ctx: PluginContext, extraConf: util.Map[String, String]): Unit = {
     val conf = ctx.conf()
 
-    // Initialize Backends API
-    // TODO categorize the APIs by driver's or executor's
+    // Initialize Backends API.
     BackendsApiManager.initialize()
     BackendsApiManager.getListenerApiInstance.onExecutorStart(ctx)
   }
