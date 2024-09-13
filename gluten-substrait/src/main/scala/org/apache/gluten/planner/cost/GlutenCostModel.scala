@@ -23,23 +23,50 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.utils.ReflectionUtil
 
+import java.nio.file.{InvalidPathException, Paths}
+
 object GlutenCostModel extends Logging {
   def find(): CostModel[SparkPlan] = {
     val aliases: Map[String, Class[_ <: CostModel[SparkPlan]]] =
       Map("legacy" -> classOf[LegacyCostModel], "rough" -> classOf[RoughCostModel])
-    val aliasOrClass = GlutenConfig.getConf.rasCostModel
-    val clazz: Class[_ <: CostModel[SparkPlan]] = if (aliases.contains(aliasOrClass)) {
-      aliases(aliasOrClass)
-    } else {
-      val userModel = ReflectionUtil.classForName(aliasOrClass)
-      logInfo(s"Using user cost model: $aliasOrClass")
-      userModel
+    val cmName = GlutenConfig.getConf.rasCostModel
+    if (aliases.contains(cmName)) {
+      return newInstance(aliases(cmName))
     }
+
+    if (isValidPath(cmName)) {
+      val jsonModel = new JsonCostModel(cmName)
+      logInfo(s"Using user cost model (JSON file): $cmName")
+      return jsonModel
+    }
+
+    val clazz = try {
+      ReflectionUtil.classForName(cmName)
+    } catch {
+      case e: ClassNotFoundException =>
+        logError(s"Cost model $cmName is unrecognizable")
+        throw e
+    }
+    logInfo(s"Using user cost model: $cmName")
+    newInstance(clazz)
+  }
+
+  def legacy(): CostModel[SparkPlan] = new LegacyCostModel()
+
+  private def newInstance(clazz: Class[_ <: CostModel[SparkPlan]]): CostModel[SparkPlan] = {
     val ctor = clazz.getDeclaredConstructor()
     ctor.setAccessible(true)
     val model = ctor.newInstance()
     model
   }
 
-  def legacy(): CostModel[SparkPlan] = new LegacyCostModel()
+  private def isValidPath(path: String): Boolean = {
+    try {
+      Paths.get(path);
+    } catch {
+      case InvalidPathException | NullPointerException =>
+        return false;
+    }
+    true
+  }
 }
