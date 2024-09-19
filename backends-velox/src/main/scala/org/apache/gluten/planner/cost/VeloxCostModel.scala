@@ -17,11 +17,11 @@ import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, ShuffledHash
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.types.{ArrayType, MapType, StructType}
 
-class GlabsCostModel extends CostModel[SparkPlan] with Logging {
-  import GlabsCostModel._
+class VeloxCostModel extends CostModel[SparkPlan] with Logging {
+  import VeloxCostModel._
   private val infLongCost = Long.MaxValue
 
-  logInfo(s"Created cost model: ${classOf[GlabsCostModel]}")
+  logInfo(s"Created cost model: ${classOf[VeloxCostModel]}")
 
   override def costOf(node: SparkPlan): GlutenCost = node match {
     case _: GroupLeafExec => throw new IllegalStateException()
@@ -129,6 +129,6 @@ class GlabsCostModel extends CostModel[SparkPlan] with Logging {
   override def makeInfCost(): Cost = GlutenCost(infLongCost)
 }
 
-object GlabsCostModel {
+object VeloxCostModel {
   case class GlutenCost(value: Long) extends Cost
 }
