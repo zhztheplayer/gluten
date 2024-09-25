@@ -17,7 +17,7 @@
 package org.apache.gluten.extension.columnar.transition
 
 import org.apache.gluten.backendsapi.velox.VeloxListenerApi
-import org.apache.gluten.columnarbatch.{ArrowBatch, VeloxBatch}
+import org.apache.gluten.columnarbatch.{NativeArrowBatch, VeloxBatch}
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.{RowToVeloxColumnarExec, VeloxColumnarToRowExec}
 import org.apache.gluten.extension.columnar.transition.Convention.BatchType.VanillaBatch
@@ -50,19 +50,19 @@ class VeloxTransitionSuite extends SharedSparkSession {
   }
 
   test("Arrow C2R - outputs row") {
-    val in = BatchLeaf(ArrowBatch)
+    val in = BatchLeaf(NativeArrowBatch)
     val out = Transitions.insertTransitions(in, outputsColumnar = false)
-    assert(out == ColumnarToRowExec(BatchLeaf(ArrowBatch)))
+    assert(out == ColumnarToRowExec(BatchLeaf(NativeArrowBatch)))
   }
 
   test("Arrow C2R - requires row input") {
-    val in = RowUnary(BatchLeaf(ArrowBatch))
+    val in = RowUnary(BatchLeaf(NativeArrowBatch))
     val out = Transitions.insertTransitions(in, outputsColumnar = false)
-    assert(out == RowUnary(ColumnarToRowExec(BatchLeaf(ArrowBatch))))
+    assert(out == RowUnary(ColumnarToRowExec(BatchLeaf(NativeArrowBatch))))
   }
 
   test("Arrow R2C - requires Arrow input") {
-    val in = BatchUnary(ArrowBatch, RowLeaf())
+    val in = BatchUnary(NativeArrowBatch, RowLeaf())
     assertThrows[GlutenException] {
       // No viable transitions.
       // FIXME: Support this case.
@@ -95,16 +95,16 @@ class VeloxTransitionSuite extends SharedSparkSession {
   }
 
   test("Arrow-to-Velox C2C") {
-    val in = BatchUnary(VeloxBatch, BatchLeaf(ArrowBatch))
+    val in = BatchUnary(VeloxBatch, BatchLeaf(NativeArrowBatch))
     val out = Transitions.insertTransitions(in, outputsColumnar = false)
     // No explicit transition needed for Arrow-to-Velox.
     // FIXME: Add explicit transitions.
     //  See https://github.com/apache/incubator-gluten/issues/7313.
-    assert(out == VeloxColumnarToRowExec(BatchUnary(VeloxBatch, BatchLeaf(ArrowBatch))))
+    assert(out == VeloxColumnarToRowExec(BatchUnary(VeloxBatch, BatchLeaf(NativeArrowBatch))))
   }
 
   test("Velox-to-Arrow C2C") {
-    val in = BatchUnary(ArrowBatch, BatchLeaf(VeloxBatch))
+    val in = BatchUnary(NativeArrowBatch, BatchLeaf(VeloxBatch))
     assertThrows[GlutenException] {
       // No viable transitions.
       // FIXME: Support this case.
@@ -129,7 +129,7 @@ class VeloxTransitionSuite extends SharedSparkSession {
   }
 
   test("Vanilla-to-Arrow C2C") {
-    val in = BatchUnary(ArrowBatch, BatchLeaf(VanillaBatch))
+    val in = BatchUnary(NativeArrowBatch, BatchLeaf(VanillaBatch))
     assertThrows[GlutenException] {
       // No viable transitions.
       // FIXME: Support this case.
@@ -138,12 +138,12 @@ class VeloxTransitionSuite extends SharedSparkSession {
   }
 
   test("Arrow-to-Vanilla C2C") {
-    val in = BatchUnary(VanillaBatch, BatchLeaf(ArrowBatch))
+    val in = BatchUnary(VanillaBatch, BatchLeaf(NativeArrowBatch))
     val out = Transitions.insertTransitions(in, outputsColumnar = false)
     // No explicit transition needed for Arrow-to-Vanilla.
     // FIXME: Add explicit transitions.
     //  See https://github.com/apache/incubator-gluten/issues/7313.
-    assert(out == ColumnarToRowExec(BatchUnary(VanillaBatch, BatchLeaf(ArrowBatch))))
+    assert(out == ColumnarToRowExec(BatchUnary(VanillaBatch, BatchLeaf(NativeArrowBatch))))
   }
 
   override protected def beforeAll(): Unit = {

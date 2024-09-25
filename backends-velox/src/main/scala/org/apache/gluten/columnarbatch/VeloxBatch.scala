@@ -36,5 +36,5 @@ object VeloxBatch extends Convention.BatchType {
 
   // Velox batch is considered one-way compatible with Arrow batch.
   // This is practically achieved by utilizing C++ API VeloxColumnarBatch::from at runtime.
-  fromBatch(ArrowBatch, TransitionDef.empty)
+  fromBatch(NativeArrowBatch, TransitionDef.empty)
 }
