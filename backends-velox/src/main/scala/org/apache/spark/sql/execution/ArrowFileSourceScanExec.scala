@@ -16,10 +16,9 @@
  */
 package org.apache.spark.sql.execution
 
-import org.apache.gluten.columnarbatch.NativeArrowBatch
+import org.apache.gluten.columnarbatch.ArrowBatches.NativeArrowBatch
 import org.apache.gluten.extension.GlutenPlan
 import org.apache.gluten.extension.columnar.transition.Convention
-
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute

@@ -17,12 +17,12 @@
 package org.apache.gluten.extension.columnar.transition
 
 import org.apache.gluten.backendsapi.velox.VeloxListenerApi
-import org.apache.gluten.columnarbatch.{NativeArrowBatch, VeloxBatch}
+import org.apache.gluten.columnarbatch.ArrowBatches.NativeArrowBatch
+import org.apache.gluten.columnarbatch.VeloxBatch
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.execution.{RowToVeloxColumnarExec, VeloxColumnarToRowExec}
 import org.apache.gluten.extension.columnar.transition.Convention.BatchType.VanillaBatch
 import org.apache.gluten.test.MockVeloxBackend
-
 import org.apache.spark.sql.execution.{ColumnarToRowExec, RowToColumnarExec}
 import org.apache.spark.sql.test.SharedSparkSession
 

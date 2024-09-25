@@ -1,6 +1,5 @@
 package org.apache.gluten.execution
 
-import org.apache.gluten.extension.GlutenPlan
 import org.apache.gluten.extension.columnar.transition.Convention.KnownBatchType
 import org.apache.gluten.extension.columnar.transition.ConventionReq.KnownChildrenConventions
 import org.apache.gluten.extension.columnar.transition.{Convention, ConventionReq}
@@ -15,12 +14,15 @@ import org.apache.spark.sql.vectorized.ColumnarBatch
 import java.util.concurrent.atomic.AtomicLong
 
 abstract class ColumnarToColumnarExec(
-    override val child: SparkPlan,
     from: Convention.BatchType,
     to: Convention.BatchType)
-  extends GlutenPlan with UnaryExecNode
+  extends UnaryExecNode
   with KnownBatchType
   with KnownChildrenConventions {
+
+  def child: SparkPlan
+  protected def mapIterator(in: Iterator[ColumnarBatch]): Iterator[ColumnarBatch]
+
   override def metrics: Map[String, SQLMetric] =
     Map(
       "numInputRows" -> SQLMetrics.createMetric(sparkContext, "number of input rows"),
@@ -34,8 +36,6 @@ abstract class ColumnarToColumnarExec(
   override def batchType(): Convention.BatchType = to
   override def requiredChildrenConventions(): Seq[ConventionReq] = List(
     ConventionReq.of(ConventionReq.RowType.Any, ConventionReq.BatchType.Is(from)))
-
-  protected def mapIterator(in: Iterator[ColumnarBatch]): Iterator[ColumnarBatch]
 
   override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = {

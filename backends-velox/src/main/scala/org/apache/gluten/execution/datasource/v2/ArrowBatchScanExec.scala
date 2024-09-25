@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution.datasource.v2
 
-import org.apache.gluten.columnarbatch.NativeArrowBatch
+import org.apache.gluten.columnarbatch.ArrowBatches
 import org.apache.gluten.extension.GlutenPlan
 import org.apache.gluten.extension.columnar.transition.Convention
 
@@ -34,7 +34,7 @@ case class ArrowBatchScanExec(original: BatchScanExec)
   @transient lazy val batch: Batch = original.batch
 
   override protected def batchType0(): Convention.BatchType = {
-    NativeArrowBatch
+    ArrowBatches.NativeArrowBatch
   }
 
   override lazy val readerFactory: PartitionReaderFactory = original.readerFactory
