@@ -23,16 +23,20 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class IndicatorVectorPool implements TaskResource {
+/**
+ * A pool for all alive indicator vectors. The reason we adopt the pool
+ * is, we don't want one native columnar batch (which is located via the
+ * long int handle through JNI bridge) to be owned by more than one IndicatorVector
+ * instance so release method of the native columnar batch could be guaranteed
+ * to be called and only called once.
+ */
+class IndicatorVectorPool implements TaskResource {
   private static final Logger LOG = LoggerFactory.getLogger(IndicatorVectorPool.class);
-  // A pool for all alive indicator vectors. The reason we adopt the pool
-  // is, we don't want one native columnar batch (which is located via the
-  // long int handle through JNI bridge) to be owned by more than one IndicatorVector
-  // instance so release method of the native columnar batch could be guaranteed
-  // to be called and only called once.
+
   private final Map<Long, IndicatorVector> uniqueInstances = new ConcurrentHashMap<>();
 
-  IndicatorVectorPool() {}
+  IndicatorVectorPool() {
+  }
 
   @Override
   public void release() throws Exception {

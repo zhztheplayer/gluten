@@ -162,17 +162,6 @@ std::shared_ptr<ColumnarToRowConverter> VeloxRuntime::createColumnar2RowConverte
   return std::make_shared<VeloxColumnarToRowConverter>(veloxPool, column2RowMemThreshold);
 }
 
-std::shared_ptr<ColumnarBatch> VeloxRuntime::createOrGetEmptySchemaBatch(int32_t numRows) {
-  auto& lookup = emptySchemaBatchLoopUp_;
-  if (lookup.find(numRows) == lookup.end()) {
-    auto veloxPool = memoryManager()->getLeafMemoryPool();
-    const std::shared_ptr<VeloxColumnarBatch>& batch =
-        VeloxColumnarBatch::from(veloxPool.get(), gluten::createZeroColumnBatch(numRows));
-    lookup.emplace(numRows, batch); // the batch will be released after Spark task ends
-  }
-  return lookup.at(numRows);
-}
-
 std::shared_ptr<ColumnarBatch> VeloxRuntime::select(
     std::shared_ptr<ColumnarBatch> batch,
     const std::vector<int32_t>& columnIndices) {

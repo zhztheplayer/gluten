@@ -65,9 +65,6 @@ class DummyRuntime final : public Runtime {
   MemoryManager* memoryManager() override {
     throw GlutenException("Not yet implemented");
   }
-  std::shared_ptr<ColumnarBatch> createOrGetEmptySchemaBatch(int32_t numRows) override {
-    throw GlutenException("Not yet implemented");
-  }
   std::shared_ptr<ColumnarToRowConverter> createColumnar2RowConverter(int64_t column2RowMemThreshold) override {
     throw GlutenException("Not yet implemented");
   }

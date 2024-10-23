@@ -32,8 +32,6 @@ public class ColumnarBatchJniWrapper implements RuntimeAware {
 
   public native long createWithArrowArray(long cSchema, long cArray);
 
-  public native long getForEmptySchema(int numRows);
-
   public native String getType(long batch);
 
   public native long numColumns(long batch);
