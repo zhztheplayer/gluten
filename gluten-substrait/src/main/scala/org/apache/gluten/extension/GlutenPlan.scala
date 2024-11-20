@@ -136,7 +136,7 @@ trait GlutenPlan extends SparkPlan with Convention.KnownBatchType with LogLevelU
   }
 
   protected def batchType0(): Convention.BatchType = {
-    Backend.get().defaultBatchType
+    Backend.get().primaryBatchType
   }
 
   protected def doValidateInternal(): ValidationResult = ValidationResult.succeeded

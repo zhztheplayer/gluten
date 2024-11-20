@@ -180,7 +180,7 @@ case class ColumnarInputAdapter(child: SparkPlan)
   override def output: Seq[Attribute] = child.output
   override def supportsColumnar: Boolean = true
   override def batchType(): Convention.BatchType =
-    Backend.get().defaultBatchType
+    Backend.get().primaryBatchType
   override protected def doExecute(): RDD[InternalRow] = throw new UnsupportedOperationException()
   override protected def doExecuteColumnar(): RDD[ColumnarBatch] = child.executeColumnar()
   override def outputPartitioning: Partitioning = child.outputPartitioning
