@@ -37,8 +37,8 @@ jobs:
         with:
           path: |
             '${{ env.CCACHE_DIR }}'
-            $HOME/.m2/repository
-            $GITHUB_WORKSPACE/dev/vcpkg/vcpkg_installed
+            ~/.m2/repository
+            dev/vcpkg/vcpkg_installed
           key: ccache-centos7-release-default-${{github.sha}}
           restore-keys: |
             ccache-centos7-release-default
@@ -53,8 +53,8 @@ jobs:
         with:
           path: |
             '${{ env.CCACHE_DIR }}'
-            $HOME/.m2/repository
-            $GITHUB_WORKSPACE/dev/vcpkg/vcpkg_installed
+            ~/.m2/repository
+            dev/vcpkg/vcpkg_installed
           key: ccache-centos7-release-default-${{github.sha}}
 
   cache-native-lib-centos-8:
@@ -67,7 +67,7 @@ jobs:
         with:
           path: |
             '${{ env.CCACHE_DIR }}'
-            $HOME/.m2/repository
+            ~/.m2/repository
           key: ccache-centos8-release-default-${{github.sha}}
           restore-keys: |
             ccache-centos8-release-default
@@ -82,7 +82,7 @@ jobs:
         with:
           path: |
             '${{ env.CCACHE_DIR }}'
-            $HOME/.m2/repository
+            ~/.m2/repository
           key: ccache-centos8-release-default-${{github.sha}}
 
   # ccache-native-lib-ubuntu-velox-ut:
