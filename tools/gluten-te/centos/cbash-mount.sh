@@ -50,7 +50,13 @@ if [ "$MOUNT_MAVEN_CACHE" == "ON" ]
 then
   CBASH_DOCKER_RUN_ARGS="$CBASH_DOCKER_RUN_ARGS -v $HOME/.m2/repository:/root/.m2/repository"
 fi
-CBASH_DOCKER_RUN_ARGS="$CBASH_DOCKER_RUN_ARGS -v $HOME/.ccache:/root/.ccache"
+if [ -n "$CCACHE_DIR" ]
+then
+  echo "Mounting user-specified Ccache directory to container: $CCACHE_DIR."
+  CBASH_DOCKER_RUN_ARGS="$CBASH_DOCKER_RUN_ARGS -v $CCACHE_DIR:/root/.ccache"
+else
+  CBASH_DOCKER_RUN_ARGS="$CBASH_DOCKER_RUN_ARGS -v $HOME/.ccache:/root/.ccache"
+fi
 CBASH_DOCKER_RUN_ARGS="$CBASH_DOCKER_RUN_ARGS -v $PWD:/opt/gluten"
 CBASH_DOCKER_RUN_ARGS="$CBASH_DOCKER_RUN_ARGS $EXTRA_DOCKER_OPTIONS"
 

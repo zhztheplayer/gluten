@@ -60,7 +60,10 @@ jobs:
       - name: Get Ccache
         uses: actions/cache/restore@v3
         with:
-          path: '${{ env.CCACHE_DIR }}'
+          path: |
+            '${{ env.CCACHE_DIR }}'
+            $HOME/.m2/repository
+            $GITHUB_WORKSPACE/dev/vcpkg/vcpkg_installed
           key: ccache-centos7-release-default-${{github.sha}}
           restore-keys: |
             ccache-centos7-release-default
@@ -73,7 +76,10 @@ jobs:
         uses: actions/cache/save@v3
         id: ccache
         with:
-          path: '${{ env.CCACHE_DIR }}'
+          path: |
+            '${{ env.CCACHE_DIR }}'
+            $HOME/.m2/repository
+            $GITHUB_WORKSPACE/dev/vcpkg/vcpkg_installed
           key: ccache-centos7-release-default-${{github.sha}}
       - uses: actions/upload-artifact@v3
         with:
@@ -944,7 +950,9 @@ jobs:
       - name: Get Ccache
         uses: actions/cache/restore@v3
         with:
-          path: '${{ env.CCACHE_DIR }}'
+          path: |
+            '${{ env.CCACHE_DIR }}'
+            $HOME/.m2/repository
           key: ccache-centos8-release-default-${{github.sha}}
           restore-keys: |
             ccache-centos8-release-default
@@ -957,7 +965,9 @@ jobs:
         uses: actions/cache/save@v3
         id: ccache
         with:
-          path: '${{ env.CCACHE_DIR }}'
+          path: |
+            '${{ env.CCACHE_DIR }}'
+            $HOME/.m2/repository
           key: ccache-centos8-release-default-${{github.sha}}
       - name: Run CPP unit test
         run: |
