@@ -109,10 +109,10 @@ object DpZipperAlgo {
     def none[X <: AnyRef, Y <: AnyRef](): Adjustment[X, Y] = new None()
 
     private class None[X <: AnyRef, Y <: AnyRef] extends Adjustment[X, Y] {
-      override def exploreChildX(panel: Panel[X, Y], x: X): Unit = {}
-      override def exploreParentY(panel: Panel[X, Y], y: Y): Unit = {}
-      override def exploreChildY(panel: Panel[X, Y], y: Y): Unit = {}
-      override def exploreParentX(panel: Panel[X, Y], x: X): Unit = {}
+      override def exploreChildX(panel: Adjustment.Panel[X, Y], x: X): Unit = {}
+      override def exploreParentY(panel: Adjustment.Panel[X, Y], y: Y): Unit = {}
+      override def exploreChildY(panel: Adjustment.Panel[X, Y], y: Y): Unit = {}
+      override def exploreParentX(panel: Adjustment.Panel[X, Y], x: X): Unit = {}
     }
 
     trait Panel[X <: AnyRef, Y <: AnyRef] {
