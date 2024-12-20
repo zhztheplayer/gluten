@@ -109,6 +109,7 @@ object DpZipperAlgo {
     def none[X <: AnyRef, Y <: AnyRef](): Adjustment[X, Y] = new None()
 
     private class None[X <: AnyRef, Y <: AnyRef] extends Adjustment[X, Y] {
+      // IDEA complains if simply using `panel: Panel[X, Y]` as parameter. Not sure why.
       override def exploreChildX(panel: Adjustment.Panel[X, Y], x: X): Unit = {}
       override def exploreParentY(panel: Adjustment.Panel[X, Y], y: Y): Unit = {}
       override def exploreChildY(panel: Adjustment.Panel[X, Y], y: Y): Unit = {}
