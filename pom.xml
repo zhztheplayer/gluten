@@ -799,6 +799,7 @@
       <modules>
         <module>gluten-arrow</module>
         <module>backends-velox</module>
+        <module>backends-rapids</module>
       </modules>
       <properties>
         <backend_type>velox</backend_type>
