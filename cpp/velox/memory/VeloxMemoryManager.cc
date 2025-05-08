@@ -238,10 +238,10 @@ VeloxMemoryManager::VeloxMemoryManager(
       .checkUsageLeak = checkUsageLeak, // leak check
       .coreOnAllocationFailureEnabled = false,
       .allocatorCapacity = velox::memory::kMaxMemory,
-      .arbitratorKind = afr.getKind(),
-      .extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf),
       .useMmapAllocator = useMmapAllocator,
-      .useMmapArena = useMmapArena};
+      .useMmapArena = useMmapArena,
+      .arbitratorKind = afr.getKind(),
+      .extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf)};
   veloxMemoryManager_ = std::make_unique<velox::memory::MemoryManager>(mmOptions);
 
   veloxAggregatePool_ = veloxMemoryManager_->addRootPool(
