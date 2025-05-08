@@ -206,7 +206,10 @@ void VeloxBackend::init(
     memoryManagerCapacity = facebook::velox::memory::kMaxMemory;
   }
   LOG(INFO) << "Setting global Velox memory manager with capacity: " << memoryManagerCapacity;
-  facebook::velox::memory::initializeMemoryManager({.allocatorCapacity = memoryManagerCapacity});
+  const bool useMmapAllocator = backendConf_->get<bool>(kUseMmapAllocator, kUseMmapAllocatorDefault);
+  const bool useMmapArena = backendConf_->get<bool>(kUseMmapArena, kUseMmapArenaDefault);
+  facebook::velox::memory::initializeMemoryManager(
+      {.allocatorCapacity = memoryManagerCapacity, .useMmapAllocator = useMmapAllocator, .useMmapArena = useMmapArena});
 
   // local cache persistent relies on the cache pool from root memory pool so we need to init this
   // after the memory manager instanced

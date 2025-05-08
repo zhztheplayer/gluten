@@ -228,6 +228,8 @@ VeloxMemoryManager::VeloxMemoryManager(
   listenableAlloc_ = std::make_unique<ListenableMemoryAllocator>(defaultMemoryAllocator().get(), blockListener_.get());
   arrowPool_ = std::make_unique<ArrowMemoryPool>(listenableAlloc_.get());
   auto checkUsageLeak = backendConf.get<bool>(kCheckUsageLeak, kCheckUsageLeakDefault);
+  const bool useMmapAllocator = backendConf.get<bool>(kUseMmapAllocator, kUseMmapAllocatorDefault);
+  const bool useMmapArena = backendConf.get<bool>(kUseMmapArena, kUseMmapArenaDefault);
 
   ArbitratorFactoryRegister afr(listener_.get());
   velox::memory::MemoryManagerOptions mmOptions{
@@ -237,7 +239,9 @@ VeloxMemoryManager::VeloxMemoryManager(
       .coreOnAllocationFailureEnabled = false,
       .allocatorCapacity = velox::memory::kMaxMemory,
       .arbitratorKind = afr.getKind(),
-      .extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf)};
+      .extraArbitratorConfigs = getExtraArbitratorConfigs(backendConf),
+      .useMmapAllocator = useMmapAllocator,
+      .useMmapArena = useMmapArena};
   veloxMemoryManager_ = std::make_unique<velox::memory::MemoryManager>(mmOptions);
 
   veloxAggregatePool_ = veloxMemoryManager_->addRootPool(

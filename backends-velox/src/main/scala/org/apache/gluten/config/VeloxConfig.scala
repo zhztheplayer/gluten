@@ -275,11 +275,28 @@ object VeloxConfig {
       .createWithDefaultString("3M")
 
   val COLUMNAR_VELOX_MAX_SPILL_BYTES =
-    buildConf("spark.gluten.sql.columnar.backend.velox.maxSpillBytes")
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.maxSpillBytes")
       .internal()
       .doc("The maximum file size of a query")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("100G")
+
+  val COLUMNAR_VELOX_USE_MMAP_ALLOCATOR =
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.useMmapAllocator")
+      .doc(
+        "If true, uses MmapAllocator for memory allocation which manages the physical " +
+          "memory allocation on its own through std::mmap techniques. If false, " +
+          "use MallocAllocator which delegates the memory allocation to std::malloc.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COLUMNAR_VELOX_USE_MMAP_ARENA =
+    buildConf("spark.gluten.sql.columnar.backend.velox.useMmapArena")
+      .doc("If true, allocations larger than largest size class size will be delegated to " +
+        "ManagedMmapArena. Otherwise a system mmap call will be issued for each such allocation. " +
+        "NOTE: this only applies for MmapAllocator.")
+      .booleanConf
+      .createWithDefault(false)
 
   val MAX_PARTITION_PER_WRITERS_SESSION =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxPartitionsPerWritersSession")

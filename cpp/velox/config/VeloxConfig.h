@@ -29,6 +29,10 @@ const std::string kAggregationSpillEnabled = "spark.gluten.sql.columnar.backend.
 const std::string kJoinSpillEnabled = "spark.gluten.sql.columnar.backend.velox.joinSpillEnabled";
 const std::string kOrderBySpillEnabled = "spark.gluten.sql.columnar.backend.velox.orderBySpillEnabled";
 const std::string kWindowSpillEnabled = "spark.gluten.sql.columnar.backend.velox.windowSpillEnabled";
+const std::string kUseMmapAllocator = "spark.gluten.sql.columnar.backend.velox.useMmapAllocator";
+const bool kUseMmapAllocatorDefault = false;
+const std::string kUseMmapArena = "spark.gluten.sql.columnar.backend.velox.useMmapArena";
+const bool kUseMmapArenaDefault = false;
 
 // spill config
 // refer to
