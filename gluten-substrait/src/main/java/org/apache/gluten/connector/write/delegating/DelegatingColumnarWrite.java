@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.gluten.connector.write.simple;
+package org.apache.gluten.connector.write.delegating;
 
 import org.apache.gluten.connector.write.ColumnarWrite;
 import org.apache.gluten.extension.columnar.transition.ConventionReq;
@@ -29,14 +29,14 @@ import org.apache.spark.sql.connector.write.Write;
  * The argument `factoryCreator` will is specified for creating a columnar based
  * writer which consumes columnar batches that are of the `requiredBatchType` passed in.
  */
-public class SimpleColumnarWrite implements ColumnarWrite {
+public class DelegatingColumnarWrite implements ColumnarWrite {
   private final Write rowBasedWrite;
   private final ConventionReq.BatchType requiredBatchType;
-  private final SimpleColumnarDataWriterFactoryCreator factoryCreator;
+  private final ColumnarDataWriterFactoryCreator factoryCreator;
 
-  public SimpleColumnarWrite(Write rowBasedWrite,
+  public DelegatingColumnarWrite(Write rowBasedWrite,
       ConventionReq.BatchType requiredBatchType,
-      SimpleColumnarDataWriterFactoryCreator factoryCreator) {
+      ColumnarDataWriterFactoryCreator factoryCreator) {
     this.rowBasedWrite = rowBasedWrite;
     this.requiredBatchType = requiredBatchType;
     this.factoryCreator = factoryCreator;
@@ -62,7 +62,7 @@ public class SimpleColumnarWrite implements ColumnarWrite {
     return rowBasedWrite.supportedCustomMetrics();
   }
 
-  public SimpleColumnarDataWriterFactoryCreator getFactoryCreator() {
+  public ColumnarDataWriterFactoryCreator getFactoryCreator() {
     return factoryCreator;
   }
 }

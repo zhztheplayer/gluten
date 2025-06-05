@@ -15,13 +15,11 @@
  * limitations under the License.
  */
 
-package org.apache.gluten.connector.write.simple;
+package org.apache.gluten.connector.write.delegating;
 
 import org.apache.gluten.connector.write.ColumnarDataWriterFactory;
-import org.apache.spark.sql.connector.write.BatchWrite;
 import org.apache.spark.sql.connector.write.PhysicalWriteInfo;
-import org.apache.spark.sql.connector.write.Write;
 
-public interface SimpleColumnarDataWriterFactoryCreator {
-  ColumnarDataWriterFactory create(Write rowBasedWrite, BatchWrite rowBasedBatchWrite, PhysicalWriteInfo info);
+public interface ColumnarDataWriterFactoryCreator {
+  ColumnarDataWriterFactory create(PhysicalWriteInfo info);
 }

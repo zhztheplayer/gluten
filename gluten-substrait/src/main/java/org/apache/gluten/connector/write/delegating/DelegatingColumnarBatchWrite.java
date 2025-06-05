@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.gluten.connector.write.simple;
+package org.apache.gluten.connector.write.delegating;
 
 import org.apache.gluten.connector.write.ColumnarBatchWrite;
 import org.apache.gluten.connector.write.ColumnarDataWriterFactory;
@@ -29,18 +29,20 @@ import scala.Function1;
 
 import java.io.IOException;
 
-public class SimpleColumnarBatchWrite implements ColumnarBatchWrite {
+public class DelegatingColumnarBatchWrite implements ColumnarBatchWrite {
   private final BatchWrite rowBasedBatchWrite;
-  private final SimpleColumnarWrite parent;
+  private final ConventionReq.BatchType requiredBatchType;
+  private final ColumnarDataWriterFactoryCreator factoryCreator;
 
-  public SimpleColumnarBatchWrite(BatchWrite rowBasedBatchWrite, SimpleColumnarWrite parent) {
+  public DelegatingColumnarBatchWrite(BatchWrite rowBasedBatchWrite, ConventionReq.BatchType requiredBatchType, ColumnarDataWriterFactoryCreator factoryCreator) {
     this.rowBasedBatchWrite = rowBasedBatchWrite;
-    this.parent = parent;
+    this.requiredBatchType = requiredBatchType;
+    this.factoryCreator = factoryCreator;
   }
 
   @Override
   public DataWriterFactory createBatchWriterFactory(PhysicalWriteInfo info) {
-    final ColumnarDataWriterFactory columnarDataWriterFactory = parent.getFactoryCreator().create(parent, this, info);
+    final ColumnarDataWriterFactory columnarDataWriterFactory = factoryCreator.create(info);
     return new DataWriterFactory() {
       @Override
       public DataWriter<InternalRow> createWriter(int partitionId, long taskId) {
@@ -103,6 +105,6 @@ public class SimpleColumnarBatchWrite implements ColumnarBatchWrite {
 
   @Override
   public ConventionReq.BatchType requiredBatchType() {
-    return parent.requiredBatchType();
+    return requiredBatchType;
   }
 }
