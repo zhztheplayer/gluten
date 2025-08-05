@@ -18,6 +18,7 @@ package org.apache.gluten.vectorized;
 
 import org.apache.gluten.columnarbatch.ColumnarBatches;
 
+import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import java.util.Iterator;
@@ -40,6 +41,9 @@ public class ColumnarBatchInIterator {
   public long next() {
     final ColumnarBatch next = delegated.next();
     ColumnarBatches.checkOffloaded(next);
+    System.out.println("Batch content: ");
+    System.out.println(ColumnarBatches.toString(next, 0, next.numRows()));
+    ColumnarBatches.offload(ArrowBufferAllocators.contextInstance(), next);
     return ColumnarBatches.getNativeHandle(backendName, next);
   }
 }

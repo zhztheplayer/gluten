@@ -14,25 +14,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.execution
+package org.apache.spark.sql
 
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
+import org.apache.gluten.execution._
 import org.apache.gluten.expression.VeloxDummyExpression
 import org.apache.gluten.sql.shims.SparkShimLoader
-
-import org.apache.spark.SparkConf
-import org.apache.spark.sql.{AnalysisException, DataFrame, Row}
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, AdaptiveSparkPlanHelper, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.joins.BroadcastNestedLoopJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.test.TestSparkSession
 import org.apache.spark.sql.types._
 
 import java.nio.file.{Files, Paths}
 import java.util.concurrent.TimeUnit
-
 import scala.collection.JavaConverters
 import scala.collection.JavaConverters._
 
@@ -42,6 +41,12 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
   override protected val fileFormat: String = "parquet"
 
   import testImplicits._
+
+  override def createSparkSession: TestSparkSession = {
+    SparkSession.cleanupAnyExistingSession()
+    new TestSparkSession(new SparkContext("local[1]", "test-sql-context",
+      sparkConf.set("spark.sql.testkey", "true")))
+  }
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -2157,5 +2162,130 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
           }
         }
       })
+  }
+
+  test("FOO") {
+    val SCHEMA: StructType = StructType.fromDDL("""
+                                                          |watchid bigint,
+                                                          |javaenable smallint,
+                                                          |title varchar(65535),
+                                                          |goodevent smallint,
+                                                          |eventtime timestamp,
+                                                          |eventdate date,
+                                                          |counterid int,
+                                                          |clientip int,
+                                                          |regionid int,
+                                                          |userid bigint,
+                                                          |counterclass smallint,
+                                                          |os smallint,
+                                                          |useragent smallint,
+                                                          |url varchar(65535),
+                                                          |referer varchar(65535),
+                                                          |isrefresh smallint,
+                                                          |referercategoryid smallint,
+                                                          |refererregionid int,
+                                                          |urlcategoryid smallint,
+                                                          |urlregionid int,
+                                                          |resolutionwidth smallint,
+                                                          |resolutionheight smallint,
+                                                          |resolutiondepth smallint,
+                                                          |flashmajor smallint,
+                                                          |flashminor smallint,
+                                                          |flashminor2 varchar(65535),
+                                                          |netmajor smallint,
+                                                          |netminor smallint,
+                                                          |useragentmajor smallint,
+                                                          |useragentminor varchar(65535),
+                                                          |cookieenable smallint,
+                                                          |javascriptenable smallint,
+                                                          |ismobile smallint,
+                                                          |mobilephone smallint,
+                                                          |mobilephonemodel varchar(65535),
+                                                          |params varchar(65535),
+                                                          |ipnetworkid int,
+                                                          |traficsourceid smallint,
+                                                          |searchengineid smallint,
+                                                          |searchphrase varchar(65535),
+                                                          |advengineid smallint,
+                                                          |isartifical smallint,
+                                                          |windowclientwidth smallint,
+                                                          |windowclientheight smallint,
+                                                          |clienttimezone smallint,
+                                                          |clienteventtime timestamp,
+                                                          |silverlightversion1 smallint,
+                                                          |silverlightversion2 smallint,
+                                                          |silverlightversion3 int,
+                                                          |silverlightversion4 smallint,
+                                                          |pagecharset varchar(65535),
+                                                          |codeversion int,
+                                                          |islink smallint,
+                                                          |isdownload smallint,
+                                                          |isnotbounce smallint,
+                                                          |funiqid bigint,
+                                                          |originalurl varchar(65535),
+                                                          |hid int,
+                                                          |isoldcounter smallint,
+                                                          |isevent smallint,
+                                                          |isparameter smallint,
+                                                          |dontcounthits smallint,
+                                                          |withhash smallint,
+                                                          |hitcolor varchar(65535),
+                                                          |localeventtime timestamp,
+                                                          |age smallint,
+                                                          |sex smallint,
+                                                          |income smallint,
+                                                          |interests smallint,
+                                                          |robotness smallint,
+                                                          |remoteip int,
+                                                          |windowname int,
+                                                          |openername int,
+                                                          |historylength smallint,
+                                                          |browserlanguage varchar(65535),
+                                                          |browsercountry varchar(65535),
+                                                          |socialnetwork varchar(65535),
+                                                          |socialaction varchar(65535),
+                                                          |httperror smallint,
+                                                          |sendtiming int,
+                                                          |dnstiming int,
+                                                          |connecttiming int,
+                                                          |responsestarttiming int,
+                                                          |responseendtiming int,
+                                                          |fetchtiming int,
+                                                          |socialsourcenetworkid smallint,
+                                                          |socialsourcepage varchar(65535),
+                                                          |paramprice bigint,
+                                                          |paramorderid varchar(65535),
+                                                          |paramcurrency varchar(65535),
+                                                          |paramcurrencyid smallint,
+                                                          |openstatservicename varchar(65535),
+                                                          |openstatcampaignid varchar(65535),
+                                                          |openstatadid varchar(65535),
+                                                          |openstatsourceid varchar(65535),
+                                                          |utmsource varchar(65535),
+                                                          |utmmedium varchar(65535),
+                                                          |utmcampaign varchar(65535),
+                                                          |utmcontent varchar(65535),
+                                                          |utmterm varchar(65535),
+                                                          |fromtag varchar(65535),
+                                                          |hasgclid smallint,
+                                                          |refererhash bigint,
+                                                          |urlhash bigint,
+                                                          |clid int
+                                                          |""".stripMargin)
+    spark.sql("set spark.gluten.sql.columnar.project=true")
+    spark.sql("set spark.gluten.sql.columnar.filter=true")
+    spark.sql("set parquet.page.size=128")
+
+//    spark.catalog.createTable("hits", "parquet", SCHEMA, Map("path" -> "/tmp/clickbench-generated-1.0/hits.parquet"))
+//    val df = spark.sql("SELECT SearchEngineID, IsRefresh, SearchPhrase, ClientIP FROM hits WHERE ClientIP = -807147100")
+//    df.coalesce(1).write.mode("overwrite").parquet("/tmp/hits-807147100.parquet")
+
+
+//    spark.catalog.createTable("hits", "parquet", SCHEMA, Map("path" -> "/tmp/clickbench-generated-1.0/hits.parquet"))
+//    spark.sql("SELECT SearchEngineID, SUM(IsRefresh) FROM hits WHERE SearchPhrase <> '' AND (SearchEngineID in (1, 2, 4)) AND ClientIP = -807147100 GROUP BY SearchEngineID").show
+
+
+     spark.catalog.createTable("hits", "parquet", SCHEMA, Map("path" -> "/tmp/hits-807147100-2.parquet"))
+     spark.sql("SELECT SearchEngineID, SUM(IsRefresh) FROM hits WHERE SearchPhrase <> '' AND (SearchEngineID in (1, 2, 4)) GROUP BY SearchEngineID").show
   }
 }

@@ -1,1 +1,1 @@
-SELECT SearchEngineID, ClientIP, COUNT(*) AS c, SUM(IsRefresh), AVG(ResolutionWidth) FROM hits WHERE SearchPhrase <> '' GROUP BY SearchEngineID, ClientIP ORDER BY c DESC LIMIT 10;
+SELECT SearchEngineID, SUM(IsRefresh) FROM hits WHERE SearchPhrase <> '' AND (SearchEngineID in (1, 2, 4)) AND ClientIP = -807147100 GROUP BY SearchEngineID
