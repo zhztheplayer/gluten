@@ -400,7 +400,8 @@ class Spark35Shims extends SparkShims {
   }
 
   def isRowIndexMetadataColumn(name: String): Boolean =
-    name == ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME
+    name == ParquetFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME ||
+      name.equalsIgnoreCase("__delta_internal_is_row_deleted")
 
   def findRowIndexColumnIndexInSchema(sparkSchema: StructType): Int = {
     sparkSchema.fields.zipWithIndex.find {

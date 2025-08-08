@@ -637,7 +637,7 @@ trait SparkPlanExecApi {
       val pushedFilters =
         dataFilters ++ FilterHandler.getRemainingFilters(dataFilters, extraFilters)
       pushedFilters.filterNot(_.references.exists {
-        attr => BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)
+        attr => SparkShimLoader.getSparkShims.isRowIndexMetadataColumn(attr.name)
       })
     }
     sparkExecNode match {
@@ -761,9 +761,5 @@ trait SparkPlanExecApi {
       right: ExpressionTransformer,
       original: Expression): ExpressionTransformer = {
     throw new GlutenNotSupportException("timestampdiff is not supported")
-  }
-
-  def isRowIndexMetadataColumn(columnName: String): Boolean = {
-    SparkShimLoader.getSparkShims.isRowIndexMetadataColumn(columnName)
   }
 }
