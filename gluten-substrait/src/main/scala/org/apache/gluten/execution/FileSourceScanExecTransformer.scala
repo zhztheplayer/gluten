@@ -32,12 +32,9 @@ import org.apache.spark.sql.execution.FileSourceScanExecShim
 import org.apache.spark.sql.execution.datasources.HadoopFsRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.util.SparkVersionUtil
 import org.apache.spark.util.collection.BitSet
 
 import org.apache.commons.lang3.StringUtils
-
-import scala.collection.JavaConverters._
 
 case class FileSourceScanExecTransformer(
     @transient override val relation: HadoopFsRelation,
@@ -112,15 +109,9 @@ abstract class FileSourceScanExecTransformerBase(
         output)
   }
 
-  override def dataFiltersInScan: Seq[Expression] = {
-    if (SparkVersionUtil.gteSpark35) {
-      dataFilters.filterNot(_.references.exists {
-        attr => BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)
-      })
-    } else {
-      super.dataFiltersInScan
-    }
-  }
+  protected def dataFiltersInScan: Seq[Expression] = dataFilters.filterNot(_.references.exists {
+    attr => BackendsApiManager.getSparkPlanExecApiInstance.isRowIndexMetadataColumn(attr.name)
+  })
 
   override def getMetadataColumns(): Seq[AttributeReference] = metadataColumns
 
