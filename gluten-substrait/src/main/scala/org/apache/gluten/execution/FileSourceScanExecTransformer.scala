@@ -37,6 +37,8 @@ import org.apache.spark.util.collection.BitSet
 
 import org.apache.commons.lang3.StringUtils
 
+import scala.collection.JavaConverters._
+
 case class FileSourceScanExecTransformer(
     @transient override val relation: HadoopFsRelation,
     override val output: Seq[Attribute],
