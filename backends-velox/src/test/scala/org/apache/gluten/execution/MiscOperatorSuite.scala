@@ -2158,4 +2158,19 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         }
       })
   }
+
+  test("foo") {
+    spark.sessionState.conf.setConfString("spark.gluten.enabled", "true")
+//    spark.sessionState.conf.setConfString("spark.gluten.sql.native.union", "true")
+    val df = sql(
+      """
+        |SELECT DISTINCT * FROM (
+        |    SELECT CAST(UNIX_MILLIS(CURRENT_TIMESTAMP()) AS TIMESTAMP) as ts FROM range(0, 1000)
+        |) t;
+        |""".stripMargin)
+
+    df.explain(true)
+    df.collect()
+    df.explain(true)
+  }
 }

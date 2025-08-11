@@ -17,12 +17,18 @@
 package org.apache.gluten.execution
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.Row
+import org.apache.spark.sql.{Row, WithQueryPlanListener}
 import org.apache.spark.sql.types._
 
 import scala.collection.JavaConverters._
 
-abstract class DeltaSuite extends WholeStageTransformerSuite {
+abstract class DeltaSuite extends WholeStageTransformerSuite with WithQueryPlanListener {
+
+  planListeners.onPlanExecuted {
+    plan =>
+      println(plan)
+  }
+
   protected val rootPath: String = getClass.getResource("/").getPath
   // FIXME: This folder doesn't exist in module gluten-delta so should be provided by
   //  backend modules that rely on this suite.
