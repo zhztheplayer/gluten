@@ -98,9 +98,9 @@ install_centos_7() {
 
     # Requires git >= 2.7.4
     if [[ "$(git --version)" != "git version 2."* ]]; then
-        [ -f /etc/yum.repos.d/ius.repo ] || yum -y install https://repo.ius.io/ius-release-el7.rpm
+        yum -y install https://packages.endpointdev.com/rhel/7/os/x86_64/endpoint-repo.x86_64.rpm
         yum -y remove git
-        yum -y install git236
+        yum -y install git-2.36.0-1.ep7
     fi
 
     # flex>=2.6.0
