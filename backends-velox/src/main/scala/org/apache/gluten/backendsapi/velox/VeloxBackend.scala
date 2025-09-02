@@ -121,6 +121,10 @@ object VeloxBackendSettings extends BackendSettingsApi {
           filteredRootPaths.toArray)
       ) {
         Some(s"Scheme of [$filteredRootPaths] is not supported by registered file systems.")
+      } else if (
+        GlutenConfig.get.enableScanOnly && filteredRootPaths.exists(p => p.contains("_delta_log/"))
+      ) {
+        Some(s"Found delta log path in $rootPaths.")
       } else {
         None
       }

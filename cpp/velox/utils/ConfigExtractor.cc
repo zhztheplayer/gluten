@@ -138,7 +138,7 @@ void getS3HiveConfig(
   };
 
   // Convert all Spark bucket configs to Velox bucket configs.
-  for (const auto& [key, value] : conf->rawConfigs()) {
+  for (const auto& [key, value] : conf->rawConfigsCopy()) {
     if (key.find(kSparkHadoopS3BucketPrefix) == 0) {
       std::string_view skey = key;
       auto remaining = skey.substr(kSparkHadoopS3BucketPrefix.size());
@@ -210,7 +210,7 @@ void getAbfsHiveConfig(
 #ifdef ENABLE_ABFS
   std::string_view kSparkHadoopPrefix = "spark.hadoop.";
   std::string_view kSparkHadoopAbfsPrefix = "spark.hadoop.fs.azure.";
-  for (const auto& [key, value] : conf->rawConfigs()) {
+  for (const auto& [key, value] : conf->rawConfigsCopy()) {
     if (key.find(kSparkHadoopAbfsPrefix) == 0) {
       // Remove the SparkHadoopPrefix
       hiveConfMap[key.substr(kSparkHadoopPrefix.size())] = value;
@@ -306,14 +306,14 @@ std::shared_ptr<facebook::velox::config::ConfigBase> createHiveConnectorConfig(
   hiveConfMap[facebook::velox::connector::hive::HiveConfig::kReadTimestampPartitionValueAsLocalTime] = "false";
 
   overwriteVeloxConf(conf.get(), hiveConfMap, kStaticBackendConfPrefix);
-  return std::make_shared<facebook::velox::config::ConfigBase>(std::move(hiveConfMap));
+  return std::make_shared<facebook::velox::config::ConfigBase>(std::move(hiveConfMap), false/*mutable*/);
 }
 
 void overwriteVeloxConf(
     const facebook::velox::config::ConfigBase* from,
     std::unordered_map<std::string, std::string>& to,
     const std::string& prefix) {
-  for (const auto& [k, v] : from->rawConfigs()) {
+  for (const auto& [k, v] : from->rawConfigsCopy()) {
     if (k.starts_with(prefix)) {
       to[k.substr(prefix.size())] = v;
     }

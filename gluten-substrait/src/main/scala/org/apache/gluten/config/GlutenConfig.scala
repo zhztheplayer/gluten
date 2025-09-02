@@ -561,6 +561,17 @@ object GlutenConfig extends ConfigRegistry {
             .put(SQLConf.LEGACY_TIME_PARSER_POLICY.key, v.toUpperCase(Locale.ROOT)))
 
     val confPrefixSession = prefixSessionOf(backendName)
+    // put in all WXD configs
+    conf
+      .filter(_._1.startsWith(HADOOP_PREFIX + "wxd."))
+      .foreach(entry => nativeConfMap.put(entry._1, entry._2))
+
+    // handle ABFS config
+    conf
+      .filter(_._1.contains(ABFS_PREFIX))
+      .foreach(entry => nativeConfMap.put(entry._1, entry._2))
+
+    // Backend's dynamic session conf only.
     val confPrefix = prefixOf(backendName)
     conf
       .filter {

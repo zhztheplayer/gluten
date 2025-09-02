@@ -100,7 +100,7 @@ void VeloxBackend::init(
     std::unique_ptr<AllocationListener> listener,
     const std::unordered_map<std::string, std::string>& conf) {
   backendConf_ =
-      std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(conf));
+      std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(conf), true);
 
   globalMemoryManager_ = std::make_unique<VeloxMemoryManager>(kVeloxBackendKind, std::move(listener), *backendConf_);
 
@@ -109,7 +109,7 @@ void VeloxBackend::init(
   Runtime::registerFactory(kVeloxBackendKind, veloxRuntimeFactory, veloxRuntimeReleaser);
 
   if (backendConf_->get<bool>(kDebugModeEnabled, false)) {
-    LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigs());
+    LOG(INFO) << "VeloxBackend config:" << printConfig(backendConf_->rawConfigsCopy());
   }
 
   // Init glog and log level.
@@ -188,7 +188,6 @@ void VeloxBackend::init(
 #endif
 
   initJolFilesystem();
-  initConnector(hiveConf);
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
@@ -309,7 +308,53 @@ void VeloxBackend::initCache() {
   }
 }
 
+std::string VeloxBackend::getValueStreamConnectorId(const std::string& azureAccount) {
+  // Use account specific connector ID for Azure, generic for others
+  if (!azureAccount.empty()) {
+    return std::string(kIteratorConnectorId) + "-" + azureAccount;
+  }
+  return std::string(kIteratorConnectorId);
+}
+
+void VeloxBackend::ensureConnectorInitialized(const std::shared_ptr<velox::config::ConfigBase>& hiveConf) {
+  std::lock_guard<std::mutex> lock(registerMutex);
+  
+  // Determine the connector ID to use
+  std::string connectorId = getValueStreamConnectorId(azureAccount);
+  
+  // Check if this specific connector is already registered
+  if (registeredConnectors_.find(connectorId) != registeredConnectors_.end()) {
+    LOG(INFO) << "Connector '" << connectorId << "' already initialized, skipping";
+    return;
+  }
+  
+  LOG(INFO) << "Initializing connector '" << connectorId << "'";
+  velox::connector::registerConnector(std::make_shared<ValueStreamConnector>(connectorId, hiveConf));
+  registeredConnectors_.insert(connectorId);
+}
+
 void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase>& hiveConf) {
+  // always update to use new session level conf
+  for (const auto& [key, value] : hiveConf->rawConfigs()) {
+    if (key.find(kAbfsPrefix) == 0 && azureAccount != "") {
+      std::string newKey = "";
+      if (key.ends_with(".dfs.core.windows.net")) {
+        newKey = "spark.hadoop."+ key;
+      } else {
+        newKey = "spark.hadoop."+ key + "." + azureAccount + ".dfs.core.windows.net";
+      }
+      // update for azure config
+      LOG(INFO) << "setting azure key: " << newKey << std::endl;
+      backendConf_->set(newKey, value);
+    } else {
+      backendConf_->set(key, value);
+    }
+  }
+
+  auto newConf = createHiveConnectorConfig(backendConf_);
+  LOG(INFO) << "merged config" << printConfig(backendConf_->rawConfigsCopy());
+  velox::filesystems::registerAzureClientProvider(*newConf);
+
   auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
   GLUTEN_CHECK(
       ioThreads >= 0,
@@ -319,14 +364,13 @@ void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase
         ioThreads,
         std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
   }
-  velox::connector::registerConnector(
-      std::make_shared<velox::connector::hive::HiveConnector>(kHiveConnectorId, hiveConf, ioExecutor_.get()));
+  auto hiveConnector = std::make_shared<velox::connector::hive::HiveConnector>(
+      kHiveConnectorId, newConf, ioExecutor_.get());
+  velox::connector::unregisterConnector(kHiveConnectorId);
+  velox::connector::registerConnector(hiveConnector);
   
-  // Register value-stream connector for runtime iterator-based inputs
-  auto valueStreamDynamicFilterEnabled =
-      backendConf_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);
-  velox::connector::registerConnector(
-      std::make_shared<ValueStreamConnector>(kIteratorConnectorId, hiveConf, valueStreamDynamicFilterEnabled));
+  // Register value-stream connector
+  ensureConnectorInitialized(hiveConf);
   
 #ifdef GLUTEN_ENABLE_GPU
   if (backendConf_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&

@@ -25,10 +25,10 @@
 #include "velox/exec/PlanNodeStats.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
+#include "cudf/GpuLock.h"
 #include "velox/experimental/cudf/CudfConfig.h"
 #include "velox/experimental/cudf/connectors/hive/CudfHiveConnectorSplit.h"
 #include "velox/experimental/cudf/exec/ToCudf.h"
-#include "cudf/GpuLock.h"
 #endif
 #include "operators/plannodes/RowVectorStream.h"
 
@@ -96,6 +96,39 @@ WholeStageResultIterator::WholeStageResultIterator(
   }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
+  // Generate splits for all scan nodes.
+  splits_.reserve(scanInfos.size());
+  LOG(INFO) << fmt::format("Reserved splits size {} ", scanInfos.size());
+  if (scanNodeIds.size() != scanInfos.size()) {
+    throw std::runtime_error("Invalid scan information.");
+  }
+  {
+    // Parse URI to extract azure account and set it before connector initialization
+    if (scanInfos.size() > 0) {
+      const auto& paths = scanInfos[0]->paths;
+      if (paths.size() > 0) {
+        const std::string uri = paths[0];
+        if (uri.starts_with("abfss://")) {
+          auto begin = uri.find_first_of("@");
+          assert(begin != std::string::npos);
+          auto end = uri.find(".dfs.core.windows.net");
+          assert(end != std::string::npos);
+          const std::string azureAccount = uri.substr(begin + 1, end - begin - 1);
+          if (!azureAccount.empty()) {
+            std::lock_guard<std::mutex> l(gluten::VeloxBackend::get()->registerMutex);
+            // Set the azure account before calling initConnector
+            gluten::VeloxBackend::get()->azureAccount = azureAccount;
+          }
+        }
+      }
+    }
+    // register the hive connectors
+    std::call_once(gluten::VeloxBackend::get()->regFlag, [&]() {
+      gluten::VeloxBackend::get()->initConnector(
+          std::make_shared<facebook::velox::config::ConfigBase>(veloxCfg_->rawConfigsCopy()));
+    });
+  }
+
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
   GLUTEN_CHECK(fileSystem != nullptr, "File System for spilling is null!");
   fileSystem->mkdir(spillDir);
@@ -106,6 +139,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   std::unordered_set<velox::core::PlanNodeId> emptySet;
   velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};
   std::shared_ptr<velox::core::QueryCtx> queryCtx = createNewVeloxQueryCtx();
+
   task_ = velox::exec::Task::create(
       fmt::format(
           "Gluten_Stage_{}_TID_{}_VTID_{}",
@@ -122,12 +156,6 @@ WholeStageResultIterator::WholeStageResultIterator(
       /*onError=*/nullptr);
   if (!task_->supportSerialExecutionMode()) {
     throw std::runtime_error("Task doesn't support single threaded execution: " + planNode->toString());
-  }
-
-  // Generate splits for all scan nodes.
-  splits_.reserve(scanInfos.size());
-  if (scanNodeIds.size() != scanInfos.size()) {
-    throw std::runtime_error("Invalid scan information.");
   }
 
   for (const auto& scanInfo : scanInfos) {
@@ -359,13 +387,17 @@ void WholeStageResultIterator::constructPartitionColumns(
 
 void WholeStageResultIterator::addIteratorSplits(const std::vector<std::shared_ptr<ResultIterator>>& inputIterators) {
   GLUTEN_CHECK(!allSplitsAdded_, "Method addIteratorSplits should not be called since all splits has been added to the Velox task.");
+  // Get the appropriate connector ID (account specific for Azure, generic otherwise)
+  std::string connectorId = gluten::VeloxBackend::get()->getValueStreamConnectorId(
+      gluten::VeloxBackend::get()->azureAccount);
+  
   // Create IteratorConnectorSplit for each iterator
   for (size_t i = 0; i < streamIds_.size() && i < inputIterators.size(); ++i) {
     if (inputIterators[i] == nullptr) {
       continue;
     }
     auto connectorSplit = std::make_shared<IteratorConnectorSplit>(
-        kIteratorConnectorId, inputIterators[i]);
+        connectorId, inputIterators[i]);
     exec::Split split(folly::copy(connectorSplit), -1);
     task_->addSplit(streamIds_[i], std::move(split));
   }
