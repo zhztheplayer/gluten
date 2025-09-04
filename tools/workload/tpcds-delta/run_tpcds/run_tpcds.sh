@@ -16,13 +16,12 @@
 set -eux
 set -o pipefail
 
-GLUTEN_JAR=/PATH_TO_GLUTEN_HOME/package/target/<gluten-jar>
-DELTA_JARS=/PATHS_TO_DELTA_JARS
-SPARK_HOME=/PATH_TO_SPARK_HOME/
+GLUTEN_JAR=/opt/code/incubator-gluten/package/target/gluten-velox-bundle-spark3.4_2.12-linux_aarch64-1.6.0-SNAPSHOT.jar
+DELTA_JARS=/root/.m2/repository/io/delta/delta-core_2.12/2.4.0/delta-core_2.12-2.4.0.jar:/root/.m2/repository/io/delta/delta-storage/2.4.0/delta-storage-2.4.0.jar
+SPARK_HOME=/opt/programs/spark-3.4.4-bin-hadoop3/
 
 cat tpcds_delta.scala | ${SPARK_HOME}/bin/spark-shell \
-  --master yarn --deploy-mode client \
-  --packages io.delta:delta-core_2.12:2.4.0 \
+  --master spark://hongze-zhang-VMware20-1:7077 --deploy-mode client \
   --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
   --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
   --conf spark.plugins=org.apache.gluten.GlutenPlugin \

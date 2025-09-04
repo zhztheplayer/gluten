@@ -21,12 +21,12 @@ import java.util.Arrays
 import sys.process._
 
 // Configurations:
-var delta_table_path = "/PATH/TO/TPCDS_DELTA_TABLE_PATH"
-var gluten_root = "/PATH/TO/GLUTEN"
+var delta_table_path = "/tmp/my-data/tpcds-generated-20.0-delta-partitioned"
+var gluten_root = "/opt/code/incubator-gluten"
 
 // File root path: file://, hdfs:// , s3 , ...
 // e.g. hdfs://hostname:8020
-var delta_file_root = "/ROOT_PATH"
+var delta_file_root = "file://"
 
 var tpcds_queries_path = "/tools/gluten-it/common/src/main/resources/tpcds-queries/"
 
