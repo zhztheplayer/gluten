@@ -33,6 +33,7 @@
 #include "velox/functions/sparksql/aggregates/Register.h"
 #include "velox/functions/sparksql/registration/Register.h"
 #include "velox/functions/sparksql/window/WindowFunctionsRegistration.h"
+#include "velox/functions/delta/RoaringBitmapArray.h"
 
 using namespace facebook;
 
@@ -94,6 +95,9 @@ void registerAllFunctions() {
   registerFunctionOverwrite();
 
   velox::functions::iceberg::registerFunctions();
+
+  velox::registerFunction<velox::functions::delta::RoaringBitmapArrayContains, bool, velox::Varbinary, int64_t>(
+      {"roaring_bitmap_array_contains"});
 }
 
 } // namespace gluten

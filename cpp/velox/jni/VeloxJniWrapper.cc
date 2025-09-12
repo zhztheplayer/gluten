@@ -21,6 +21,7 @@
 #include <jni/JniCommon.h>
 #include <velox/connectors/hive/PartitionIdGenerator.h>
 #include <velox/exec/OperatorUtils.h>
+#include <velox/expression/Expr.h>
 
 #include <exception>
 #include "JniUdf.h"
@@ -670,6 +671,99 @@ Java_org_apache_gluten_vectorized_UnifflePartitionWriterJniWrapper_createPartiti
       uniffleClient);
 
   return ctx->saveObject(partitionWriter);
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_expr_ExpressionEvaluatorJniWrapper_nativeCreateEvaluator( // NOLINT
+    JNIEnv* env,
+    jobject wrapper) {
+  JNI_METHOD_START
+
+  const auto ctx = getRuntime(env, wrapper);
+  auto memoryManager = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager());
+  auto leafPool = memoryManager->getLeafMemoryPool();
+
+  static std::atomic_uint32_t id{0UL};
+  std::shared_ptr<velox::core::QueryCtx> queryCtx = velox::core::QueryCtx::create(
+      nullptr,
+      core::QueryConfig{{}},
+      {},
+      gluten::VeloxBackend::get()->getAsyncDataCache(),
+      memoryManager->getAggregateMemoryPool(),
+      nullptr,
+      fmt::format(
+          "Gluten_Evaluator_{}", id++));
+  ctx->saveObject(queryCtx);
+
+  auto evaluator = std::make_unique<exec::SimpleExpressionEvaluator>(queryCtx.get(), leafPool.get());
+  return ctx->saveObject(std::move(evaluator));
+
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_expr_ExpressionEvaluatorJniWrapper_nativeCreateExprSet( // NOLINT
+  JNIEnv* env,
+  jobject wrapper,
+  jlong jEvaluatorHandle,
+  jbyteArray jSubstraitExpr,
+  jbyteArray jSubstraitInputSchema,
+  jobjectArray jFunctionArray) {
+  JNI_METHOD_START
+
+  const auto ctx = getRuntime(env, wrapper);
+  auto memoryManager = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager());
+  auto leafPool = memoryManager->getLeafMemoryPool();
+  const int functionArraySize = env->GetArrayLength(jFunctionArray);
+  std::unordered_map<uint64_t, std::string> functionMap;
+  for (int i = 0; i < functionArraySize; i++) {
+    jstring string = (jstring)(env->GetObjectArrayElement(jFunctionArray, i));
+    std::string functionName = jStringToCString(env, string);
+    functionMap.emplace(i, functionName);
+  }
+  substrait::Expression substraitExpr;
+  const auto safeSubstraitExpr = getByteArrayElementsSafe(env, jSubstraitExpr);
+  parseProtobuf(safeSubstraitExpr.elems(), safeSubstraitExpr.length(), &substraitExpr);
+
+  substrait::Type substraitSchema;
+  const auto safeSubstraitInputSchema = getByteArrayElementsSafe(env, jSubstraitInputSchema);
+  parseProtobuf(safeSubstraitInputSchema.elems(), safeSubstraitInputSchema.length(), &substraitSchema);
+
+  const RowTypePtr veloxRowType = std::dynamic_pointer_cast<const RowType>(SubstraitParser::parseType(substraitSchema));
+  SubstraitVeloxExprConverter converter{leafPool.get(), functionMap};
+  const core::TypedExprPtr veloxExpr = converter.toVeloxExpr(substraitExpr, veloxRowType);
+
+  auto evaluator = ObjectStore::retrieve<exec::SimpleExpressionEvaluator>(jEvaluatorHandle);
+  auto exprSet = evaluator->compile(veloxExpr);
+  return ctx->saveObject(std::move(exprSet));
+
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_expr_ExpressionEvaluatorJniWrapper_nativeEvaluate( // NOLINT
+    JNIEnv* env,
+    jobject wrapper,
+    jlong jEvaluatorHandle,
+    jlong jExprSetHandle,
+    jlong jBatchHandle) {
+  JNI_METHOD_START
+  const auto ctx = getRuntime(env, wrapper);
+  auto memoryManager = dynamic_cast<VeloxMemoryManager*>(ctx->memoryManager());
+  auto leafPool = memoryManager->getLeafMemoryPool();
+
+  auto evaluator = ObjectStore::retrieve<exec::SimpleExpressionEvaluator>(jEvaluatorHandle);
+  auto exprSet = ObjectStore::retrieve<exec::ExprSet>(jExprSetHandle);
+  auto batch = VeloxColumnarBatch::from(leafPool.get(), ObjectStore::retrieve<ColumnarBatch>(jBatchHandle));
+  auto inputRowVector = batch->getRowVector();
+
+  VectorPtr resultVector;
+  evaluator->evaluate(exprSet.get(), SelectivityVector{batch->numRows(), true}, *inputRowVector, resultVector);
+
+  RowVectorPtr resultRowVector = std::make_shared<RowVector>(
+      leafPool.get(), ROW({"eval_result"}, {resultVector->type()}), nullptr, resultVector->size(), std::vector{resultVector});
+
+  const std::shared_ptr<VeloxColumnarBatch> outBatch = std::make_shared<VeloxColumnarBatch>(resultRowVector);
+  return ctx->saveObject(outBatch);
+
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
