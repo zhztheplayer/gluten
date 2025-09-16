@@ -18,42 +18,41 @@ package org.apache.spark.sql.delta
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.{ColumnarBatches, VeloxColumnarBatches}
-import org.apache.gluten.expr.{NativeExpressionEvaluator, NativeExprSet}
+import org.apache.gluten.expr.{NativeExprSet, NativeExpressionEvaluator}
 import org.apache.gluten.memory.arrow.alloc.ArrowBufferAllocators
 import org.apache.gluten.runtime.Runtimes
 import org.apache.gluten.substrait.`type`.{BooleanTypeNode, TypeBuilder, TypeNode}
 import org.apache.gluten.substrait.expression.{ExpressionBuilder, ExpressionNode}
 import org.apache.gluten.vectorized.ArrowWritableColumnVector
-
 import org.apache.spark.sql.delta.actions.DeletionVectorDescriptor
-import org.apache.spark.sql.delta.deletionvectors.{DropAllRowsFilter, KeepAllRowsFilter, RoaringBitmapArray, RoaringBitmapArrayFormat, StoredBitmap}
+import org.apache.spark.sql.delta.deletionvectors.{DropAllRowsFilter, KeepAllRowsFilter}
 import org.apache.spark.sql.delta.storage.dv.DeletionVectorStore
 import org.apache.spark.sql.execution.vectorized.WritableColumnVector
-import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
-
+import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 import org.apache.arrow.memory.BufferAllocator
 import org.apache.arrow.vector.{BigIntVector, FieldVector, VectorSchemaRoot}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
+import org.apache.spark.util.Utils
 
 import scala.collection.JavaConverters._
 
 object VeloxRowIndexMarkingFilters {
   object VeloxDropMarkedRowsFilter extends VeloxRowIndexMarkingFiltersBuilder {
     override def getFilterForEmptyDeletionVector(): RowIndexFilter = KeepAllRowsFilter
-    override def getFilterForNonEmptyDeletionVector(bitmap: RoaringBitmapArray): RowIndexFilter = {
-      new VeloxDropMarkedRowsFilter(bitmap)
+    override def getFilterForNonEmptyDeletionVector(serializedBitmap: Array[Byte]): RowIndexFilter = {
+      new VeloxDropMarkedRowsFilter(serializedBitmap)
     }
   }
 
   object VeloxKeepMarkedRowsFilter extends VeloxRowIndexMarkingFiltersBuilder {
     override def getFilterForEmptyDeletionVector(): RowIndexFilter = DropAllRowsFilter
-    override def getFilterForNonEmptyDeletionVector(bitmap: RoaringBitmapArray): RowIndexFilter = {
-      new VeloxKeepMarkedRowsFilter(bitmap)
+    override def getFilterForNonEmptyDeletionVector(serializedBitmap: Array[Byte]): RowIndexFilter = {
+      new VeloxKeepMarkedRowsFilter(serializedBitmap)
     }
   }
 
-  sealed abstract class VeloxRowIndexMarkingFilters(bitmap: RoaringBitmapArray)
+  sealed abstract class VeloxRowIndexMarkingFilters(serializedBitmap: Array[Byte])
     extends RowIndexFilter {
     val valueWhenContained: Byte
     val valueWhenNotContained: Byte
@@ -69,8 +68,7 @@ object VeloxRowIndexMarkingFilters {
       val functionName = "roaring_bitmap_array_contains"
 
       val childExpressions: Seq[ExpressionNode] = Seq(
-        ExpressionBuilder.makeBinaryLiteral(
-          bitmap.serializeAsByteArray(RoaringBitmapArrayFormat.Portable)),
+        ExpressionBuilder.makeBinaryLiteral(serializedBitmap),
         ExpressionBuilder.makeSelection(1)
       )
 
@@ -133,35 +131,41 @@ object VeloxRowIndexMarkingFilters {
     }
   }
 
-  final class VeloxDropMarkedRowsFilter(bitmap: RoaringBitmapArray)
-    extends VeloxRowIndexMarkingFilters(bitmap) {
+  final class VeloxDropMarkedRowsFilter(serializedBitmap: Array[Byte])
+    extends VeloxRowIndexMarkingFilters(serializedBitmap) {
     override val valueWhenContained: Byte = RowIndexFilter.DROP_ROW_VALUE
     override val valueWhenNotContained: Byte = RowIndexFilter.KEEP_ROW_VALUE
   }
 
-  final class VeloxKeepMarkedRowsFilter(bitmap: RoaringBitmapArray)
-    extends VeloxRowIndexMarkingFilters(bitmap) {
+  final class VeloxKeepMarkedRowsFilter(serializedBitmap: Array[Byte])
+    extends VeloxRowIndexMarkingFilters(serializedBitmap) {
     override val valueWhenContained: Byte = RowIndexFilter.KEEP_ROW_VALUE
     override val valueWhenNotContained: Byte = RowIndexFilter.DROP_ROW_VALUE
   }
 
   trait VeloxRowIndexMarkingFiltersBuilder {
     def getFilterForEmptyDeletionVector(): RowIndexFilter
-    def getFilterForNonEmptyDeletionVector(bitmap: RoaringBitmapArray): RowIndexFilter
+    def getFilterForNonEmptyDeletionVector(serializedBitmap: Array[Byte]): RowIndexFilter
 
     def createInstance(
         deletionVector: DeletionVectorDescriptor,
         hadoopConf: Configuration,
         tablePath: Option[Path]): RowIndexFilter = {
-      if (deletionVector.cardinality == 0) {
-        getFilterForEmptyDeletionVector()
-      } else {
-        require(tablePath.nonEmpty, "Table path is required for non-empty deletion vectors")
-        val dvStore = DeletionVectorStore.createInstance(hadoopConf)
-        val storedBitmap = StoredBitmap.create(deletionVector, tablePath.get)
-        val bitmap = storedBitmap.load(dvStore)
-        getFilterForNonEmptyDeletionVector(bitmap)
+      if (deletionVector.isEmpty) {
+        return getFilterForEmptyDeletionVector()
       }
+      require(tablePath.nonEmpty, "Table path is required for non-empty deletion vectors")
+      if (deletionVector.isInline) {
+        return getFilterForNonEmptyDeletionVector(deletionVector.inlineData)
+      }
+      assert(deletionVector.isOnDisk)
+      val onDiskPath = tablePath.map(deletionVector.absolutePath)
+      val fs = onDiskPath.get.getFileSystem(hadoopConf)
+      val buffer = Utils.tryWithResource(fs.open(onDiskPath.get)) { reader =>
+        reader.seek(deletionVector.offset.getOrElse[Int](0))
+        DeletionVectorStore.readRangeFromStream(reader, deletionVector.sizeInBytes)
+      }
+      getFilterForNonEmptyDeletionVector(buffer)
     }
   }
 }
