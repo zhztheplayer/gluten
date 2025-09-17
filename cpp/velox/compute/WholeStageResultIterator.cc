@@ -148,6 +148,7 @@ WholeStageResultIterator::WholeStageResultIterator(
             std::unordered_map<std::string, std::string>(),
             properties[idx]);
       } else if (auto deltaSplitInfo = std::dynamic_pointer_cast<DeltaSplitInfo>(scanInfo)) {
+        std::unordered_map<std::string, std::string> customSplitInfo{{"table_format", "hive-delta"}};
         connector::hive::delta::DeltaRowIndexFilter::Type rowIndexFilterType;
         if (deltaSplitInfo.get()->dvIfContainedFlags[idx]) {
           rowIndexFilterType = connector::hive::delta::DeltaRowIndexFilter::Type::kIfContained;
@@ -165,7 +166,7 @@ WholeStageResultIterator::WholeStageResultIterator(
           lengths[idx],
           partitionKeys,
           std::nullopt /*tableBucketName*/,
-          std::unordered_map<std::string, std::string>(),
+          customSplitInfo,
           nullptr,
           std::unordered_map<std::string, std::string>(),
           0,
