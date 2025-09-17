@@ -215,7 +215,6 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
             .flatMap(_.values)
             .exists(_.contains("Deletion vector is not supported in native")))
         checkAnswer(df, df1)
-        Thread.sleep(3600000L)
     }
   }
 
