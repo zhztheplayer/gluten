@@ -303,7 +303,7 @@ commands_to_run=${OTHER_ARGUMENTS:-}
 (
   if [[ "x$commands_to_run" == "x" ]]; then
     get_velox
-    setup_dependencies
+#    setup_dependencies
     build_velox_backend
   else
     echo "Commands to run: $commands_to_run"

@@ -85,8 +85,8 @@ abstract class WholeStageTransformerSuite
       .set("spark.default.parallelism", "1")
       .set("spark.memory.offHeap.enabled", "true")
       .set("spark.memory.offHeap.size", "1024MB")
-      .set("spark.ui.enabled", "false")
-      .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "false")
+      .set("spark.ui.enabled", "true")
+      .set(GlutenConfig.GLUTEN_UI_ENABLED.key, "true")
   }
 
   protected def checkFallbackOperators(df: DataFrame, num: Int): Unit = {

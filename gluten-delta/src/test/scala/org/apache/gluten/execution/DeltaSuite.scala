@@ -211,6 +211,7 @@ abstract class DeltaSuite extends WholeStageTransformerSuite {
         spark.sql(s"DELETE FROM delta.`$path` WHERE id IN (${values2.mkString(", ")})")
         val df = spark.read.format("delta").load(path)
         checkAnswer(df, df1)
+        Thread.sleep(3600000L)
     }
   }
 
