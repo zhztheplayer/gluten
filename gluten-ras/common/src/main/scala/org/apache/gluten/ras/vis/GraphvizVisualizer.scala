@@ -90,19 +90,27 @@ class GraphvizVisualizer[T <: AnyRef](ras: Ras[T], memoState: MemoState[T], best
             groupToDotClusterId += group.id() -> dotClusterId
             dotClusterId = dotClusterId + 1
             buf.append(s"      label=${'"'}${describeGroupVerbose(group)}${'"'}\n")
-            group.nodes(memoState).foreach {
-              node =>
-                {
-                  buf.append(s"      ${'"'}${describeNode(costs, group, node)}${'"'}")
-                  (node, group) match {
-                    case IsBestNode() =>
-                      buf.append(" [style=filled, fillcolor=lightgreen] ")
-                    case IsWinnerNode() =>
-                      buf.append(" [style=bold] ")
-                    case _ =>
+            val nodesInGroup = group.nodes(memoState)
+            if (nodesInGroup.isEmpty) {
+              // Draws an invisible node to make sure the group is rendered.
+              buf.append(s"      ${'"'}${describeInvisibleNodeInEmptyGroup(group)}${'"'}")
+              buf.append(" [style=invis, shape=point, width=0, height=0] ")
+              buf.append("\n")
+            } else {
+              nodesInGroup.foreach {
+                node =>
+                  {
+                    buf.append(s"      ${'"'}${describeNode(costs, group, node)}${'"'}")
+                    (node, group) match {
+                      case IsBestNode() =>
+                        buf.append(" [style=filled, fillcolor=lightgreen] ")
+                      case IsWinnerNode() =>
+                        buf.append(" [style=bold] ")
+                      case _ =>
+                    }
+                    buf.append("\n")
                   }
-                  buf.append("\n")
-                }
+              }
             }
             buf.append("    }\n")
         }
@@ -116,13 +124,18 @@ class GraphvizVisualizer[T <: AnyRef](ras: Ras[T], memoState: MemoState[T], best
             node.getChildrenGroups(allGroups).map(_.group(allGroups)).foreach {
               childGroup =>
                 val childGroupNodes = childGroup.nodes(memoState).toSeq
-                if (childGroupNodes.nonEmpty) {
+                val targetChildDescription = if (childGroupNodes.isEmpty) {
+                  // Choose the invisible node.
+                  describeInvisibleNodeInEmptyGroup(childGroup)
+                } else {
+                  // Chooses a random child.
                   val randomChild = childGroupNodes(Random.nextInt(childGroupNodes.size))
-                  buf.append(
-                    s"  ${'"'}${describeNode(costs, group, node)}${'"'} -> " +
-                      s"${'"'}${describeNode(costs, childGroup, randomChild)}${'"'}  " +
-                      s"[lhead=${'"'}cluster${groupToDotClusterId(childGroup.id())}${'"'}]\n")
+                  describeNode(costs, childGroup, randomChild)
                 }
+                buf.append(
+                  s"  ${'"'}${describeNode(costs, group, node)}${'"'} -> " +
+                    s"${'"'}$targetChildDescription${'"'}  " +
+                    s"[lhead=${'"'}cluster${groupToDotClusterId(childGroup.id())}${'"'}]\n")
             }
         }
     }
@@ -165,6 +178,10 @@ class GraphvizVisualizer[T <: AnyRef](ras: Ras[T], memoState: MemoState[T], best
 
   private def describeGroupVerbose(group: RasGroup[T]): String = {
     s"[Group ${group.id()}: ${group.constraintSet()}]"
+  }
+
+  private def describeInvisibleNodeInEmptyGroup(group: RasGroup[T]): String = {
+    s"[INVIS ${group.id()}]"
   }
 
   private def describeNode(
