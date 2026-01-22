@@ -628,6 +628,9 @@ Java_org_apache_gluten_datasource_VeloxDataSourceJniWrapper_splitBlockByPartitio
 #ifdef GLUTEN_ENABLE_ENHANCED_FEATURES
           ,
       true
+#else
+          ,
+      false
 #endif
   );
   raw_vector<uint64_t> partitionIds{};
