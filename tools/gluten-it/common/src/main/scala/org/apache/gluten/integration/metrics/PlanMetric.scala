@@ -18,15 +18,13 @@ package org.apache.gluten.integration.metrics
 
 import org.apache.gluten.integration.action.TableRender
 import org.apache.gluten.integration.action.TableRender.Field.Leaf
-
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.metric.SQLMetric
-
 import org.apache.commons.io.output.ByteArrayOutputStream
+import org.apache.spark.sql.catalyst.optimizer.BuildLeft
 
 import java.io.File
 import java.nio.charset.Charset
-
 import scala.reflect.ClassTag
 
 case class PlanMetric(
@@ -195,6 +193,18 @@ object PlanMetric {
       assert(probeInputNumRows.size == probeOutputNumRows.size)
       val rows = probeInputNumRows
         .zip(probeOutputNumRows)
+         .filter {
+            case ((id1, inputMetrics), (id2, outputMetrics)) =>
+             val plan = inputMetrics.head.plan
+             val probe = if (plan.simpleStringWithNodeId().contains(BuildLeft)) {
+               plan.children(1)
+             } else {
+               plan.children(0)
+             }
+             probe.find {
+               p => !p.nodeName.contains("FilterExecTransformer") && !p.nodeName.contains("ProjectExecTransformer") && !p.nodeName.contains("ScanExecTransformer")
+             }.isEmpty
+         }
         .map {
           case ((id1, inputMetrics), (id2, outputMetrics)) =>
             assert(id1 == id2)
