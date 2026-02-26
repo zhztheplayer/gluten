@@ -27,6 +27,7 @@
     <disaggregated.shuffle.spark.version>3.4.4</disaggregated.shuffle.spark.version>
     <disaggregated.shuffle.scala.version>2.12</disaggregated.shuffle.scala.version>
     <disaggregated.shuffle.version>1.0.2</disaggregated.shuffle.version>
+    <ch.cern.sparkmeasure.version>0.18</ch.cern.sparkmeasure.version>
   </properties>
 
   <dependencies>
@@ -84,7 +85,7 @@
     <dependency>
       <groupId>ch.cern.sparkmeasure</groupId>
       <artifactId>spark-measure_${scala.binary.version}</artifactId>
-      <version>0.18</version>
+      <version>${ch.cern.sparkmeasure.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -145,6 +146,14 @@
       <id>spark-3.5</id>
       <properties>
         <disaggregated.shuffle.spark.version>3.5.4</disaggregated.shuffle.spark.version>
+      </properties>
+    </profile>
+    <profile>
+      <id>spark-4.0</id>
+      <properties>
+        <disaggregated.shuffle.spark.version>4.0.0</disaggregated.shuffle.spark.version>
+        <disaggregated.shuffle.scala.version>2.13</disaggregated.shuffle.scala.version>
+        <ch.cern.sparkmeasure.version>0.20</ch.cern.sparkmeasure.version>
       </properties>
     </profile>
   </profiles>
