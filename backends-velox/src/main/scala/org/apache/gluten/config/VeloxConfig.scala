@@ -58,6 +58,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableVeloxFlushablePartialAggregation: Boolean =
     getConf(VELOX_FLUSHABLE_PARTIAL_AGGREGATION_ENABLED)
 
+  def allowLeftSemiJoinBuildLeft: Boolean =
+    getConf(VELOX_ALLOW_LEFT_SEMI_JOIN_BUILD_LEFT)
+
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
@@ -559,6 +562,16 @@ object VeloxConfig extends ConfigRegistry {
         "If true, will add a trim node " +
           "which has the same sementic as vanilla Spark to CAST-from-varchar." +
           "Otherwise, do nothing.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val VELOX_ALLOW_LEFT_SEMI_JOIN_BUILD_LEFT =
+    buildConf("spark.gluten.velox.allowLeftSemiJoinBuildLeft")
+      .experimental()
+      .doc(
+        "If enabled, the query planner may choose the left side as the build " +
+          "side for left semi joins during execution. By default, the right " +
+          "side is used as the build side.")
       .booleanConf
       .createWithDefault(false)
 

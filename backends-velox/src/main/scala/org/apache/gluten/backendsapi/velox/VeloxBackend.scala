@@ -34,7 +34,7 @@ import org.apache.gluten.utils._
 import org.apache.spark.sql.catalyst.catalog.BucketSpec
 import org.apache.spark.sql.catalyst.expressions.{Alias, CumeDist, DenseRank, Descending, Expression, Lag, Lead, NamedExpression, NthValue, NTile, PercentRank, RangeFrame, Rank, RowNumber, SortOrder, SpecialFrameBoundary, SpecifiedWindowFrame}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, ApproximatePercentile, HyperLogLogPlusPlus, Percentile}
-import org.apache.spark.sql.catalyst.plans.{JoinType, LeftOuter, RightOuter}
+import org.apache.spark.sql.catalyst.plans.{JoinType, LeftOuter, LeftSemi, RightOuter}
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, CharVarcharUtils}
 import org.apache.spark.sql.connector.read.Scan
 import org.apache.spark.sql.execution.{ColumnarCachedBatchSerializer, SparkPlan}
@@ -511,9 +511,8 @@ object VeloxBackendSettings extends BackendSettingsApi {
         t match {
           // OPPRO-266: For Velox backend, build right and left are both supported for
           // LeftOuter.
-          // TODO: Support LeftSemi after resolve issue
-          // https://github.com/facebookincubator/velox/issues/9980
           case LeftOuter => true
+          case LeftSemi => VeloxConfig.get.allowLeftSemiJoinBuildLeft
           case _ => false
         }
       }
