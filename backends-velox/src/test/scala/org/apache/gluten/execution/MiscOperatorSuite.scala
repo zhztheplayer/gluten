@@ -19,11 +19,12 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.{GlutenConfig, GlutenCoreConfig, VeloxConfig}
 import org.apache.gluten.expression.VeloxDummyExpression
 import org.apache.gluten.sql.shims.SparkShimLoader
-
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.catalyst.optimizer.BuildLeft
+import org.apache.spark.sql.catalyst.plans.LeftSemi
 import org.apache.spark.sql.{AnalysisException, DataFrame, Row}
 import org.apache.spark.sql.execution._
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, AdaptiveSparkPlanHelper, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.joins.BaseJoinExec
 import org.apache.spark.sql.execution.window.WindowExec
 import org.apache.spark.sql.functions._
@@ -32,7 +33,6 @@ import org.apache.spark.sql.types._
 
 import java.nio.file.{Files, Paths}
 import java.util.concurrent.TimeUnit
-
 import scala.collection.JavaConverters
 import scala.collection.JavaConverters._
 
@@ -2208,6 +2208,64 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
               case join: BaseJoinExec if join.joinType.toString == "LeftSingle" => join
             }.size == 1
           )
+      }
+    }
+  }
+
+  test("Left semi join can build left side when enabled") {
+    withTable("t1", "t2") {
+      sql("""
+            |create table t1 using parquet as
+            |select cast(id as int) as c1 from range(10)
+            |""".stripMargin)
+
+      sql("""
+            |create table t2 using parquet as
+            |select cast(id as int) as c2 from range(100)
+            |""".stripMargin)
+
+      withSQLConf(
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true",
+        SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "-1",
+        "spark.gluten.velox.allowLeftSemiJoinBuildLeft" -> "true"
+      ) {
+        val df = spark.sql(
+          """
+            |select * from t1
+            |left semi join t2
+            |on t1.c1 = t2.c2
+            |""".stripMargin)
+
+        assert(df.collect().length == 10)
+
+        val executedPlan = getExecutedPlan(df).collect {
+          case p: ShuffledHashJoinExecTransformer =>
+            true
+        }
+
+        assert(executedPlan.size == 1)
+
+        val join = executedPlan.head.asInstanceOf[ShuffledHashJoinExecTransformer]
+
+        assert(join.joinType == LeftSemi)
+        assert(join.buildSide == BuildLeft)
+
+        // Inspect native plan
+        val wholeStages = collect(join) {
+          case w: WholeStageTransformer => w
+        }
+
+        assert(wholeStages.nonEmpty)
+
+        val nativePlan = wholeStages.head.nativePlanString()
+
+        // Velox build side is always second child.
+        // If we swapped children to build left,
+        // left table (t1) must appear in build subtree.
+        assert(
+          nativePlan.contains("HashBuild") &&
+            nativePlan.contains("t1")
+        )
       }
     }
   }
