@@ -65,30 +65,47 @@ class StarSchemaPreAggregateSuite extends PlanTest {
     )
   }
 
-  test("pre-aggregate store_sales for both joins with having filter") {
-    val originalSql =
-      """
-        |SELECT
-        |  substring(i_item_desc, 1, 30) AS itemdesc,
-        |  i_item_sk AS item_sk,
-        |  d_date AS solddate,
-        |  count(1) AS cnt
-        |FROM store_sales
-        |JOIN date_dim ON ss_sold_date_sk = d_date_sk
-        |JOIN item ON ss_item_sk = i_item_sk
-        |WHERE d_year IN (1999, 2000, 2001, 2002)
-        |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
-        |HAVING count(1) > 4
-        |""".stripMargin
+  private case class PushdownCase(
+      inputSql: String,
+      expectedPushCount: Int,
+      expectedAggCount: Int)
 
-    val original = parseSqlWithLocalTables(originalSql)
+  private def runCase(testCase: PushdownCase): Unit = {
+    val original = parseSqlWithLocalTables(testCase.inputSql)
 
     starSchemaRule.resetSuccessfulPushCount()
     val optimized = Optimize.execute(original.analyze)
     val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
+    val nodesWithMissingInput = optimized.collect {
+      case p if p.missingInput.nonEmpty => p
+    }
 
-    // Rule should push pre-aggregation through two joins via repeated fixed-point applications.
-    assert(starSchemaRule.getSuccessfulPushCount == 4)
-    assert(aggregateNodeCount == 5)
+    assert(optimized.resolved)
+    assert(
+      nodesWithMissingInput.isEmpty,
+      s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
+    assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
+    assert(aggregateNodeCount == testCase.expectedAggCount)
+  }
+
+  test("pre-aggregate store_sales for both joins with having filter") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  substring(i_item_desc, 1, 30) AS itemdesc,
+                   |  i_item_sk AS item_sk,
+                   |  d_date AS solddate,
+                   |  count(1) AS cnt
+                   |FROM store_sales
+                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |WHERE d_year IN (1999, 2000, 2001, 2002)
+                   |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
+                   |HAVING count(1) > 4
+                   |""".stripMargin,
+      expectedPushCount = 4,
+      expectedAggCount = 5
+    )
+    runCase(pushdownCase)
   }
 }
