@@ -113,10 +113,10 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       val preAgg = Aggregate(
         groupingExpressions = groupingKeys,
         aggregateExpressions = groupingKeys :+
-          Alias(Count(Seq(Literal(1))).toAggregateExpression(), side.cntName)(),
+          Alias(Count(Seq(Literal(1))).toAggregateExpression(), side.multiplierName)(),
         child = side.plan(join)
       )
-      val sideCnt = preAgg.output.find(_.name == side.cntName).get
+      val sideCnt = preAgg.output.find(_.name == side.multiplierName).get
       Some((preAgg, sideCnt))
     }
   }
@@ -276,14 +276,14 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   }
 
   sealed private trait JoinSide {
-    def cntName: String
+    def multiplierName: String
     def plan(join: Join): LogicalPlan
     def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet
     def replace(join: Join, newPlan: LogicalPlan): Join
   }
 
   private case object JoinLeft extends JoinSide {
-    override val cntName: String = "partial_cnt"
+    override val multiplierName: String = "left_mult"
     override def plan(join: Join): LogicalPlan = join.left
     override def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet =
       join.left.outputSet
@@ -291,7 +291,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   }
 
   private case object JoinRight extends JoinSide {
-    override val cntName: String = "right_cnt"
+    override val multiplierName: String = "right_mult"
     override def plan(join: Join): LogicalPlan = join.right
     override def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet =
       join.right.outputSet
