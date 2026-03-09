@@ -110,7 +110,7 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
     val original = parseSqlWithLocalTables(testCase.inputSql)
 
     starSchemaRule.resetSuccessfulPushCount()
-    val optimized = Optimize.execute(original.analyze)
+    val optimized = Optimize.execute(original.analyze).analyze
     val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
     val nodesWithMissingInput = optimized.collect {
       case p if p.missingInput.nonEmpty => p
@@ -175,7 +175,23 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
       inputSql = """
                    |SELECT
                    |  i_item_sk AS item_sk,
-                   |  sum(cast(i_item_sk AS bigint)) AS total_item_sk
+                   |  sum(cast(ss_sold_date_sk AS bigint)) AS total_sold_date_sk
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY i_item_sk
+                   |""".stripMargin,
+      expectedPushCount = 1,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales for avg expansion") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  i_item_sk AS item_sk,
+                   |  avg(cast(ss_sold_date_sk AS double)) AS avg_sold_date_sk
                    |FROM store_sales
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
