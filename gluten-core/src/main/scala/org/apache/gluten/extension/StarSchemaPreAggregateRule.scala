@@ -86,7 +86,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       filterCond: Option[Expression],
       side: JoinSide): Option[(Aggregate, Attribute)] = {
     val sideOutputSet = side.outputSet(join)
-    val sideGroupingAttrs = groupingExprs.collect {
+    val sideGroupingAttrs = groupingExprs.flatMap(_.references.toSeq).collect {
       case attr: Attribute if sideOutputSet.contains(attr) => attr
     }
     val filterAttrs = filterCond.toSeq.flatMap(_.references.toSeq).collect {

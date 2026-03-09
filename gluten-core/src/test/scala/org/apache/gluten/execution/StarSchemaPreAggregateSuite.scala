@@ -65,10 +65,7 @@ class StarSchemaPreAggregateSuite extends PlanTest {
     )
   }
 
-  private case class PushdownCase(
-      inputSql: String,
-      expectedPushCount: Int,
-      expectedAggCount: Int)
+  private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
 
   private def runCase(testCase: PushdownCase): Unit = {
     val original = parseSqlWithLocalTables(testCase.inputSql)
