@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.PlanTest
-import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.types._
 
@@ -65,7 +65,7 @@ class StarSchemaPreAggregateSuite extends PlanTest {
     )
   }
 
-  test("pre-aggregate store_sales by foreign keys before joining date_dim and item") {
+  test("pre-aggregate store_sales for both joins with having filter") {
     val originalSql =
       """
         |SELECT
@@ -78,20 +78,17 @@ class StarSchemaPreAggregateSuite extends PlanTest {
         |JOIN item ON ss_item_sk = i_item_sk
         |WHERE d_year IN (1999, 2000, 2001, 2002)
         |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
+        |HAVING count(1) > 4
         |""".stripMargin
 
     val original = parseSqlWithLocalTables(originalSql)
 
     starSchemaRule.resetSuccessfulPushCount()
     val optimized = Optimize.execute(original.analyze)
-    val optimizedStr = optimized.treeString
+    val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
 
     // Rule should push pre-aggregation through two joins via repeated fixed-point applications.
-    assert(starSchemaRule.getSuccessfulPushCount == 2)
-    assert(optimizedStr.contains("count(1) AS partial_cnt"))
-    assert(optimizedStr.contains("sum(") && optimizedStr.contains("AS partial_cnt"))
-    assert(optimizedStr.contains("sum(") && optimizedStr.contains("AS cnt"))
-    assert(optimizedStr.contains("Join Inner, (ss_sold_date_sk"))
-    assert(optimizedStr.contains("Join Inner, (ss_item_sk"))
+    assert(starSchemaRule.getSuccessfulPushCount == 4)
+    assert(aggregateNodeCount == 5)
   }
 }

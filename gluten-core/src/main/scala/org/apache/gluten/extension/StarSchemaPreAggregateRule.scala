@@ -17,7 +17,7 @@
 package org.apache.gluten.extension
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, EqualTo, Expression, Literal}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, EqualTo, Expression, Literal, Multiply}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Count, Sum}
 import org.apache.spark.sql.catalyst.plans.Inner
@@ -36,42 +36,37 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   def getSuccessfulPushCount: Int = successfulPushCount
 
   override def apply(plan: LogicalPlan): LogicalPlan = plan.transformUp {
-    case agg @ Aggregate(groupingExprs, aggExprs, child) if hasCountOne(aggExprs) =>
+    case agg @ Aggregate(groupingExprs, aggExprs, child) if hasPushableAggExpr(aggExprs) =>
       extractJoin(child)
         .flatMap {
-          case (join, requiredAttrs, rebuild) =>
-            buildPreAgg(join, groupingExprs, requiredAttrs).map {
-              case (preAgg, partialCnt) =>
-                val rewrittenAggExprs = aggExprs.map {
-                  case alias @ Alias(countExpr, _) if isCountOne(countExpr) =>
-                    val cleanPartialCnt =
-                      AttributeReference(partialCnt.name, partialCnt.dataType, partialCnt.nullable)(
-                        exprId = partialCnt.exprId,
-                        qualifier = partialCnt.qualifier)
-                    Alias(Sum(cleanPartialCnt).toAggregateExpression(), alias.name)(
-                      exprId = alias.exprId,
-                      qualifier = alias.qualifier,
-                      explicitMetadata = alias.explicitMetadata,
-                      nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys)
-                  case other => other
-                }
-                val rewrittenJoin = join.copy(left = preAgg)
-                successfulPushCount += 1
-                agg.copy(aggregateExpressions = rewrittenAggExprs, child = rebuild(rewrittenJoin))
-            }
+          case (join, filterCond, rebuild) =>
+            Seq(JoinLeft, JoinRight).iterator
+              .flatMap {
+                side =>
+                  buildPreAgg(join, groupingExprs, filterCond, side).flatMap {
+                    case (preAgg, sideCnt) =>
+                      rewriteAggregateExpressions(aggExprs, sideCnt, side.outputSet(join)).map {
+                        rewrittenAggExprs =>
+                          val rewrittenJoin = side.replace(join, preAgg)
+                          successfulPushCount += 1
+                          agg.copy(
+                            aggregateExpressions = rewrittenAggExprs,
+                            child = rebuild(rewrittenJoin))
+                      }
+                  }
+              }
+              .toSeq
+              .headOption
         }
         .getOrElse(agg)
   }
 
-  private def extractJoin(child: LogicalPlan): Option[(Join, Seq[Attribute], Join => LogicalPlan)] =
+  private def extractJoin(
+      child: LogicalPlan): Option[(Join, Option[Expression], Join => LogicalPlan)] =
     child match {
-      case join: Join if isInnerEquiJoin(join) => Some((join, Seq.empty, identity))
+      case join: Join if isInnerEquiJoin(join) => Some((join, None, identity))
       case filter @ Filter(_, join: Join) if isInnerEquiJoin(join) =>
-        val leftOutputSet = join.left.outputSet
-        val requiredAttrs = filter.condition.references.toSeq.collect {
-          case attr: Attribute if leftOutputSet.contains(attr) => attr
-        }
-        Some((join, requiredAttrs, (j: Join) => filter.copy(child = j)))
+        Some((join, Some(filter.condition), (j: Join) => filter.copy(child = j)))
       case _ => None
     }
 
@@ -88,38 +83,85 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   private def buildPreAgg(
       join: Join,
       groupingExprs: Seq[Expression],
-      requiredAttrs: Seq[Attribute]): Option[(Aggregate, Attribute)] = {
-    val leftOutputSet = join.left.outputSet
-    val leftGroupingAttrs = groupingExprs.collect {
-      case attr: Attribute if leftOutputSet.contains(attr) => attr
+      filterCond: Option[Expression],
+      side: JoinSide): Option[(Aggregate, Attribute)] = {
+    val sideOutputSet = side.outputSet(join)
+    val sideGroupingAttrs = groupingExprs.collect {
+      case attr: Attribute if sideOutputSet.contains(attr) => attr
     }
-    val joinLeftKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
+    val filterAttrs = filterCond.toSeq.flatMap(_.references.toSeq).collect {
+      case attr: Attribute if sideOutputSet.contains(attr) => attr
+    }
+    val joinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
       case EqualTo(l: Attribute, r: Attribute)
-          if leftOutputSet.contains(l) && !leftOutputSet.contains(r) =>
+          if sideOutputSet.contains(l) && !sideOutputSet.contains(r) =>
         l
       case EqualTo(l: Attribute, r: Attribute)
-          if leftOutputSet.contains(r) && !leftOutputSet.contains(l) =>
+          if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
         r
     }
-    val groupingKeys = (leftGroupingAttrs ++ requiredAttrs ++ joinLeftKeys).distinct
+    val groupingKeys = (sideGroupingAttrs ++ filterAttrs ++ joinKeys).distinct
     if (groupingKeys.isEmpty) {
       None
     } else {
       val preAgg = Aggregate(
         groupingExpressions = groupingKeys,
         aggregateExpressions = groupingKeys :+
-          Alias(Count(Seq(Literal(1))).toAggregateExpression(), "partial_cnt")(),
-        child = join.left
+          Alias(Count(Seq(Literal(1))).toAggregateExpression(), side.cntName)(),
+        child = side.plan(join)
       )
-      val partialCnt = preAgg.output.find(_.name == "partial_cnt").get
-      Some((preAgg, partialCnt))
+      val sideCnt = preAgg.output.find(_.name == side.cntName).get
+      Some((preAgg, sideCnt))
     }
   }
 
-  private def hasCountOne(aggExprs: Seq[Expression]): Boolean = {
+  private def rewriteAggregateExpressions(
+      aggExprs: Seq[org.apache.spark.sql.catalyst.expressions.NamedExpression],
+      sideCnt: Attribute,
+      sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
+      : Option[Seq[org.apache.spark.sql.catalyst.expressions.NamedExpression]] = {
+    val cleanSideCnt = cleanAttr(sideCnt)
+    var rewritten = false
+    val newAggExprs = aggExprs.map {
+      case alias @ Alias(countExpr, _) if isCountOne(countExpr) =>
+        rewritten = true
+        Alias(Sum(cleanSideCnt).toAggregateExpression(), alias.name)(
+          exprId = alias.exprId,
+          qualifier = alias.qualifier,
+          explicitMetadata = alias.explicitMetadata,
+          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys)
+      case alias @ Alias(sumExpr, _) =>
+        sumChild(sumExpr) match {
+          case Some(childExpr) if canPushToSide(childExpr, sideOutputSet) =>
+            rewritten = true
+            Alias(Sum(Multiply(childExpr, cleanSideCnt)).toAggregateExpression(), alias.name)(
+              exprId = alias.exprId,
+              qualifier = alias.qualifier,
+              explicitMetadata = alias.explicitMetadata,
+              nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys)
+          case _ => alias
+        }
+      case other => other
+    }
+    if (rewritten) Some(newAggExprs) else None
+  }
+
+  private def cleanAttr(attr: Attribute): AttributeReference = {
+    AttributeReference(attr.name, attr.dataType, attr.nullable)(
+      exprId = attr.exprId,
+      qualifier = attr.qualifier)
+  }
+
+  private def canPushToSide(
+      expr: Expression,
+      sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet): Boolean = {
+    expr.references.forall(attr => !sideOutputSet.contains(attr))
+  }
+
+  private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
     aggExprs.exists {
-      case Alias(expr, _) => isCountOne(expr)
-      case expr => isCountOne(expr)
+      case Alias(expr, _) => isCountOne(expr) || isSumExpr(expr)
+      case expr => isCountOne(expr) || isSumExpr(expr)
     }
   }
 
@@ -132,5 +174,41 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
         }
       case _ => false
     }
+  }
+
+  private def isSumExpr(expr: Expression): Boolean = sumChild(expr).isDefined
+
+  private def sumChild(expr: Expression): Option[Expression] = {
+    expr match {
+      case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
+        ae.aggregateFunction match {
+          case Sum(child, _) => Some(child)
+          case _ => None
+        }
+      case _ => None
+    }
+  }
+
+  sealed private trait JoinSide {
+    def cntName: String
+    def plan(join: Join): LogicalPlan
+    def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet
+    def replace(join: Join, newPlan: LogicalPlan): Join
+  }
+
+  private case object JoinLeft extends JoinSide {
+    override val cntName: String = "partial_cnt"
+    override def plan(join: Join): LogicalPlan = join.left
+    override def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet =
+      join.left.outputSet
+    override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(left = newPlan)
+  }
+
+  private case object JoinRight extends JoinSide {
+    override val cntName: String = "right_cnt"
+    override def plan(join: Join): LogicalPlan = join.right
+    override def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet =
+      join.right.outputSet
+    override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(right = newPlan)
   }
 }
