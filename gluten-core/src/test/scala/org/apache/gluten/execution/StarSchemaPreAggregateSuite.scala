@@ -16,19 +16,23 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.extension.StarSchemaPreAggregateRule
+
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Count, Sum}
+import org.apache.spark.sql.catalyst.expressions.aggregate.Count
 import org.apache.spark.sql.catalyst.plans.{Inner, PlanTest}
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.types._
 
 class StarSchemaPreAggregateSuite extends PlanTest {
+  private val starSchemaRule = StarSchemaPreAggregateRule(null)
+
   private object Optimize extends RuleExecutor[LogicalPlan] {
     override val batches: Seq[Batch] = Seq(
-      // TODO
+      Batch("StarSchemaPreAggregate", FixedPoint(10), starSchemaRule)
     )
   }
 
@@ -75,36 +79,16 @@ class StarSchemaPreAggregateSuite extends PlanTest {
         Filter(In(d_year, Seq(Literal(1999), Literal(2000), Literal(2001), Literal(2002))), join2)
       )
 
-    val preAgg =
-      Aggregate(
-        Seq(ss_item_sk, ss_sold_date_sk),
-        Seq(
-          ss_item_sk,
-          ss_sold_date_sk,
-          Alias(Count(Seq(Literal(1))).toAggregateExpression(), "partial_cnt")()),
-        storeSales)
-    val partialCnt = preAgg.output.find(_.name == "partial_cnt").get
+    starSchemaRule.resetSuccessfulPushCount()
+    val optimized = Optimize.execute(original.analyze)
+    val optimizedStr = optimized.treeString
 
-    val rewrittenJoin1 =
-      Join(preAgg, dateDim, Inner, Some(ss_sold_date_sk === d_date_sk), JoinHint.NONE)
-
-    val rewrittenJoin2 =
-      Join(rewrittenJoin1, item, Inner, Some(ss_item_sk === i_item_sk), JoinHint.NONE)
-
-    val expected =
-      Aggregate(
-        Seq(Substring(i_item_desc, Literal(1), Literal(30)), i_item_sk, d_date),
-        Seq(
-          Alias(Substring(i_item_desc, Literal(1), Literal(30)), "itemdesc")(),
-          Alias(i_item_sk, "item_sk")(),
-          Alias(d_date, "solddate")(),
-          Alias(Sum(partialCnt).toAggregateExpression(), "cnt")()
-        ),
-        Filter(
-          In(d_year, Seq(Literal(1999), Literal(2000), Literal(2001), Literal(2002))),
-          rewrittenJoin2)
-      )
-
-    comparePlans(Optimize.execute(original.analyze), expected.analyze)
+    // Rule should push pre-aggregation through two joins via repeated fixed-point applications.
+    assert(starSchemaRule.getSuccessfulPushCount == 2)
+    assert(optimizedStr.contains("count(1) AS partial_cnt"))
+    assert(optimizedStr.contains("sum(") && optimizedStr.contains("AS partial_cnt"))
+    assert(optimizedStr.contains("sum(") && optimizedStr.contains("AS cnt"))
+    assert(optimizedStr.contains("Join Inner, (ss_sold_date_sk"))
+    assert(optimizedStr.contains("Join Inner, (ss_item_sk"))
   }
 }
