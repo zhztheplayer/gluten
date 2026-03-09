@@ -18,17 +18,46 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.extension.StarSchemaPreAggregateRule
 
-import org.apache.spark.sql.catalyst.dsl.expressions._
+import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.Count
-import org.apache.spark.sql.catalyst.plans.{Inner, PlanTest}
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LocalRelation, LogicalPlan}
+import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
+import org.apache.spark.sql.catalyst.plans.PlanTest
+import org.apache.spark.sql.catalyst.plans.logical.{LocalRelation, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.types._
 
 class StarSchemaPreAggregateSuite extends PlanTest {
   private val starSchemaRule = StarSchemaPreAggregateRule(null)
+  private val ss_item_sk = AttributeReference("ss_item_sk", IntegerType)()
+  private val ss_sold_date_sk = AttributeReference("ss_sold_date_sk", IntegerType)()
+  private val d_date_sk = AttributeReference("d_date_sk", IntegerType)()
+  private val d_year = AttributeReference("d_year", IntegerType)()
+  private val d_date = AttributeReference("d_date", DateType)()
+  private val i_item_sk = AttributeReference("i_item_sk", IntegerType)()
+  private val i_item_desc = AttributeReference("i_item_desc", StringType)()
+
+  private val storeSales =
+    LocalRelation(ss_item_sk, ss_sold_date_sk)
+
+  private val dateDim =
+    LocalRelation(d_date_sk, d_year, d_date)
+
+  private val item =
+    LocalRelation(i_item_sk, i_item_desc)
+
+  private val localTables: Map[String, LocalRelation] = Map(
+    "store_sales" -> storeSales,
+    "date_dim" -> dateDim,
+    "item" -> item
+  )
+
+  private def parseSqlWithLocalTables(sqlText: String): LogicalPlan = {
+    CatalystSqlParser.parsePlan(sqlText).transformDown {
+      case relation: UnresolvedRelation =>
+        localTables.getOrElse(relation.tableName, relation)
+    }
+  }
 
   private object Optimize extends RuleExecutor[LogicalPlan] {
     override val batches: Seq[Batch] = Seq(
@@ -37,47 +66,21 @@ class StarSchemaPreAggregateSuite extends PlanTest {
   }
 
   test("pre-aggregate store_sales by foreign keys before joining date_dim and item") {
-    val ss_item_sk = AttributeReference("ss_item_sk", IntegerType)()
-    val ss_sold_date_sk = AttributeReference("ss_sold_date_sk", IntegerType)()
-    val d_date_sk = AttributeReference("d_date_sk", IntegerType)()
-    val d_year = AttributeReference("d_year", IntegerType)()
-    val d_date = AttributeReference("d_date", DateType)()
-    val i_item_sk = AttributeReference("i_item_sk", IntegerType)()
-    val i_item_desc = AttributeReference("i_item_desc", StringType)()
+    val originalSql =
+      """
+        |SELECT
+        |  substring(i_item_desc, 1, 30) AS itemdesc,
+        |  i_item_sk AS item_sk,
+        |  d_date AS solddate,
+        |  count(1) AS cnt
+        |FROM store_sales
+        |JOIN date_dim ON ss_sold_date_sk = d_date_sk
+        |JOIN item ON ss_item_sk = i_item_sk
+        |WHERE d_year IN (1999, 2000, 2001, 2002)
+        |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
+        |""".stripMargin
 
-    val storeSales =
-      LocalRelation(ss_item_sk, ss_sold_date_sk)
-
-    val dateDim =
-      LocalRelation(d_date_sk, d_year, d_date)
-
-    val item =
-      LocalRelation(i_item_sk, i_item_desc)
-
-    val join1 =
-      Join(storeSales, dateDim, Inner, Some(ss_sold_date_sk === d_date_sk), JoinHint.NONE)
-
-    val join2 =
-      Join(join1, item, Inner, Some(ss_item_sk === i_item_sk), JoinHint.NONE)
-
-    val itemDescExpr =
-      Alias(Substring(i_item_desc, Literal(1), Literal(30)), "itemdesc")()
-
-    val itemSkExpr =
-      Alias(i_item_sk, "item_sk")()
-
-    val soldDateExpr =
-      Alias(d_date, "solddate")()
-
-    val cntExpr =
-      Alias(Count(Seq(Literal(1))).toAggregateExpression(), "cnt")()
-
-    val original =
-      Aggregate(
-        Seq(Substring(i_item_desc, Literal(1), Literal(30)), i_item_sk, d_date),
-        Seq(itemDescExpr, itemSkExpr, soldDateExpr, cntExpr),
-        Filter(In(d_year, Seq(Literal(1999), Literal(2000), Literal(2001), Literal(2002))), join2)
-      )
+    val original = parseSqlWithLocalTables(originalSql)
 
     starSchemaRule.resetSuccessfulPushCount()
     val optimized = Optimize.execute(original.analyze)
