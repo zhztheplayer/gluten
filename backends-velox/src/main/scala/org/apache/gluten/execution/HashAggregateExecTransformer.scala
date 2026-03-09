@@ -298,8 +298,13 @@ abstract class HashAggregateExecTransformer(
           throw new GlutenNotSupportException("Only one input attribute is expected.")
 
         case _ @VeloxIntermediateData.Type(veloxTypes: Seq[DataType]) =>
-          val rewrittenInputAttributes =
-            rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
+          // Purpose:
+          // Build stable Velox aggregate inputs for compound intermediate buffers even when
+          // Spark rewrites attributes (e.g. PullOutPreProject / cloned AggregateExpression).
+          // We resolve each input buffer attr to a concrete expression node here instead of
+          // relying on direct attribute binding only.
+          val resolvedInputs =
+            resolveAggBufferInputs(functionInputAttributes, originalInputAttributes, context)
           // The process of handling the inconsistency in column types and order between
           // Spark and Velox is exactly the opposite of applyExtractStruct.
           aggregateExpression.mode match {
@@ -327,10 +332,7 @@ abstract class HashAggregateExecTransformer(
                     childNodes.add(ExpressionBuilder.makeLiteral(lt.value, lt.dataType, false))
                   } else {
                     val sparkType = sparkTypes(adjustedIdx)
-                    val attr = rewrittenInputAttributes(adjustedIdx)
-                    val aggFuncInputAttrNode = ExpressionConverter
-                      .replaceWithExpressionTransformer(attr, originalInputAttributes)
-                      .doTransform(context)
+                    val (attr, aggFuncInputAttrNode) = resolvedInputs(adjustedIdx)
                     val expressionNode = if (sparkType != veloxType) {
                       newInputAttributes +=
                         attr.copy(dataType = veloxType)(attr.exprId, attr.qualifier)
@@ -424,6 +426,13 @@ abstract class HashAggregateExecTransformer(
   private def rewriteAggBufferAttributes(
       inputAggBufferAttributes: Seq[AttributeReference],
       originalInputAttributes: Seq[Attribute]): Seq[AttributeReference] = {
+    // Non-grouping input region corresponds to aggregate-buffer inputs for merge/final modes.
+    // We use this region for positional fallback when Spark rewrites buffer attrs.
+    val nonGroupingInputs = originalInputAttributes.drop(groupingExpressions.size)
+    // Flattened input buffer attrs from all aggregate expressions, preserving Spark's
+    // deterministic declaration order. This makes positional rebinding stable.
+    val allInputAggBufferAttributes = aggregateExpressions.toIndexedSeq
+      .flatMap(_.aggregateFunction.inputAggBufferAttributes)
     inputAggBufferAttributes.map {
       attr =>
         val sameAttr = originalInputAttributes.find(_.exprId == attr.exprId)
@@ -446,16 +455,81 @@ abstract class HashAggregateExecTransformer(
           val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
             .flatMap(_.aggregateFunction.inputAggBufferAttributes)
             .filter(_.name == attr.name)
-          assert(
-            attrsWithSameName.size == aggBufferAttrsWithSameName.size,
-            "The attribute with the same name in final agg inputAggBufferAttribute must" +
-              "have the same size of corresponding attributes in originalInputAttributes."
-          )
-          attrsWithSameName(aggBufferAttrsWithSameName.indexOf(attr))
-            .asInstanceOf[AttributeReference]
+          // Spark rewrites (e.g. decimal/avg related projections) may collapse or rename
+          // intermediate buffer columns. Prefer same-name binding when possible, then fall back
+          // to positional binding on non-grouping inputs.
+          if (attrsWithSameName.nonEmpty) {
+            val idx = aggBufferAttrsWithSameName.indexOf(attr)
+            attrsWithSameName(math.max(0, math.min(idx, attrsWithSameName.size - 1)))
+              .asInstanceOf[AttributeReference]
+          } else {
+            // Final fallback: bind by aggregate-buffer position. This handles plans where
+            // Spark keeps logical buffer order but rewrites names to temporary aliases
+            // (for example `_pre_*`), making name-based rebinding impossible.
+            val globalIdx = allInputAggBufferAttributes.indexWhere(_.exprId == attr.exprId) match {
+              case -1 => allInputAggBufferAttributes.indexOf(attr)
+              case i => i
+            }
+            if (globalIdx >= 0 && globalIdx < nonGroupingInputs.size) {
+              nonGroupingInputs(globalIdx).asInstanceOf[AttributeReference]
+            } else {
+              attr
+            }
+          }
         } else {
           attr
         }
+    }
+  }
+
+  private def resolveAggBufferInputs(
+      inputAggBufferAttributes: Seq[AttributeReference],
+      originalInputAttributes: Seq[Attribute],
+      context: SubstraitContext): Seq[(AttributeReference, ExpressionNode)] = {
+    inputAggBufferAttributes.map {
+      attr =>
+        // 1) Fast path: exact exprId binding against current child output.
+        val byExprId = originalInputAttributes.collectFirst {
+          case a: AttributeReference if a.exprId == attr.exprId => a
+        }
+        val resolved = byExprId.orElse {
+          // 2) Fallback path:
+          // Spark may recreate buffer attrs with new exprIds while preserving logical order.
+          // Rebind by (name + occurrence index) within aggregate buffer attrs.
+          val attrsWithSameName =
+            originalInputAttributes.drop(groupingExpressions.size).collect {
+              case a: AttributeReference if a.name == attr.name => a
+            }
+          val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
+            .flatMap(_.aggregateFunction.inputAggBufferAttributes)
+            .filter(_.name == attr.name)
+          val idx = aggBufferAttrsWithSameName.indexWhere(_.exprId == attr.exprId)
+          if (idx >= 0 && idx < attrsWithSameName.size) {
+            Some(attrsWithSameName(idx))
+          } else if (attrsWithSameName.nonEmpty) {
+            // Same rationale as rewriteAggBufferAttributes above: use the available
+            // same-name buffer column when Spark has collapsed duplicates.
+            Some(attrsWithSameName.last)
+          } else {
+            None
+          }
+        }
+        resolved
+          .map {
+            a =>
+              (
+                a,
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(a, originalInputAttributes)
+                  .doTransform(context))
+          }
+          .getOrElse {
+            throw new GlutenNotSupportException(
+              s"Cannot resolve agg buffer input ${attr.name}#${attr.exprId.id} " +
+                s"from ${originalInputAttributes
+                    .map(a => s"${a.name}#${a.exprId.id}")
+                    .mkString("[", ", ", "]")}")
+          }
     }
   }
 

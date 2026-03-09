@@ -16,13 +16,31 @@
  */
 package org.apache.gluten.extension.columnar.rewrite
 
+import org.apache.spark.sql.catalyst.expressions.AttributeSet
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, PartialMerge}
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, UnaryExecNode}
+import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
 
 /**
  * After applying the PullOutPreProject rule, there may be some projects that contain columns not
  * consumed by the parent. These columns will be removed by this rewrite rule.
  */
 object ProjectColumnPruning extends RewriteSingleNode {
+  private def referencedByAggregate(parent: UnaryExecNode): AttributeSet = parent match {
+    case agg: BaseAggregateExec =>
+      // Aggregate child references in Spark do not include merge/final buffer attrs, but
+      // pre-project pruning must keep them because downstream native aggregate planning binds
+      // against inputAggBufferAttributes directly.
+      agg.aggregateExpressions.foldLeft(parent.references) {
+        case (refs, ae) if ae.mode == PartialMerge || ae.mode == Final =>
+          refs ++ AttributeSet(ae.aggregateFunction.inputAggBufferAttributes)
+        case (refs, _) =>
+          refs
+      }
+    case _ =>
+      parent.references
+  }
+
   override def isRewritable(plan: SparkPlan): Boolean = {
     plan match {
       case parent: UnaryExecNode if parent.child.isInstanceOf[ProjectExec] => true
@@ -33,7 +51,8 @@ object ProjectColumnPruning extends RewriteSingleNode {
   override def rewrite(plan: SparkPlan): SparkPlan = plan match {
     case parent: UnaryExecNode if parent.child.isInstanceOf[ProjectExec] =>
       val project = parent.child.asInstanceOf[ProjectExec]
-      val unusedAttribute = project.outputSet -- (parent.references ++ parent.outputSet)
+      val requiredAttrs = referencedByAggregate(parent) ++ parent.outputSet
+      val unusedAttribute = project.outputSet -- requiredAttrs
 
       if (unusedAttribute.nonEmpty) {
         val newProject = project.copy(projectList = project.projectList.diff(unusedAttribute.toSeq))
