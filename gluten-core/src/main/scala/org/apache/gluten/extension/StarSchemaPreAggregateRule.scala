@@ -17,9 +17,9 @@
 package org.apache.gluten.extension
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, EqualTo, Expression, Literal, Multiply}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Divide, EqualTo, Expression, Literal, Multiply, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Count, Sum}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Average, Count, Sum}
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -27,6 +27,12 @@ import org.apache.spark.sql.catalyst.rules.Rule
 case class StarSchemaPreAggregateRule(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
+  private val expandRules: Seq[AggregateExpandRule] = Seq(
+    CountOneExpandRule,
+    SumExpandRule,
+    AvgExpandRule
+  )
+
   private var successfulPushCount: Int = 0
 
   def resetSuccessfulPushCount(): Unit = {
@@ -116,34 +122,37 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   }
 
   private def rewriteAggregateExpressions(
-      aggExprs: Seq[org.apache.spark.sql.catalyst.expressions.NamedExpression],
+      aggExprs: Seq[NamedExpression],
       sideCnt: Attribute,
       sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
-      : Option[Seq[org.apache.spark.sql.catalyst.expressions.NamedExpression]] = {
+      : Option[Seq[NamedExpression]] = {
     val cleanSideCnt = cleanAttr(sideCnt)
     var rewritten = false
     val newAggExprs = aggExprs.map {
-      case alias @ Alias(countExpr, _) if isCountOne(countExpr) =>
-        rewritten = true
-        Alias(Sum(cleanSideCnt).toAggregateExpression(), alias.name)(
-          exprId = alias.exprId,
-          qualifier = alias.qualifier,
-          explicitMetadata = alias.explicitMetadata,
-          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys)
-      case alias @ Alias(sumExpr, _) =>
-        sumChild(sumExpr) match {
-          case Some(childExpr) if canPushToSide(childExpr, sideOutputSet) =>
+      case alias @ Alias(expr, _) =>
+        rewriteAggregateExpr(expr, cleanSideCnt, sideOutputSet) match {
+          case Some(rewrittenExpr) =>
             rewritten = true
-            Alias(Sum(Multiply(childExpr, cleanSideCnt)).toAggregateExpression(), alias.name)(
+            Alias(rewrittenExpr, alias.name)(
               exprId = alias.exprId,
               qualifier = alias.qualifier,
               explicitMetadata = alias.explicitMetadata,
               nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys)
-          case _ => alias
+          case None => alias
         }
       case other => other
     }
     if (rewritten) Some(newAggExprs) else None
+  }
+
+  private def rewriteAggregateExpr(
+      expr: Expression,
+      sideCnt: AttributeReference,
+      sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet): Option[Expression] = {
+    expandRules.iterator
+      .flatMap(_.rewrite(expr, sideCnt, sideOutputSet))
+      .toSeq
+      .headOption
   }
 
   private def cleanAttr(attr: Attribute): AttributeReference = {
@@ -160,8 +169,8 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
 
   private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
     aggExprs.exists {
-      case Alias(expr, _) => isCountOne(expr) || isSumExpr(expr)
-      case expr => isCountOne(expr) || isSumExpr(expr)
+      case Alias(expr, _) => isExpandableAggExpr(expr)
+      case expr => isExpandableAggExpr(expr)
     }
   }
 
@@ -176,16 +185,93 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
     }
   }
 
-  private def isSumExpr(expr: Expression): Boolean = sumChild(expr).isDefined
+  private def isExpandableAggExpr(expr: Expression): Boolean = {
+    expandRules.exists(_.isSupported(expr))
+  }
 
-  private def sumChild(expr: Expression): Option[Expression] = {
-    expr match {
-      case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
-        ae.aggregateFunction match {
-          case Sum(child, _) => Some(child)
-          case _ => None
-        }
-      case _ => None
+  sealed private trait AggregateExpandRule {
+    def isSupported(expr: Expression): Boolean
+    def rewrite(
+        expr: Expression,
+        sideCnt: AttributeReference,
+        sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet): Option[Expression]
+  }
+
+  private object CountOneExpandRule extends AggregateExpandRule {
+    override def isSupported(expr: Expression): Boolean = isCountOne(expr)
+
+    override def rewrite(
+        expr: Expression,
+        sideCnt: AttributeReference,
+        sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
+        : Option[Expression] = {
+      if (isCountOne(expr)) {
+        Some(Sum(sideCnt).toAggregateExpression())
+      } else {
+        None
+      }
+    }
+  }
+
+  private object SumExpandRule extends AggregateExpandRule {
+    override def isSupported(expr: Expression): Boolean = sumChild(expr).isDefined
+
+    override def rewrite(
+        expr: Expression,
+        sideCnt: AttributeReference,
+        sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
+        : Option[Expression] = {
+      sumChild(expr).flatMap {
+        childExpr =>
+          if (canPushToSide(childExpr, sideOutputSet)) {
+            Some(Sum(Multiply(childExpr, sideCnt)).toAggregateExpression())
+          } else {
+            None
+          }
+      }
+    }
+
+    private def sumChild(expr: Expression): Option[Expression] = {
+      expr match {
+        case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
+          ae.aggregateFunction match {
+            case Sum(child, _) => Some(child)
+            case _ => None
+          }
+        case _ => None
+      }
+    }
+  }
+
+  private object AvgExpandRule extends AggregateExpandRule {
+    override def isSupported(expr: Expression): Boolean = avgChild(expr).isDefined
+
+    override def rewrite(
+        expr: Expression,
+        sideCnt: AttributeReference,
+        sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
+        : Option[Expression] = {
+      avgChild(expr).flatMap {
+        childExpr =>
+          if (canPushToSide(childExpr, sideOutputSet)) {
+            val weightedSum = Sum(Multiply(childExpr, sideCnt)).toAggregateExpression()
+            val sideSum = Sum(sideCnt).toAggregateExpression()
+            Some(Divide(weightedSum, sideSum))
+          } else {
+            None
+          }
+      }
+    }
+
+    private def avgChild(expr: Expression): Option[Expression] = {
+      expr match {
+        case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
+          ae.aggregateFunction match {
+            case Average(child, _) => Some(child)
+            case _ => None
+          }
+        case _ => None
+      }
     }
   }
 
