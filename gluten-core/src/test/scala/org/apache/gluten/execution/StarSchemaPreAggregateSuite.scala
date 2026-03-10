@@ -16,7 +16,7 @@
  */
 package org.apache.gluten.execution
 
-import org.apache.gluten.extension.StarSchemaPreAggregateRule
+import org.apache.gluten.extension.PushStarSchemaPreAggregate
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
@@ -28,7 +28,7 @@ import org.apache.spark.sql.test.SharedSparkSession
 import java.sql.Date
 
 class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
-  private val starSchemaRule = StarSchemaPreAggregateRule(spark)
+  private val starSchemaRule = PushStarSchemaPreAggregate(spark)
   private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
@@ -101,13 +101,13 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
       assert(aggregateNodeCount == testCase.expectedAggCount)
       if (debugMode) {
         // scalastyle:off println
-        println("=== Plan Before (without StarSchemaPreAggregateRule) ===")
+        println("=== Plan Before (without PushStarSchemaPreAggregate) ===")
         println(withoutRulePlan.treeString)
-        println("=== Plan After (with StarSchemaPreAggregateRule) ===")
+        println("=== Plan After (with PushStarSchemaPreAggregate) ===")
         println(withRulePlan.treeString)
-        println("=== Result Before (without StarSchemaPreAggregateRule) ===")
+        println("=== Result Before (without PushStarSchemaPreAggregate) ===")
         println(withoutRuleRows.mkString("\n"))
-        println("=== Result After (with StarSchemaPreAggregateRule) ===")
+        println("=== Result After (with PushStarSchemaPreAggregate) ===")
         println(withRuleRows.mkString("\n"))
         // scalastyle:on println
       }
