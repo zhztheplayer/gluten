@@ -18,8 +18,11 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.extension.StarSchemaPreAggregateRule
 
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.Aggregate
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
@@ -73,13 +76,15 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    val previousOptimizations = spark.experimental.extraOptimizations
-    spark.experimental.extraOptimizations = Seq.empty
-    try {
-      val analyzed = spark.sql(testCase.inputSql).queryExecution.analyzed
-      val withoutRulePlan = spark.sessionState.optimizer.execute(analyzed)
+    val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
+      val df = spark.sql(testCase.inputSql)
+      (df.queryExecution.optimizedPlan, df.collect().toSeq.sortBy(_.toString()))
+    }
+    val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(starSchemaRule)) {
       starSchemaRule.resetSuccessfulPushCount()
-      val withRulePlan = starSchemaRule.apply(withoutRulePlan)
+      val df = spark.sql(testCase.inputSql)
+      val withRulePlan = df.queryExecution.optimizedPlan
+      val withRuleRows = df.collect().toSeq.sortBy(_.toString())
       val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
       val nodesWithMissingInput = withRulePlan.collect {
         case p if p.missingInput.nonEmpty => p
@@ -100,10 +105,28 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
         println(withoutRulePlan.treeString)
         println("=== Plan After (with StarSchemaPreAggregateRule) ===")
         println(withRulePlan.treeString)
+        println("=== Result Before (without StarSchemaPreAggregateRule) ===")
+        println(withoutRuleRows.mkString("\n"))
+        println("=== Result After (with StarSchemaPreAggregateRule) ===")
+        println(withRuleRows.mkString("\n"))
         // scalastyle:on println
       }
+      (withRulePlan, withRuleRows)
+    }
+    assertRowsEqual(withRuleRows, withoutRuleRows)
+  }
+
+  private def assertRowsEqual(left: Seq[Row], right: Seq[Row]): Unit = {
+    assert(left == right, s"Result mismatch:\nleft=$left\nright=$right")
+  }
+
+  private def withExtraOptimizations[T](rules: Seq[Rule[LogicalPlan]])(f: => T): T = {
+    val previous = spark.experimental.extraOptimizations
+    try {
+      spark.experimental.extraOptimizations = rules
+      f
     } finally {
-      spark.experimental.extraOptimizations = previousOptimizations
+      spark.experimental.extraOptimizations = previous
     }
   }
 
