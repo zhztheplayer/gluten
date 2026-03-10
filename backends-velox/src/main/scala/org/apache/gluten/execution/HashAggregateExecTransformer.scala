@@ -20,7 +20,6 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.expression._
 import org.apache.gluten.expression.ConverterUtils.FunctionConfig
-import org.apache.gluten.extension.StarSchemaAggregateWrapper
 import org.apache.gluten.substrait.`type`.{TypeBuilder, TypeNode}
 import org.apache.gluten.substrait.{AggregationParams, SubstraitContext}
 import org.apache.gluten.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode, ScalarFunctionNode}
@@ -78,7 +77,7 @@ abstract class HashAggregateExecTransformer(
   // Return whether the outputs partial aggregation should be combined for Velox computing.
   // When the partial outputs are multiple-column, row construct is needed.
   private def rowConstructNeeded(): Boolean = aggregateExpressions.exists {
-    case AggregateExpression(aggFunc, mode, _, _, _) if mode == PartialMerge || mode == Final =>
+    case AggregateExpression(aggFunc, PartialMerge | Final, _, _, _) =>
       aggFunc.inputAggBufferAttributes.size > 1
     case _ => false
   }
@@ -90,20 +89,9 @@ abstract class HashAggregateExecTransformer(
    *   extracting needed or not.
    */
   private def extractStructNeeded(): Boolean = aggregateExpressions.exists {
-    case AggregateExpression(aggFunc, mode, _, _, _) if mode == Partial || mode == PartialMerge =>
+    case AggregateExpression(aggFunc, Partial | PartialMerge, _, _, _) =>
       aggFunc.aggBufferAttributes.size > 1
     case _ => false
-  }
-
-  private def semanticMode(
-      aggregateFunction: AggregateFunction,
-      aggregateMode: AggregateMode): AggregateMode = {
-    aggregateFunction match {
-      case wrapper: StarSchemaAggregateWrapper =>
-        StarSchemaAggregateWrapper.semanticMode(aggregateMode, wrapper.targetPhase)
-      case _ =>
-        aggregateMode
-    }
   }
 
   /**
@@ -199,9 +187,8 @@ abstract class HashAggregateExecTransformer(
       aggregateFunction: AggregateFunction,
       childrenNodeList: JList[ExpressionNode],
       aggregateMode: AggregateMode): AggregateFunctionNode = {
-    val semanticAggMode = semanticMode(aggregateFunction, aggregateMode)
 
-    val outputTypeNode = semanticAggMode match {
+    val outputTypeNode = aggregateMode match {
       case Partial | PartialMerge if aggregateFunction.aggBufferAttributes.size > 1 =>
         VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction)
       case Partial | PartialMerge =>
@@ -214,7 +201,7 @@ abstract class HashAggregateExecTransformer(
     ExpressionBuilder.makeAggregateFunction(
       VeloxAggregateFunctionsBuilder.create(context, aggregateFunction, aggregateMode),
       childrenNodeList,
-      modeToKeyWord(semanticAggMode),
+      modeToKeyWord(aggregateMode),
       outputTypeNode
     )
   }
@@ -233,10 +220,9 @@ abstract class HashAggregateExecTransformer(
     aggregateExpressions.foreach(
       expression => {
         val aggregateFunction = expression.aggregateFunction
-        val semanticAggMode = semanticMode(aggregateFunction, expression.mode)
         aggregateFunction match {
           case _ if aggregateFunction.aggBufferAttributes.size > 1 =>
-            semanticAggMode match {
+            expression.mode match {
               case Partial | PartialMerge =>
                 typeNodeList.add(VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction))
               case Final | Complete =>
@@ -297,9 +283,8 @@ abstract class HashAggregateExecTransformer(
     for (aggregateExpression <- aggregateExpressions) {
       val aggFunc = aggregateExpression.aggregateFunction
       val functionInputAttributes = aggFunc.inputAggBufferAttributes
-      val layoutAggMode = aggregateExpression.mode
       aggFunc match {
-        case _ if layoutAggMode == Partial || layoutAggMode == Complete =>
+        case _ if aggregateExpression.mode == Partial || aggregateExpression.mode == Complete =>
           val childNodes = aggFunc.children
             .map(
               ExpressionConverter
@@ -317,7 +302,7 @@ abstract class HashAggregateExecTransformer(
             rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
           // The process of handling the inconsistency in column types and order between
           // Spark and Velox is exactly the opposite of applyExtractStruct.
-          layoutAggMode match {
+          aggregateExpression.mode match {
             case PartialMerge | Final =>
               val newInputAttributes = new ArrayBuffer[Attribute]()
               val childNodes = new JArrayList[ExpressionNode]()
@@ -567,16 +552,6 @@ abstract class HashAggregateExecTransformer(
 
 /** An aggregation function builder specifically used by Velox backend. */
 object VeloxAggregateFunctionsBuilder {
-  private def semanticMode(
-      aggregateFunction: AggregateFunction,
-      aggregateMode: AggregateMode): AggregateMode = {
-    aggregateFunction match {
-      case wrapper: StarSchemaAggregateWrapper =>
-        StarSchemaAggregateWrapper.semanticMode(aggregateMode, wrapper.targetPhase)
-      case _ =>
-        aggregateMode
-    }
-  }
 
   /**
    * Create a scalar function for the input aggregate function.
@@ -592,23 +567,14 @@ object VeloxAggregateFunctionsBuilder {
       context: SubstraitContext,
       aggregateFunc: AggregateFunction,
       mode: AggregateMode): Long = {
-    val normalizedAggFunc = aggregateFunc match {
-      case wrapper: StarSchemaAggregateWrapper => wrapper.innerAgg
-      case other => other
-    }
-    val forMergeCompanion = semanticMode(aggregateFunc, mode) match {
-      case PartialMerge | Final => true
-      case _ => false
-    }
-
     val (sigName, aggFunc) =
       try {
-        (AggregateFunctionsBuilder.getSubstraitFunctionName(normalizedAggFunc), normalizedAggFunc)
+        (AggregateFunctionsBuilder.getSubstraitFunctionName(aggregateFunc), aggregateFunc)
       } catch {
         case e: GlutenNotSupportException =>
-          HiveUDAFInspector.getUDAFClassName(normalizedAggFunc) match {
+          HiveUDAFInspector.getUDAFClassName(aggregateFunc) match {
             case Some(udafClass) if UDFResolver.UDAFNames.contains(udafClass) =>
-              (udafClass, UDFResolver.getUdafExpression(udafClass)(normalizedAggFunc.children))
+              (udafClass, UDFResolver.getUdafExpression(udafClass)(aggregateFunc.children))
             case _ => throw e
           }
         case e: Throwable => throw e
@@ -618,7 +584,7 @@ object VeloxAggregateFunctionsBuilder {
       ConverterUtils.makeFuncName(
         // Substrait-to-Velox procedure will choose appropriate companion function if needed.
         sigName,
-        VeloxIntermediateData.getInputTypes(aggFunc, forMergeCompanion),
+        VeloxIntermediateData.getInputTypes(aggFunc, mode == PartialMerge || mode == Final),
         FunctionConfig.REQ
       )
     )
