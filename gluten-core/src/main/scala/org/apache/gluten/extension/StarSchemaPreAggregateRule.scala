@@ -17,14 +17,14 @@
 package org.apache.gluten.extension
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, Divide, EqualTo, Expression, Literal, Multiply, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, Cast, Divide, EqualTo, Expression, Literal, Multiply, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Average, Count, Sum}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.types.DoubleType
+import org.apache.spark.sql.types.{DataType, DoubleType, NumericType}
 
 case class StarSchemaPreAggregateRule(spark: SparkSession)
   extends Rule[LogicalPlan]
@@ -56,9 +56,8 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
                       rewriteAggregateExpressions(aggExprs, sideCnt, side.outputSet(join)).map {
                         rewrittenAggExprs =>
                           val rewrittenJoin = side.replace(join, preAgg)
-                          val requiredAttrs = (groupingExprs ++ rewrittenAggExprs)
-                            .flatMap(_.references.toSeq)
-                            .distinct
+                          val requiredAttrs = dedupeAttrs(
+                            (groupingExprs ++ rewrittenAggExprs).flatMap(_.references.toSeq))
                           successfulPushCount += 1
                           agg.copy(
                             aggregateExpressions = rewrittenAggExprs,
@@ -79,7 +78,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
         extractJoin(projectChild).map {
           case (join, wrapperRequiredAttrs, rebuild) =>
             val projectRequiredAttrs =
-              (project.projectList.flatMap(_.references.toSeq) ++ wrapperRequiredAttrs).distinct
+              dedupeAttrs(project.projectList.flatMap(_.references.toSeq) ++ wrapperRequiredAttrs)
             (
               join,
               projectRequiredAttrs,
@@ -90,7 +89,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
                   attr => rebuiltChild.outputSet.contains(attr) && !projectOutputSet.contains(attr)
                 }
                 project.copy(
-                  projectList = project.projectList ++ passThroughAttrs,
+                  projectList = project.projectList ++ dedupeAttrs(passThroughAttrs),
                   child = rebuiltChild)
               })
         }
@@ -136,7 +135,9 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
         r
     }
-    val groupingKeys = (sideGroupingAttrs ++ wrapperAttrs ++ joinKeys).distinct
+    val sideOutputAttrs = side.plan(join).output.collect { case attr: Attribute => attr }
+    val groupingKeys =
+      dedupeAttrs(sideOutputAttrs ++ sideGroupingAttrs ++ wrapperAttrs ++ joinKeys)
     if (groupingKeys.isEmpty) {
       None
     } else {
@@ -205,6 +206,13 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
     }
   }
 
+  private def dedupeAttrs(attrs: Seq[Attribute]): Seq[Attribute] = {
+    attrs.foldLeft(Seq.empty[Attribute]) {
+      case (acc, attr) if acc.exists(_.semanticEquals(attr)) => acc
+      case (acc, attr) => acc :+ attr
+    }
+  }
+
   private def isCountOne(expr: Expression): Boolean = {
     expr match {
       case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
@@ -255,7 +263,11 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       sumChild(expr).flatMap {
         childExpr =>
           if (canPushToSide(childExpr, sideOutputSet)) {
-            Some(Sum(Multiply(childExpr, sideCnt)).toAggregateExpression())
+            multiplyBySideCount(childExpr, sideCnt).map {
+              weightedExpr =>
+                val rewritten = Sum(weightedExpr).toAggregateExpression()
+                castIfNeeded(rewritten, expr.dataType)
+            }
           } else {
             None
           }
@@ -285,15 +297,15 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       avgChild(expr).flatMap {
         childExpr =>
           if (canPushToSide(childExpr, sideOutputSet)) {
-            val weightedSum = Sum(
-              Multiply(
-                org.apache.spark.sql.catalyst.expressions.Cast(childExpr, DoubleType),
-                org.apache.spark.sql.catalyst.expressions.Cast(sideCnt, DoubleType)))
-              .toAggregateExpression()
-            val sideSum =
-              Sum(org.apache.spark.sql.catalyst.expressions.Cast(sideCnt, DoubleType))
-                .toAggregateExpression()
-            Some(Divide(weightedSum, sideSum))
+            multiplyBySideCount(
+              Cast(childExpr, DoubleType),
+              sideCnt,
+              castMultiplierTo = Some(DoubleType)).map {
+              weightedExpr =>
+                val weightedSum = Sum(weightedExpr).toAggregateExpression()
+                val sideSum = Sum(Cast(sideCnt, DoubleType)).toAggregateExpression()
+                castIfNeeded(Divide(weightedSum, sideSum), expr.dataType)
+            }
           } else {
             None
           }
@@ -333,5 +345,22 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
     override def outputSet(join: Join): org.apache.spark.sql.catalyst.expressions.AttributeSet =
       join.right.outputSet
     override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(right = newPlan)
+  }
+
+  private def multiplyBySideCount(
+      valueExpr: Expression,
+      sideCnt: AttributeReference,
+      castMultiplierTo: Option[DataType] = None): Option[Expression] = {
+    val valueType = valueExpr.dataType
+    valueType match {
+      case _: NumericType =>
+        val multiplierType = castMultiplierTo.getOrElse(valueType)
+        Some(Multiply(valueExpr, Cast(sideCnt, multiplierType)))
+      case _ => None
+    }
+  }
+
+  private def castIfNeeded(expr: Expression, targetType: DataType): Expression = {
+    if (expr.dataType == targetType) expr else Cast(expr, targetType)
   }
 }
