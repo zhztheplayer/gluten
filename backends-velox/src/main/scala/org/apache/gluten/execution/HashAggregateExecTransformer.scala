@@ -328,17 +328,33 @@ abstract class HashAggregateExecTransformer(
       aggExpr match {
         case aggregateExpression if isWrapperTypeC(aggregateExpression) =>
           val aggFunc = aggregateExpression.aggregateFunction
-          val functionInputAttributes = aggFunc.inputAggBufferAttributes
           // Type C wrapper should not be row-constructed.
-          val rewrittenInputAttributes =
-            rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
-          val childNodes = rewrittenInputAttributes
-            .map(
-              ExpressionConverter
-                .replaceWithExpressionTransformer(_, originalInputAttributes)
-                .doTransform(context)
-            )
-            .asJava
+          // Depending on the phase, Spark may expose either payload child attributes
+          // or wrapper input buffer attributes on this aggregate node.
+          val functionInputAttributes = aggFunc.inputAggBufferAttributes
+          val useFunctionInputAttrs = functionInputAttributes.forall(
+            attr =>
+              originalInputAttributes.exists(
+                inAttr => inAttr.exprId == attr.exprId || inAttr.name == attr.name))
+          val childNodes = if (useFunctionInputAttrs) {
+            val rewrittenInputAttributes =
+              rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
+            rewrittenInputAttributes
+              .map(
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(_, originalInputAttributes)
+                  .doTransform(context)
+              )
+              .asJava
+          } else {
+            aggFunc.children
+              .map(
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(_, originalInputAttributes)
+                  .doTransform(context)
+              )
+              .asJava
+          }
           exprNodes.addAll(childNodes)
         case AggregateExpression(aggFunc, layoutAggMode, _, _, _)
             if layoutAggMode == Partial || layoutAggMode == Complete =>
@@ -491,37 +507,40 @@ abstract class HashAggregateExecTransformer(
   private def rewriteAggBufferAttributes(
       inputAggBufferAttributes: Seq[AttributeReference],
       originalInputAttributes: Seq[Attribute]): Seq[AttributeReference] = {
-    inputAggBufferAttributes.map {
-      attr =>
-        val sameAttr = originalInputAttributes.find(_.exprId == attr.exprId)
-        if (sameAttr.isEmpty) {
-          // 1. When aggregateExpressions includes subquery, Spark's PlanAdaptiveSubqueries
-          // Rule will transform the subquery within the final agg. The aggregateFunction
-          // in the aggregateExpressions of the final aggregation will be cloned, resulting
-          // in creating new aggregateFunction object. The inputAggBufferAttributes will
-          // also generate new AttributeReference instances with larger exprId, which leads
-          // to a failure in binding with the output of the partial agg. We need to adapt
-          // to this situation; when encountering a failure to bind, it is necessary to
-          // allow the binding of inputAggBufferAttribute with the same name but different
-          // exprId.
-          // 2. After apply `PullOutPreProject`, the aggregate expression may be created a new
-          // instance.
-          val attrsWithSameName =
-            originalInputAttributes.drop(groupingExpressions.size).collect {
+    val originalAggInput = originalInputAttributes.drop(groupingExpressions.size)
+    inputAggBufferAttributes.zipWithIndex.map {
+      case (attr, index) =>
+        originalInputAttributes.find(_.exprId == attr.exprId) match {
+          case Some(matched) =>
+            matched.asInstanceOf[AttributeReference]
+          case None =>
+            // 1. When aggregateExpressions includes subquery, Spark's PlanAdaptiveSubqueries
+            // Rule will transform the subquery within the final agg. The aggregateFunction
+            // in the aggregateExpressions of the final aggregation will be cloned, resulting
+            // in creating new aggregateFunction object. The inputAggBufferAttributes will
+            // also generate new AttributeReference instances with larger exprId, which leads
+            // to a failure in binding with the output of the partial agg. We need to adapt
+            // to this situation; when encountering a failure to bind, it is necessary to
+            // allow the binding of inputAggBufferAttribute with the same name but different
+            // exprId.
+            // 2. After apply `PullOutPreProject`, the aggregate expression may be created a new
+            // instance.
+            val attrsWithSameName = originalAggInput.collect {
               case a if a.name == attr.name => a
             }
-          val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
-            .flatMap(_.aggregateFunction.inputAggBufferAttributes)
-            .filter(_.name == attr.name)
-          assert(
-            attrsWithSameName.size == aggBufferAttrsWithSameName.size,
-            "The attribute with the same name in final agg inputAggBufferAttribute must" +
-              "have the same size of corresponding attributes in originalInputAttributes."
-          )
-          attrsWithSameName(aggBufferAttrsWithSameName.indexOf(attr))
-            .asInstanceOf[AttributeReference]
-        } else {
-          attr
+            val sameNameOrdinal = inputAggBufferAttributes.take(index).count(_.name == attr.name)
+            if (sameNameOrdinal < attrsWithSameName.size) {
+              attrsWithSameName(sameNameOrdinal).asInstanceOf[AttributeReference]
+            } else {
+              val originalAggInputNames = originalAggInput.map(a => s"${a.name}:${a.exprId.id}")
+              val requestedNames = inputAggBufferAttributes.map(a => s"${a.name}:${a.exprId.id}")
+              throw new IllegalStateException(
+                s"Cannot bind aggregate buffer attribute ${attr.sql} by exprId or name. " +
+                  s"Expected at least ${sameNameOrdinal + 1} '${attr.name}' in child output, " +
+                  s"but found ${attrsWithSameName.size}. " +
+                  s"requested=[${requestedNames.mkString(", ")}], " +
+                  s"childAggInput=[${originalAggInputNames.mkString(", ")}]")
+            }
         }
     }
   }
