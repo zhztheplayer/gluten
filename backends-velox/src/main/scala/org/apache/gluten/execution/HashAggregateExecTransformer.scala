@@ -78,8 +78,7 @@ abstract class HashAggregateExecTransformer(
   // Return whether the outputs partial aggregation should be combined for Velox computing.
   // When the partial outputs are multiple-column, row construct is needed.
   private def rowConstructNeeded(): Boolean = aggregateExpressions.exists {
-    case AggregateExpression(aggFunc, mode, _, _, _)
-        if semanticMode(aggFunc, mode) == PartialMerge || semanticMode(aggFunc, mode) == Final =>
+    case AggregateExpression(aggFunc, mode, _, _, _) if mode == PartialMerge || mode == Final =>
       aggFunc.inputAggBufferAttributes.size > 1
     case _ => false
   }
@@ -91,8 +90,7 @@ abstract class HashAggregateExecTransformer(
    *   extracting needed or not.
    */
   private def extractStructNeeded(): Boolean = aggregateExpressions.exists {
-    case AggregateExpression(aggFunc, mode, _, _, _)
-        if semanticMode(aggFunc, mode) == Partial || semanticMode(aggFunc, mode) == PartialMerge =>
+    case AggregateExpression(aggFunc, mode, _, _, _) if mode == Partial || mode == PartialMerge =>
       aggFunc.aggBufferAttributes.size > 1
     case _ => false
   }
@@ -299,9 +297,9 @@ abstract class HashAggregateExecTransformer(
     for (aggregateExpression <- aggregateExpressions) {
       val aggFunc = aggregateExpression.aggregateFunction
       val functionInputAttributes = aggFunc.inputAggBufferAttributes
-      val semanticAggMode = semanticMode(aggFunc, aggregateExpression.mode)
+      val layoutAggMode = aggregateExpression.mode
       aggFunc match {
-        case _ if semanticAggMode == Partial || semanticAggMode == Complete =>
+        case _ if layoutAggMode == Partial || layoutAggMode == Complete =>
           val childNodes = aggFunc.children
             .map(
               ExpressionConverter
@@ -319,7 +317,7 @@ abstract class HashAggregateExecTransformer(
             rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
           // The process of handling the inconsistency in column types and order between
           // Spark and Velox is exactly the opposite of applyExtractStruct.
-          semanticAggMode match {
+          layoutAggMode match {
             case PartialMerge | Final =>
               val newInputAttributes = new ArrayBuffer[Attribute]()
               val childNodes = new JArrayList[ExpressionNode]()
@@ -509,8 +507,7 @@ abstract class HashAggregateExecTransformer(
           aggFilterList.add(null)
         }
         val aggregateFunc = aggExpr.aggregateFunction
-        val semanticAggMode = semanticMode(aggregateFunc, aggExpr.mode)
-        val childrenNodes = semanticAggMode match {
+        val childrenNodes = aggExpr.mode match {
           case Partial | Complete =>
             aggregateFunc.children.toList.map(toExpressionNode)
           case PartialMerge | Final =>
