@@ -18,50 +18,15 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.extension.StarSchemaPreAggregateRule
 
-import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.analysis.UnresolvedRelation
-import org.apache.spark.sql.catalyst.dsl.plans._
-import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.parser.CatalystSqlParser
 import org.apache.spark.sql.catalyst.plans.PlanTest
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LocalRelation, LogicalPlan}
-import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
+import org.apache.spark.sql.catalyst.rules.RuleExecutor
 import org.apache.spark.sql.test.SharedSparkSession
-import org.apache.spark.sql.types._
 
 import java.sql.Date
 
 class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   private val starSchemaRule = StarSchemaPreAggregateRule(null)
-  private val ss_item_sk = AttributeReference("ss_item_sk", IntegerType)()
-  private val ss_sold_date_sk = AttributeReference("ss_sold_date_sk", IntegerType)()
-  private val d_date_sk = AttributeReference("d_date_sk", IntegerType)()
-  private val d_year = AttributeReference("d_year", IntegerType)()
-  private val d_date = AttributeReference("d_date", DateType)()
-  private val i_item_sk = AttributeReference("i_item_sk", IntegerType)()
-  private val i_item_desc = AttributeReference("i_item_desc", StringType)()
-
-  private val storeSales =
-    LocalRelation(ss_item_sk, ss_sold_date_sk)
-
-  private val dateDim =
-    LocalRelation(d_date_sk, d_year, d_date)
-
-  private val item =
-    LocalRelation(i_item_sk, i_item_desc)
-
-  private val localTables: Map[String, LocalRelation] = Map(
-    "store_sales" -> storeSales,
-    "date_dim" -> dateDim,
-    "item" -> item
-  )
-
-  private def parseSqlWithLocalTables(sqlText: String): LogicalPlan = {
-    CatalystSqlParser.parsePlan(sqlText).transformDown {
-      case relation: UnresolvedRelation =>
-        localTables.getOrElse(relation.tableName, relation)
-    }
-  }
 
   private object Optimize extends RuleExecutor[LogicalPlan] {
     override val batches: Seq[Batch] = Seq(
@@ -107,10 +72,9 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    val original = parseSqlWithLocalTables(testCase.inputSql)
-
     starSchemaRule.resetSuccessfulPushCount()
-    val optimized = Optimize.execute(original.analyze).analyze
+    val analyzed = spark.sql(testCase.inputSql).queryExecution.analyzed
+    val optimized = spark.sessionState.analyzer.execute(Optimize.execute(analyzed))
     val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
     val nodesWithMissingInput = optimized.collect {
       case p if p.missingInput.nonEmpty => p
@@ -126,27 +90,17 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
     assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
     assert(aggregateNodeCount == testCase.expectedAggCount)
 
-    val withRuleRows = withExtraOptimizations(Seq(StarSchemaPreAggregateRule(spark))) {
-      spark.sql(testCase.inputSql).collect().toSeq.sortBy(_.toString())
-    }
-    val withoutRuleRows = withExtraOptimizations(Nil) {
-      spark.sql(testCase.inputSql).collect().toSeq.sortBy(_.toString())
-    }
+    val withRuleRows = collectPlanRows(optimized)
+    val withoutRuleRows = collectPlanRows(analyzed)
     assertRowsEqual(withRuleRows, withoutRuleRows)
   }
 
-  private def assertRowsEqual(left: Seq[Row], right: Seq[Row]): Unit = {
+  private def assertRowsEqual(left: Seq[String], right: Seq[String]): Unit = {
     assert(left == right, s"Result mismatch:\nleft=$left\nright=$right")
   }
 
-  private def withExtraOptimizations[T](rules: Seq[Rule[LogicalPlan]])(f: => T): T = {
-    val previous = spark.experimental.extraOptimizations
-    try {
-      spark.experimental.extraOptimizations = rules
-      f
-    } finally {
-      spark.experimental.extraOptimizations = previous
-    }
+  private def collectPlanRows(plan: LogicalPlan): Seq[String] = {
+    spark.sessionState.executePlan(plan).toRdd.collect().toSeq.map(_.toString).sorted
   }
 
   test("pre-aggregate store_sales for both joins with having filter") {
