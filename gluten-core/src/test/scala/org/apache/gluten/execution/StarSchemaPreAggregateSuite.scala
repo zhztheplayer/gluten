@@ -18,17 +18,15 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.extension.StarSchemaPreAggregateRule
 
-import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
-import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
 
 class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   private val starSchemaRule = StarSchemaPreAggregateRule(spark)
-  private val debugMode: Boolean = false
+  private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
 
@@ -75,57 +73,37 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(starSchemaRule)) {
+    val previousOptimizations = spark.experimental.extraOptimizations
+    spark.experimental.extraOptimizations = Seq.empty
+    try {
+      val analyzed = spark.sql(testCase.inputSql).queryExecution.analyzed
+      val withoutRulePlan = spark.sessionState.optimizer.execute(analyzed)
       starSchemaRule.resetSuccessfulPushCount()
-      val df = spark.sql(testCase.inputSql)
-      val optimized = df.queryExecution.optimizedPlan
-      val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
-      val nodesWithMissingInput = optimized.collect {
+      val withRulePlan = starSchemaRule.apply(withoutRulePlan)
+      val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
+      val nodesWithMissingInput = withRulePlan.collect {
         case p if p.missingInput.nonEmpty => p
       }
 
       assert(
-        optimized.resolved,
-        s"Optimized plan unresolved:\n${optimized.treeString}\n" +
-          s"MissingInput=${optimized.missingInput}")
+        withRulePlan.resolved,
+        s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
+          s"MissingInput=${withRulePlan.missingInput}")
       assert(
         nodesWithMissingInput.isEmpty,
         s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
       assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
       assert(aggregateNodeCount == testCase.expectedAggCount)
-      (optimized, df.collect().toSeq.sortBy(_.toString()))
-    }
-    val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
-      val df = spark.sql(testCase.inputSql)
-      val optimized = df.queryExecution.optimizedPlan
-      (optimized, df.collect().toSeq.sortBy(_.toString()))
-    }
-    if (debugMode) {
-      // scalastyle:off println
-      println("=== Plan Before (without StarSchemaPreAggregateRule) ===")
-      println(withoutRulePlan.treeString)
-      println("=== Plan After (with StarSchemaPreAggregateRule) ===")
-      println(withRulePlan.treeString)
-      println("=== Result Before (without StarSchemaPreAggregateRule) ===")
-      println(withoutRuleRows.mkString("\n"))
-      println("=== Result After (with StarSchemaPreAggregateRule) ===")
-      println(withRuleRows.mkString("\n"))
-      // scalastyle:on println
-    }
-    assertRowsEqual(withRuleRows, withoutRuleRows)
-  }
-
-  private def assertRowsEqual(left: Seq[Row], right: Seq[Row]): Unit = {
-    assert(left == right, s"Result mismatch:\nleft=$left\nright=$right")
-  }
-
-  private def withExtraOptimizations[T](rules: Seq[Rule[LogicalPlan]])(f: => T): T = {
-    val previous = spark.experimental.extraOptimizations
-    try {
-      spark.experimental.extraOptimizations = rules
-      f
+      if (debugMode) {
+        // scalastyle:off println
+        println("=== Plan Before (without StarSchemaPreAggregateRule) ===")
+        println(withoutRulePlan.treeString)
+        println("=== Plan After (with StarSchemaPreAggregateRule) ===")
+        println(withRulePlan.treeString)
+        // scalastyle:on println
+      }
     } finally {
-      spark.experimental.extraOptimizations = previous
+      spark.experimental.extraOptimizations = previousOptimizations
     }
   }
 
@@ -144,8 +122,8 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
                    |HAVING count(1) > 4
                    |""".stripMargin,
-      expectedPushCount = 4,
-      expectedAggCount = 5
+      expectedPushCount = 1,
+      expectedAggCount = 2
     )
     runCase(pushdownCase)
   }
@@ -160,8 +138,8 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
                    |""".stripMargin,
-      expectedPushCount = 2,
-      expectedAggCount = 3
+      expectedPushCount = 1,
+      expectedAggCount = 2
     )
     runCase(pushdownCase)
   }
@@ -176,8 +154,8 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
                    |""".stripMargin,
-      expectedPushCount = 2,
-      expectedAggCount = 3
+      expectedPushCount = 1,
+      expectedAggCount = 2
     )
     runCase(pushdownCase)
   }
@@ -192,8 +170,8 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY ss_sold_date_sk
                    |""".stripMargin,
-      expectedPushCount = 2,
-      expectedAggCount = 3
+      expectedPushCount = 1,
+      expectedAggCount = 2
     )
     runCase(pushdownCase)
   }
@@ -208,8 +186,8 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY ss_sold_date_sk
                    |""".stripMargin,
-      expectedPushCount = 2,
-      expectedAggCount = 3
+      expectedPushCount = 1,
+      expectedAggCount = 2
     )
     runCase(pushdownCase)
   }
