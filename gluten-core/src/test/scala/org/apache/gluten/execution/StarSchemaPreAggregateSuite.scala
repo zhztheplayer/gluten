@@ -49,8 +49,15 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   private def registerSampleTables(): Unit = {
     import testImplicits._
 
-    Seq((1, 100), (1, 100), (1, 100), (1, 101), (2, 100), (2, 100), (2, 103))
-      .toDF("ss_item_sk", "ss_sold_date_sk")
+    Seq(
+      (1, 100, 10.0),
+      (1, 100, 12.5),
+      (1, 100, 7.5),
+      (1, 101, 9.0),
+      (2, 100, 3.5),
+      (2, 100, 4.5),
+      (2, 103, 8.0)
+    ).toDF("ss_item_sk", "ss_sold_date_sk", "ss_sales_price")
       .createOrReplaceTempView("store_sales")
 
     Seq(
@@ -133,7 +140,7 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
       inputSql = """
                    |SELECT
                    |  i_item_sk AS item_sk,
-                   |  sum(cast(ss_sold_date_sk AS bigint)) AS total_sold_date_sk
+                   |  sum(ss_sales_price) AS total_sales_price
                    |FROM store_sales
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
@@ -149,7 +156,7 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
       inputSql = """
                    |SELECT
                    |  i_item_sk AS item_sk,
-                   |  avg(cast(ss_sold_date_sk AS double)) AS avg_sold_date_sk
+                   |  avg(ss_sales_price) AS avg_sales_price
                    |FROM store_sales
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
