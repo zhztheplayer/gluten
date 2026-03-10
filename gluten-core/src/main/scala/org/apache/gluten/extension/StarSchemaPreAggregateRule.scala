@@ -155,22 +155,33 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
       : Option[Seq[NamedExpression]] = {
     val cleanSideCnt = cleanAttr(sideCnt)
-    var rewritten = false
-    val newAggExprs = aggExprs.map {
-      case alias @ Alias(expr, _) =>
+    var rewrittenAny = false
+
+    val rewrittenAggExprs = aggExprs.map {
+      case alias @ Alias(expr, _) if isExpandableAggExpr(expr) =>
         rewriteAggregateExpr(expr, cleanSideCnt, sideOutputSet) match {
           case Some(rewrittenExpr) =>
-            rewritten = true
+            rewrittenAny = true
             Alias(rewrittenExpr, alias.name)(
               exprId = alias.exprId,
               qualifier = alias.qualifier,
               explicitMetadata = alias.explicitMetadata,
               nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys)
-          case None => alias
+          case None =>
+            return None
         }
-      case other => other
+
+      case alias @ Alias(_, _) =>
+        alias
+
+      case other if isExpandableAggExpr(other) =>
+        return None
+
+      case other =>
+        other
     }
-    if (rewritten) Some(newAggExprs) else None
+
+    if (rewrittenAny) Some(rewrittenAggExprs) else None
   }
 
   private def rewriteAggregateExpr(
@@ -287,10 +298,10 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
     override def isSupported(expr: Expression): Boolean = avgChild(expr).isDefined
 
     override def rewrite(
-      expr: Expression,
-      sideCnt: AttributeReference,
-      sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
-    : Option[Expression] = {
+        expr: Expression,
+        sideCnt: AttributeReference,
+        sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
+        : Option[Expression] = {
       avgChild(expr).flatMap {
         childExpr =>
           if (canPushToSide(childExpr, sideOutputSet)) {
@@ -301,11 +312,8 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
               weightedExpr =>
                 val weightedSum = Sum(weightedExpr).toAggregateExpression()
                 val weightedCount =
-                  Sum(
-                    If(
-                      IsNotNull(childExpr),
-                      Cast(sideCnt, DoubleType),
-                      Literal(0.0))).toAggregateExpression()
+                  Sum(If(IsNotNull(childExpr), Cast(sideCnt, DoubleType), Literal(0.0)))
+                    .toAggregateExpression()
                 castIfNeeded(Divide(weightedSum, weightedCount), expr.dataType)
             }
           } else {
