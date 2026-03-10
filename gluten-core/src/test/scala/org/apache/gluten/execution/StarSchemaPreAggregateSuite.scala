@@ -28,6 +28,7 @@ import java.sql.Date
 
 class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   private val starSchemaRule = StarSchemaPreAggregateRule(spark)
+  private val debugMode: Boolean = false
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
 
@@ -74,7 +75,7 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    val withRuleRows = withExtraOptimizations(Seq(starSchemaRule)) {
+    val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(starSchemaRule)) {
       starSchemaRule.resetSuccessfulPushCount()
       val df = spark.sql(testCase.inputSql)
       val optimized = df.queryExecution.optimizedPlan
@@ -92,10 +93,24 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
         s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
       assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
       assert(aggregateNodeCount == testCase.expectedAggCount)
-      df.collect().toSeq.sortBy(_.toString())
+      (optimized, df.collect().toSeq.sortBy(_.toString()))
     }
-    val withoutRuleRows = withExtraOptimizations(Nil) {
-      spark.sql(testCase.inputSql).collect().toSeq.sortBy(_.toString())
+    val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
+      val df = spark.sql(testCase.inputSql)
+      val optimized = df.queryExecution.optimizedPlan
+      (optimized, df.collect().toSeq.sortBy(_.toString()))
+    }
+    if (debugMode) {
+      // scalastyle:off println
+      println("=== Plan Before (without StarSchemaPreAggregateRule) ===")
+      println(withoutRulePlan.treeString)
+      println("=== Plan After (with StarSchemaPreAggregateRule) ===")
+      println(withRulePlan.treeString)
+      println("=== Result Before (without StarSchemaPreAggregateRule) ===")
+      println(withoutRuleRows.mkString("\n"))
+      println("=== Result After (with StarSchemaPreAggregateRule) ===")
+      println(withRuleRows.mkString("\n"))
+      // scalastyle:on println
     }
     assertRowsEqual(withRuleRows, withoutRuleRows)
   }
@@ -135,7 +150,7 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
     runCase(pushdownCase)
   }
 
-  test("pre-aggregate store_sales for sum expansion") {
+  test("pre-aggregate store_sales for sum") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT
@@ -151,7 +166,7 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
     runCase(pushdownCase)
   }
 
-  test("pre-aggregate store_sales for avg expansion") {
+  test("pre-aggregate store_sales for avg") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT
@@ -160,6 +175,22 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |FROM store_sales
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
+                   |""".stripMargin,
+      expectedPushCount = 1,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales for sum on fact table") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  ss_sold_date_sk,
+                   |  sum(ss_sales_price) AS total_sales_price
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY ss_sold_date_sk
                    |""".stripMargin,
       expectedPushCount = 1,
       expectedAggCount = 2
