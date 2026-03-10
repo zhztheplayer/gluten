@@ -26,7 +26,10 @@ import org.apache.spark.sql.catalyst.rules.Rule
 case class StarSchemaPreAggregateRule(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
-  private case class SidePartialSpec(originalExpr: Expression, aggregate: DeclarativeAggregate)
+  private case class SidePartialSpec(
+      originalExpr: Expression,
+      aggregate: DeclarativeAggregate,
+      wrapperKey: String)
 
   private case class SidePartialRef(spec: SidePartialSpec, attr: AttributeReference)
 
@@ -175,7 +178,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           case (spec, idx) =>
             Alias(
               StarSchemaAggregateWrapper
-                .wrapperPartial(spec.aggregate)
+                .wrapperPartial(spec.aggregate, spec.wrapperKey)
                 .toAggregateExpression(),
               s"${side.partialName}_$idx"
             )()
@@ -238,7 +241,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           case SidePartialRef(sideSpec, partialAttr)
               if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
             StarSchemaAggregateWrapper
-              .wrapperFinal(spec.aggregate, partialAttr)
+              .wrapperFinal(spec.aggregate, partialAttr, spec.wrapperKey)
               .toAggregateExpression()
         }
     }
@@ -266,7 +269,8 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
         ae.aggregateFunction match {
           case da: DeclarativeAggregate if !da.isInstanceOf[StarSchemaAggregateWrapper] =>
-            Some(SidePartialSpec(expr, da))
+            val stableExprSql = expr.canonicalized.sql
+            Some(SidePartialSpec(expr, da, Integer.toUnsignedString(stableExprSql.hashCode)))
           case _ => None
         }
       case _ => None

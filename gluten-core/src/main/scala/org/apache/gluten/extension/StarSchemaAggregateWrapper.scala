@@ -38,17 +38,25 @@ object StarSchemaAggregateWrapper {
     override val sqlName: String = "FINAL"
   }
 
-  def wrapperPartial(innerAgg: DeclarativeAggregate): StarSchemaAggregateWrapper = {
-    StarSchemaAggregateWrapper(innerAgg = innerAgg, targetPhase = PartialPhase, inputBuffer = None)
+  def wrapperPartial(
+      innerAgg: DeclarativeAggregate,
+      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
+    StarSchemaAggregateWrapper(
+      innerAgg = innerAgg,
+      targetPhase = PartialPhase,
+      inputBuffer = None,
+      wrapperKey = wrapperKey)
   }
 
   def wrapperFinal(
       innerAgg: DeclarativeAggregate,
-      inputBuffer: Expression): StarSchemaAggregateWrapper = {
+      inputBuffer: Expression,
+      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
     StarSchemaAggregateWrapper(
       innerAgg = innerAgg,
       targetPhase = FinalPhase,
-      inputBuffer = Some(inputBuffer))
+      inputBuffer = Some(inputBuffer),
+      wrapperKey = wrapperKey)
   }
 
   // Translate Spark physical aggregate mode + wrapper semantic phase into wrapper semantic mode.
@@ -71,7 +79,8 @@ object StarSchemaAggregateWrapper {
 case class StarSchemaAggregateWrapper(
     innerAgg: DeclarativeAggregate,
     targetPhase: StarSchemaAggregateWrapper.TargetPhase,
-    inputBuffer: Option[Expression])
+    inputBuffer: Option[Expression],
+    wrapperKey: String = "0")
   extends DeclarativeAggregate {
   import StarSchemaAggregateWrapper._
 
@@ -79,7 +88,7 @@ case class StarSchemaAggregateWrapper(
     innerAgg.aggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>
         AttributeReference(
-          s"ss_wrapper_buf_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}_$index",
+          s"ss_wrapper_buf_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}_${wrapperKey}_$index",
           attr.dataType,
           attr.nullable)()
     }
