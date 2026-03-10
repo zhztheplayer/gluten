@@ -159,7 +159,11 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
         r
     }
-    val groupingKeys = dedupeAttrs(sideGroupingAttrs ++ wrapperAttrs ++ joinKeys)
+    val joinConditionAttrs = join.condition.toSeq
+      .flatMap(referencedAttrsInOrder)
+      .collect { case attr: Attribute if sideOutputSet.contains(attr) => attr }
+    val groupingKeys =
+      dedupeAttrs(sideGroupingAttrs ++ wrapperAttrs ++ joinKeys ++ joinConditionAttrs)
     if (groupingKeys.isEmpty) {
       None
     } else {
