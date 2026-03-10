@@ -201,14 +201,13 @@ abstract class HashAggregateExecTransformer(
       aggregateMode: AggregateMode): AggregateFunctionNode = {
     val semanticAggMode = semanticMode(aggregateFunction, aggregateMode)
 
-    val outputTypeNode = aggregateMode match {
+    val outputTypeNode = semanticAggMode match {
       case Partial | PartialMerge if aggregateFunction.aggBufferAttributes.size > 1 =>
-        // Partial outputs must follow Spark agg buffer layout for shuffle serde compatibility.
         VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction)
       case Partial | PartialMerge =>
         ConverterUtils.getTypeNode(
-          aggregateFunction.aggBufferAttributes.head.dataType,
-          aggregateFunction.aggBufferAttributes.head.nullable)
+          aggregateFunction.inputAggBufferAttributes.head.dataType,
+          aggregateFunction.inputAggBufferAttributes.head.nullable)
       case Final | Complete =>
         ConverterUtils.getTypeNode(aggregateFunction.dataType, aggregateFunction.nullable)
     }
@@ -234,19 +233,22 @@ abstract class HashAggregateExecTransformer(
     aggregateExpressions.foreach(
       expression => {
         val aggregateFunction = expression.aggregateFunction
-        expression.mode match {
-          case Partial | PartialMerge if aggregateFunction.aggBufferAttributes.size > 1 =>
-            typeNodeList.add(VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction))
-          case Partial | PartialMerge =>
-            typeNodeList.add(
-              ConverterUtils.getTypeNode(
-                aggregateFunction.aggBufferAttributes.head.dataType,
-                aggregateFunction.aggBufferAttributes.head.nullable))
-          case Final | Complete =>
+        val semanticAggMode = semanticMode(aggregateFunction, expression.mode)
+        aggregateFunction match {
+          case _ if aggregateFunction.aggBufferAttributes.size > 1 =>
+            semanticAggMode match {
+              case Partial | PartialMerge =>
+                typeNodeList.add(VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction))
+              case Final | Complete =>
+                typeNodeList.add(
+                  ConverterUtils
+                    .getTypeNode(aggregateFunction.dataType, aggregateFunction.nullable))
+              case other =>
+                throw new GlutenNotSupportException(s"$other is not supported.")
+            }
+          case _ =>
             typeNodeList.add(
               ConverterUtils.getTypeNode(aggregateFunction.dataType, aggregateFunction.nullable))
-          case other =>
-            throw new GlutenNotSupportException(s"$other is not supported.")
         }
       })
     typeNodeList
