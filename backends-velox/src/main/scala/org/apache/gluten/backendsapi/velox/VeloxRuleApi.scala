@@ -87,6 +87,7 @@ object VeloxRuleApi {
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
+    injector.injectPreTransform(c => UnwrapStarSchemaAggregate(c.session))
     injector.injectPreTransform(c => MergeTwoPhasesHashBaseAggregate(c.session))
     injector.injectPreTransform(_ => RewriteSubqueryBroadcast())
     injector.injectPreTransform(
