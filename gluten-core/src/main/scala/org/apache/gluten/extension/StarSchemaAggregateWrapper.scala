@@ -25,35 +25,56 @@ import java.util.Locale
 import scala.collection.mutable
 
 object StarSchemaAggregateWrapper {
-  sealed trait Phase {
+  sealed trait WrapperStage {
     def sqlName: String
   }
 
-  case object PartialPhase extends Phase {
+  case object WrapperPartialStage extends WrapperStage {
+    override val sqlName: String = "WRAPPER_PARTIAL"
+  }
+
+  case object WrapperFinalStage extends WrapperStage {
+    override val sqlName: String = "WRAPPER_FINAL"
+  }
+
+  sealed trait TargetPhase {
+    def sqlName: String
+  }
+
+  case object PartialPhase extends TargetPhase {
     override val sqlName: String = "PARTIAL"
   }
 
-  case object FinalPhase extends Phase {
+  case object FinalPhase extends TargetPhase {
     override val sqlName: String = "FINAL"
   }
 
-  def partial(innerAgg: DeclarativeAggregate): StarSchemaAggregateWrapper = {
-    StarSchemaAggregateWrapper(innerAgg = innerAgg, phase = PartialPhase, inputBuffer = None)
+  def wrapperPartial(
+      innerAgg: DeclarativeAggregate,
+      targetPhase: TargetPhase): StarSchemaAggregateWrapper = {
+    StarSchemaAggregateWrapper(
+      innerAgg = innerAgg,
+      wrapperStage = WrapperPartialStage,
+      targetPhase = targetPhase,
+      inputBuffer = None)
   }
 
-  def finalMerge(
+  def wrapperFinal(
       innerAgg: DeclarativeAggregate,
+      targetPhase: TargetPhase,
       inputBuffer: Expression): StarSchemaAggregateWrapper = {
     StarSchemaAggregateWrapper(
       innerAgg = innerAgg,
-      phase = FinalPhase,
+      wrapperStage = WrapperFinalStage,
+      targetPhase = targetPhase,
       inputBuffer = Some(inputBuffer))
   }
 }
 
 case class StarSchemaAggregateWrapper(
     innerAgg: DeclarativeAggregate,
-    phase: StarSchemaAggregateWrapper.Phase,
+    wrapperStage: StarSchemaAggregateWrapper.WrapperStage,
+    targetPhase: StarSchemaAggregateWrapper.TargetPhase,
     inputBuffer: Option[Expression])
   extends DeclarativeAggregate {
   import StarSchemaAggregateWrapper._
@@ -62,7 +83,7 @@ case class StarSchemaAggregateWrapper(
     innerAgg.aggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>
         AttributeReference(
-          s"ss_wrapper_buf_${phase.sqlName.toLowerCase(Locale.ROOT)}_$index",
+          s"ss_wrapper_buf_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}_$index",
           attr.dataType,
           attr.nullable)()
     }
@@ -72,16 +93,16 @@ case class StarSchemaAggregateWrapper(
 
   override lazy val nullable: Boolean = true
 
-  override lazy val dataType: DataType = phase match {
-    case PartialPhase =>
+  override lazy val dataType: DataType = wrapperStage match {
+    case WrapperPartialStage =>
       CreateStruct(wrappedBufferAttrs).dataType
-    case FinalPhase =>
+    case WrapperFinalStage =>
       innerAgg.dataType
   }
 
-  override def children: Seq[Expression] = phase match {
-    case PartialPhase => innerAgg.children
-    case FinalPhase => Seq(outputBufferExpr)
+  override def children: Seq[Expression] = wrapperStage match {
+    case WrapperPartialStage => innerAgg.children
+    case WrapperFinalStage => Seq(outputBufferExpr)
   }
 
   override lazy val aggBufferAttributes: Seq[AttributeReference] = wrappedBufferAttrs
@@ -90,7 +111,7 @@ case class StarSchemaAggregateWrapper(
     rewrite(innerAgg.initialValues, childReplacements = Map.empty, useInputBufferField = false)
   }
 
-  override lazy val updateExpressions: Seq[Expression] = phase match {
+  override lazy val updateExpressions: Seq[Expression] = targetPhase match {
     case PartialPhase =>
       rewrite(
         innerAgg.updateExpressions,
@@ -105,10 +126,10 @@ case class StarSchemaAggregateWrapper(
     rewrite(innerAgg.mergeExpressions, childReplacements = Map.empty, useInputBufferField = false)
   }
 
-  override lazy val evaluateExpression: Expression = phase match {
-    case PartialPhase =>
+  override lazy val evaluateExpression: Expression = wrapperStage match {
+    case WrapperPartialStage =>
       CreateStruct(aggBufferAttributes)
-    case FinalPhase =>
+    case WrapperFinalStage =>
       rewrite(
         innerAgg.evaluateExpression,
         childReplacements = Map.empty,
@@ -118,7 +139,8 @@ case class StarSchemaAggregateWrapper(
   override def nodeName: String = "StarSchemaAggregateWrapper"
 
   override def prettyName: String =
-    s"ss_agg_wrapper_${phase.sqlName.toLowerCase(Locale.ROOT)}"
+    s"ss_agg_wrapper_${wrapperStage.sqlName.toLowerCase(Locale.ROOT)}_" +
+      s"${targetPhase.sqlName.toLowerCase(Locale.ROOT)}"
 
   override def sql: String = {
     s"$prettyName(${innerAgg.sql(false)})"
@@ -126,18 +148,18 @@ case class StarSchemaAggregateWrapper(
 
   override lazy val deterministic: Boolean = innerAgg.deterministic
 
-  override lazy val defaultResult: Option[Literal] = phase match {
-    case PartialPhase => None
-    case FinalPhase => innerAgg.defaultResult
+  override lazy val defaultResult: Option[Literal] = wrapperStage match {
+    case WrapperPartialStage => None
+    case WrapperFinalStage => innerAgg.defaultResult
   }
 
   override protected def withNewChildrenInternal(
       newChildren: IndexedSeq[Expression]): Expression = {
-    phase match {
-      case PartialPhase =>
+    wrapperStage match {
+      case WrapperPartialStage =>
         val newInner = innerAgg.withNewChildren(newChildren).asInstanceOf[DeclarativeAggregate]
         copy(innerAgg = newInner, inputBuffer = None)
-      case FinalPhase =>
+      case WrapperFinalStage =>
         if (newChildren.size != 1) {
           throw new IllegalArgumentException(
             s"FINAL StarSchemaAggregateWrapper expects exactly one child, got ${newChildren.size}")
