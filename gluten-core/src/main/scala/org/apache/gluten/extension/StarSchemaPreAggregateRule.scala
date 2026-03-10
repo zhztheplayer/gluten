@@ -17,8 +17,7 @@
 package org.apache.gluten.extension
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, Cast, Divide, EqualTo, Expression, Literal, Multiply, NamedExpression}
-import org.apache.spark.sql.catalyst.expressions.PredicateHelper
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, Cast, Divide, EqualTo, Expression, If, IsNotNull, Literal, Multiply, NamedExpression, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Average, Count, Sum}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.Inner
@@ -288,10 +287,10 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
     override def isSupported(expr: Expression): Boolean = avgChild(expr).isDefined
 
     override def rewrite(
-        expr: Expression,
-        sideCnt: AttributeReference,
-        sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
-        : Option[Expression] = {
+      expr: Expression,
+      sideCnt: AttributeReference,
+      sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet)
+    : Option[Expression] = {
       avgChild(expr).flatMap {
         childExpr =>
           if (canPushToSide(childExpr, sideOutputSet)) {
@@ -301,8 +300,13 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
               castMultiplierTo = Some(DoubleType)).map {
               weightedExpr =>
                 val weightedSum = Sum(weightedExpr).toAggregateExpression()
-                val sideSum = Sum(Cast(sideCnt, DoubleType)).toAggregateExpression()
-                castIfNeeded(Divide(weightedSum, sideSum), expr.dataType)
+                val weightedCount =
+                  Sum(
+                    If(
+                      IsNotNull(childExpr),
+                      Cast(sideCnt, DoubleType),
+                      Literal(0.0))).toAggregateExpression()
+                castIfNeeded(Divide(weightedSum, weightedCount), expr.dataType)
             }
           } else {
             None
