@@ -18,21 +18,16 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.extension.StarSchemaPreAggregateRule
 
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
-import org.apache.spark.sql.catalyst.rules.RuleExecutor
+import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
 
 class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
-  private val starSchemaRule = StarSchemaPreAggregateRule(null)
-
-  private object Optimize extends RuleExecutor[LogicalPlan] {
-    override val batches: Seq[Batch] = Seq(
-      Batch("StarSchemaPreAggregate", FixedPoint(10), starSchemaRule)
-    )
-  }
+  private val starSchemaRule = StarSchemaPreAggregateRule(spark)
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
 
@@ -72,35 +67,44 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    starSchemaRule.resetSuccessfulPushCount()
-    val analyzed = spark.sql(testCase.inputSql).queryExecution.analyzed
-    val optimized = spark.sessionState.analyzer.execute(Optimize.execute(analyzed))
-    val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
-    val nodesWithMissingInput = optimized.collect {
-      case p if p.missingInput.nonEmpty => p
+    val withRuleRows = withExtraOptimizations(Seq(starSchemaRule)) {
+      starSchemaRule.resetSuccessfulPushCount()
+      val df = spark.sql(testCase.inputSql)
+      val optimized = df.queryExecution.optimizedPlan
+      val aggregateNodeCount = optimized.collect { case _: Aggregate => 1 }.size
+      val nodesWithMissingInput = optimized.collect {
+        case p if p.missingInput.nonEmpty => p
+      }
+
+      assert(
+        optimized.resolved,
+        s"Optimized plan unresolved:\n${optimized.treeString}\n" +
+          s"MissingInput=${optimized.missingInput}")
+      assert(
+        nodesWithMissingInput.isEmpty,
+        s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
+      assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
+      assert(aggregateNodeCount == testCase.expectedAggCount)
+      df.collect().toSeq.sortBy(_.toString())
     }
-
-    assert(
-      optimized.resolved,
-      s"Optimized plan unresolved:\n${optimized.treeString}\n" +
-        s"MissingInput=${optimized.missingInput}")
-    assert(
-      nodesWithMissingInput.isEmpty,
-      s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
-    assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
-    assert(aggregateNodeCount == testCase.expectedAggCount)
-
-    val withRuleRows = collectPlanRows(optimized)
-    val withoutRuleRows = collectPlanRows(analyzed)
+    val withoutRuleRows = withExtraOptimizations(Nil) {
+      spark.sql(testCase.inputSql).collect().toSeq.sortBy(_.toString())
+    }
     assertRowsEqual(withRuleRows, withoutRuleRows)
   }
 
-  private def assertRowsEqual(left: Seq[String], right: Seq[String]): Unit = {
+  private def assertRowsEqual(left: Seq[Row], right: Seq[Row]): Unit = {
     assert(left == right, s"Result mismatch:\nleft=$left\nright=$right")
   }
 
-  private def collectPlanRows(plan: LogicalPlan): Seq[String] = {
-    spark.sessionState.executePlan(plan).toRdd.collect().toSeq.map(_.toString).sorted
+  private def withExtraOptimizations[T](rules: Seq[Rule[LogicalPlan]])(f: => T): T = {
+    val previous = spark.experimental.extraOptimizations
+    try {
+      spark.experimental.extraOptimizations = rules
+      f
+    } finally {
+      spark.experimental.extraOptimizations = previous
+    }
   }
 
   test("pre-aggregate store_sales for both joins with having filter") {

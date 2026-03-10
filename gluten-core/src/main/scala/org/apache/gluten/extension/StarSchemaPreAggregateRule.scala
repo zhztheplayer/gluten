@@ -17,12 +17,14 @@
 package org.apache.gluten.extension
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, Divide, EqualTo, Expression, Literal, Multiply, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, Divide, EqualTo, Expression, Literal, Multiply, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.PredicateHelper
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Average, Count, Sum}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.Inner
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.types.DoubleType
 
 case class StarSchemaPreAggregateRule(spark: SparkSession)
   extends Rule[LogicalPlan]
@@ -45,19 +47,22 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
     case agg @ Aggregate(groupingExprs, aggExprs, child) if hasPushableAggExpr(aggExprs) =>
       extractJoin(child)
         .flatMap {
-          case (join, filterCond, rebuild) =>
+          case (join, wrapperRequiredAttrs, rebuild) =>
             Seq(JoinLeft, JoinRight).iterator
               .flatMap {
                 side =>
-                  buildPreAgg(join, groupingExprs, filterCond, side).flatMap {
+                  buildPreAgg(join, groupingExprs, wrapperRequiredAttrs, side).flatMap {
                     case (preAgg, sideCnt) =>
                       rewriteAggregateExpressions(aggExprs, sideCnt, side.outputSet(join)).map {
                         rewrittenAggExprs =>
                           val rewrittenJoin = side.replace(join, preAgg)
+                          val requiredAttrs = (groupingExprs ++ rewrittenAggExprs)
+                            .flatMap(_.references.toSeq)
+                            .distinct
                           successfulPushCount += 1
                           agg.copy(
                             aggregateExpressions = rewrittenAggExprs,
-                            child = rebuild(rewrittenJoin))
+                            child = rebuild(rewrittenJoin, requiredAttrs))
                       }
                   }
               }
@@ -68,11 +73,35 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   }
 
   private def extractJoin(
-      child: LogicalPlan): Option[(Join, Option[Expression], Join => LogicalPlan)] =
+      child: LogicalPlan): Option[(Join, Seq[Attribute], (Join, Seq[Attribute]) => LogicalPlan)] =
     child match {
-      case join: Join if isInnerEquiJoin(join) => Some((join, None, identity))
+      case project @ Project(_, projectChild) =>
+        extractJoin(projectChild).map {
+          case (join, wrapperRequiredAttrs, rebuild) =>
+            val projectRequiredAttrs =
+              (project.projectList.flatMap(_.references.toSeq) ++ wrapperRequiredAttrs).distinct
+            (
+              join,
+              projectRequiredAttrs,
+              (j: Join, requiredAttrs: Seq[Attribute]) => {
+                val rebuiltChild = rebuild(j, requiredAttrs)
+                val projectOutputSet = AttributeSet(project.projectList.map(_.toAttribute))
+                val passThroughAttrs = requiredAttrs.filter {
+                  attr => rebuiltChild.outputSet.contains(attr) && !projectOutputSet.contains(attr)
+                }
+                project.copy(
+                  projectList = project.projectList ++ passThroughAttrs,
+                  child = rebuiltChild)
+              })
+        }
+      case join: Join if isInnerEquiJoin(join) =>
+        Some((join, Nil, (j: Join, _: Seq[Attribute]) => j))
       case filter @ Filter(_, join: Join) if isInnerEquiJoin(join) =>
-        Some((join, Some(filter.condition), (j: Join) => filter.copy(child = j)))
+        Some(
+          (
+            join,
+            filter.condition.references.toSeq,
+            (j: Join, _: Seq[Attribute]) => filter.copy(child = j)))
       case _ => None
     }
 
@@ -89,13 +118,14 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   private def buildPreAgg(
       join: Join,
       groupingExprs: Seq[Expression],
-      filterCond: Option[Expression],
+      wrapperRequiredAttrs: Seq[Attribute],
       side: JoinSide): Option[(Aggregate, Attribute)] = {
     val sideOutputSet = side.outputSet(join)
-    val sideGroupingAttrs = groupingExprs.flatMap(_.references.toSeq).collect {
+    val groupingRefAttrs = groupingExprs.flatMap(_.references.toSeq)
+    val sideGroupingAttrs = groupingRefAttrs.collect {
       case attr: Attribute if sideOutputSet.contains(attr) => attr
     }
-    val filterAttrs = filterCond.toSeq.flatMap(_.references.toSeq).collect {
+    val wrapperAttrs = wrapperRequiredAttrs.collect {
       case attr: Attribute if sideOutputSet.contains(attr) => attr
     }
     val joinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
@@ -106,7 +136,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
         r
     }
-    val groupingKeys = (sideGroupingAttrs ++ filterAttrs ++ joinKeys).distinct
+    val groupingKeys = (sideGroupingAttrs ++ wrapperAttrs ++ joinKeys).distinct
     if (groupingKeys.isEmpty) {
       None
     } else {
@@ -169,8 +199,9 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
 
   private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
     aggExprs.exists {
-      case Alias(expr, _) => isExpandableAggExpr(expr)
-      case expr => isExpandableAggExpr(expr)
+      case Alias(ae: AggregateExpression, _) => isExpandableAggExpr(ae)
+      case ae: AggregateExpression => isExpandableAggExpr(ae)
+      case _ => false
     }
   }
 
@@ -254,8 +285,14 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
       avgChild(expr).flatMap {
         childExpr =>
           if (canPushToSide(childExpr, sideOutputSet)) {
-            val weightedSum = Sum(Multiply(childExpr, sideCnt)).toAggregateExpression()
-            val sideSum = Sum(sideCnt).toAggregateExpression()
+            val weightedSum = Sum(
+              Multiply(
+                org.apache.spark.sql.catalyst.expressions.Cast(childExpr, DoubleType),
+                org.apache.spark.sql.catalyst.expressions.Cast(sideCnt, DoubleType)))
+              .toAggregateExpression()
+            val sideSum =
+              Sum(org.apache.spark.sql.catalyst.expressions.Cast(sideCnt, DoubleType))
+                .toAggregateExpression()
             Some(Divide(weightedSum, sideSum))
           } else {
             None
