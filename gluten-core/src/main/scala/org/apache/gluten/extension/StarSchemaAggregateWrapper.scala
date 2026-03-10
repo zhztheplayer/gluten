@@ -93,14 +93,23 @@ case class StarSchemaAggregateWrapper(
           attr.nullable)()
     }
 
+  private val useStructPayload: Boolean = wrappedBufferAttrs.size > 1
+
   private def outputBufferExpr: Expression =
-    inputBuffer.getOrElse(CreateStruct(innerAgg.inputAggBufferAttributes))
+    inputBuffer.getOrElse {
+      if (useStructPayload) {
+        CreateStruct(innerAgg.inputAggBufferAttributes)
+      } else {
+        innerAgg.inputAggBufferAttributes.head
+      }
+    }
 
   override lazy val nullable: Boolean = true
 
   override lazy val dataType: DataType = targetPhase match {
     case PartialPhase =>
-      CreateStruct(wrappedBufferAttrs).dataType
+      if (useStructPayload) CreateStruct(wrappedBufferAttrs).dataType
+      else wrappedBufferAttrs.head.dataType
     case FinalPhase =>
       innerAgg.dataType
   }
@@ -133,7 +142,7 @@ case class StarSchemaAggregateWrapper(
 
   override lazy val evaluateExpression: Expression = targetPhase match {
     case PartialPhase =>
-      CreateStruct(aggBufferAttributes)
+      if (useStructPayload) CreateStruct(aggBufferAttributes) else aggBufferAttributes.head
     case FinalPhase =>
       rewrite(
         innerAgg.evaluateExpression,
@@ -187,7 +196,16 @@ case class StarSchemaAggregateWrapper(
     val innerToInputBuffer = innerAgg.inputAggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>
         if (useInputBufferField) {
-          attr -> GetStructField(outputBufferExpr, index, Some(attr.name))
+          val field = if (useStructPayload) {
+            GetStructField(outputBufferExpr, index, Some(attr.name))
+          } else {
+            if (index != 0) {
+              throw new IllegalStateException(
+                s"Non-struct payload expects only one buffer field, got index $index")
+            }
+            outputBufferExpr
+          }
+          attr -> field
         } else {
           attr -> inputAggBufferAttributes(index)
         }
