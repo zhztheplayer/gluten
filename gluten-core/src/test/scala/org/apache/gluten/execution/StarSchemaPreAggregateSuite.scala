@@ -176,8 +176,8 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
                    |""".stripMargin,
-      expectedPushCount = 1,
-      expectedAggCount = 2
+      expectedPushCount = 2,
+      expectedAggCount = 3
     )
     runCase(pushdownCase)
   }
@@ -188,6 +188,22 @@ class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
                    |SELECT
                    |  ss_sold_date_sk,
                    |  sum(ss_sales_price) AS total_sales_price
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY ss_sold_date_sk
+                   |""".stripMargin,
+      expectedPushCount = 2,
+      expectedAggCount = 3
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales for avg on fact table") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  ss_sold_date_sk,
+                   |  avg(ss_sales_price) AS avg_sales_price
                    |FROM store_sales
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY ss_sold_date_sk

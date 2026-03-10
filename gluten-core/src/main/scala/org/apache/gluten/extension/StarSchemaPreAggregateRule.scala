@@ -246,9 +246,8 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
 
   private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
     aggExprs.exists {
-      case Alias(ae: AggregateExpression, _) => isExpandableAggExpr(ae)
-      case ae: AggregateExpression => isExpandableAggExpr(ae)
-      case _ => false
+      case Alias(expr, _) => isExpandableAggExpr(expr)
+      case expr => isExpandableAggExpr(expr)
     }
   }
 
@@ -305,12 +304,12 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
   }
 
   private object SumExpandRule extends AggregateExpandRule {
-    override def isSupported(expr: Expression): Boolean = sumChild(expr).isDefined
+    override def isSupported(expr: Expression): Boolean = sumAggregateChild(expr).isDefined
 
     override def sidePartials(
         expr: Expression,
         sideOutputSet: AttributeSet): Seq[SidePartialSpec] = {
-      sumChild(expr)
+      sumAggregateChild(expr)
         .flatMap(sidePartialCandidate(_, sideOutputSet))
         .map {
           candidate =>
@@ -328,7 +327,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
         sideCnt: AttributeReference,
         sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet,
         sidePartials: Seq[SidePartialRef]): Option[Expression] = {
-      sumChild(expr)
+      sumAggregateChild(expr)
         .flatMap {
           childExpr =>
             rewriteWithSidePartial(childExpr, sideCnt, sideOutputSet, sidePartials)
@@ -373,88 +372,110 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
         .toSeq
         .headOption
     }
-
-    private def extractSideFactor(
-        childExpr: Expression,
-        sideOutputSet: AttributeSet,
-        candidateExpr: Expression): Option[Expression] = {
-      childExpr match {
-        case multiply: Multiply if multiply.left.semanticEquals(candidateExpr) =>
-          val right = multiply.right
-          if (right.references.forall(attr => !sideOutputSet.contains(attr))) {
-            Some(right)
-          } else {
-            None
-          }
-        case multiply: Multiply if multiply.right.semanticEquals(candidateExpr) =>
-          val left = multiply.left
-          if (left.references.forall(attr => !sideOutputSet.contains(attr))) {
-            Some(left)
-          } else {
-            None
-          }
-        case _ =>
-          None
-      }
-    }
-
-    private def sumChild(expr: Expression): Option[Expression] = {
-      expr match {
-        case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
-          ae.aggregateFunction match {
-            case Sum(child, _) => Some(child)
-            case _ => None
-          }
-        case _ => None
-      }
-    }
-
-    private def sidePartialCandidate(
-        childExpr: Expression,
-        sideOutputSet: AttributeSet): Option[Expression] = {
-      val refs = childExpr.references
-      if (
-        refs.nonEmpty &&
-        refs.forall(sideOutputSet.contains) &&
-        !refs.exists(isRuleGeneratedSideAttr(_, sideOutputSet))
-      ) {
-        Some(childExpr)
-      } else {
-        childExpr match {
-          case multiply: Multiply
-              if multiply.left.references.nonEmpty &&
-                multiply.left.references.forall(sideOutputSet.contains) &&
-                !multiply.left.references.exists(isRuleGeneratedSideAttr(_, sideOutputSet)) &&
-                multiply.right.references.forall(attr => !sideOutputSet.contains(attr)) =>
-            Some(multiply.left)
-          case multiply: Multiply
-              if multiply.right.references.nonEmpty &&
-                multiply.right.references.forall(sideOutputSet.contains) &&
-                !multiply.right.references.exists(isRuleGeneratedSideAttr(_, sideOutputSet)) &&
-                multiply.left.references.forall(attr => !sideOutputSet.contains(attr)) =>
-            Some(multiply.right)
-          case _ =>
-            None
-        }
-      }
-    }
-
-    private def isRuleGeneratedSideAttr(attr: Attribute, sideOutputSet: AttributeSet): Boolean = {
-      sideOutputSet.contains(attr) &&
-      (attr.name.startsWith("left_mult") || attr.name.startsWith("right_mult"))
-    }
   }
 
   private object AvgExpandRule extends AggregateExpandRule {
-    override def isSupported(expr: Expression): Boolean = avgChild(expr).isDefined
+    override def isSupported(expr: Expression): Boolean =
+      avgChild(expr).isDefined || avgRatioChildren(expr).isDefined
+
+    override def sidePartials(
+        expr: Expression,
+        sideOutputSet: AttributeSet): Seq[SidePartialSpec] = {
+      avgChild(expr)
+        .flatMap(sidePartialCandidate(_, sideOutputSet))
+        .map {
+          candidate =>
+            Seq(
+              SidePartialSpec(
+                key = "avg_sum",
+                childExpr = candidate,
+                aggregateBuilder = child => Sum(Cast(child, DoubleType)).toAggregateExpression(),
+                aliasBuilder = (sideName, idx) => s"${sideName}_avg_sum_$idx"
+              ),
+              SidePartialSpec(
+                key = "avg_cnt",
+                childExpr = candidate,
+                aggregateBuilder = child =>
+                  Sum(If(IsNotNull(child), Literal(1.0d), Literal(0.0d))).toAggregateExpression(),
+                aliasBuilder = (sideName, idx) => s"${sideName}_avg_cnt_$idx"
+              )
+            )
+        }
+        .getOrElse(Nil)
+    }
 
     override def rewrite(
         expr: Expression,
         sideCnt: AttributeReference,
         sideOutputSet: org.apache.spark.sql.catalyst.expressions.AttributeSet,
         sidePartials: Seq[SidePartialRef]): Option[Expression] = {
-      avgChild(expr).flatMap {
-        childExpr =>
+      avgChild(expr)
+        .flatMap {
+          childExpr => rewriteAvgFromChild(expr, childExpr, sideCnt, sideOutputSet, sidePartials)
+        }
+        .orElse {
+          avgRatioChildren(expr).flatMap {
+            case (sumChildExpr, cntChildExpr) =>
+              if (
+                canPushToSide(sumChildExpr, sideOutputSet) &&
+                canPushToSide(cntChildExpr, sideOutputSet)
+              ) {
+                val weightedSumChild =
+                  multiplyBySideCount(sumChildExpr, sideCnt, castMultiplierTo = Some(DoubleType))
+                val weightedCntChild =
+                  multiplyBySideCount(cntChildExpr, sideCnt, castMultiplierTo = Some(DoubleType))
+                for {
+                  sumChild <- weightedSumChild
+                  cntChild <- weightedCntChild
+                } yield {
+                  val rewrittenSum = Sum(sumChild).toAggregateExpression()
+                  val rewrittenCnt = Sum(cntChild).toAggregateExpression()
+                  castIfNeeded(Divide(rewrittenSum, rewrittenCnt), expr.dataType)
+                }
+              } else {
+                None
+              }
+          }
+        }
+    }
+
+    private def avgChild(expr: Expression): Option[Expression] = {
+      expr match {
+        case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
+          ae.aggregateFunction match {
+            case Average(child, _) => Some(child)
+            case _ => None
+          }
+        case _ => None
+      }
+    }
+
+    private def avgRatioChildren(expr: Expression): Option[(Expression, Expression)] = {
+      expr match {
+        case divide: Divide =>
+          for {
+            sumChildExpr <- sumAggregateChild(divide.left)
+            cntChildExpr <- sumAggregateChild(divide.right)
+          } yield (sumChildExpr, cntChildExpr)
+        case _ => None
+      }
+    }
+
+    private def rewriteAvgFromChild(
+        expr: Expression,
+        childExpr: Expression,
+        sideCnt: AttributeReference,
+        sideOutputSet: AttributeSet,
+        sidePartials: Seq[SidePartialRef]): Option[Expression] = {
+      val partialSumAttr = findSidePartialAttr(sidePartials, "avg_sum", childExpr)
+      val partialCntAttr = findSidePartialAttr(sidePartials, "avg_cnt", childExpr)
+
+      (partialSumAttr, partialCntAttr) match {
+        case (Some(sumAttr), Some(cntAttr)) =>
+          val rewrittenSum = Sum(sumAttr).toAggregateExpression()
+          val rewrittenCnt = Sum(cntAttr).toAggregateExpression()
+          Some(castIfNeeded(Divide(rewrittenSum, rewrittenCnt), expr.dataType))
+        case _ =>
           if (canPushToSide(childExpr, sideOutputSet)) {
             multiplyBySideCount(
               Cast(childExpr, DoubleType),
@@ -470,17 +491,6 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           } else {
             None
           }
-      }
-    }
-
-    private def avgChild(expr: Expression): Option[Expression] = {
-      expr match {
-        case ae: org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression =>
-          ae.aggregateFunction match {
-            case Average(child, _) => Some(child)
-            case _ => None
-          }
-        case _ => None
       }
     }
   }
@@ -544,5 +554,86 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
 
   private def castIfNeeded(expr: Expression, targetType: DataType): Expression = {
     if (expr.dataType == targetType) expr else Cast(expr, targetType)
+  }
+
+  private def sumAggregateChild(expr: Expression): Option[Expression] = {
+    expr match {
+      case ae: AggregateExpression =>
+        ae.aggregateFunction match {
+          case Sum(child, _) => Some(child)
+          case _ => None
+        }
+      case _ => None
+    }
+  }
+
+  private def findSidePartialAttr(
+      sidePartials: Seq[SidePartialRef],
+      partialKey: String,
+      childExpr: Expression): Option[AttributeReference] = {
+    sidePartials.collectFirst {
+      case SidePartialRef(spec, attr)
+          if spec.key == partialKey && spec.childExpr.semanticEquals(childExpr) =>
+        attr
+    }
+  }
+
+  private def sidePartialCandidate(
+      childExpr: Expression,
+      sideOutputSet: AttributeSet): Option[Expression] = {
+    val refs = childExpr.references
+    if (
+      refs.nonEmpty &&
+      refs.forall(sideOutputSet.contains) &&
+      !refs.exists(isRuleGeneratedSideAttr(_, sideOutputSet))
+    ) {
+      Some(childExpr)
+    } else {
+      childExpr match {
+        case multiply: Multiply
+            if multiply.left.references.nonEmpty &&
+              multiply.left.references.forall(sideOutputSet.contains) &&
+              !multiply.left.references.exists(isRuleGeneratedSideAttr(_, sideOutputSet)) &&
+              multiply.right.references.forall(attr => !sideOutputSet.contains(attr)) =>
+          Some(multiply.left)
+        case multiply: Multiply
+            if multiply.right.references.nonEmpty &&
+              multiply.right.references.forall(sideOutputSet.contains) &&
+              !multiply.right.references.exists(isRuleGeneratedSideAttr(_, sideOutputSet)) &&
+              multiply.left.references.forall(attr => !sideOutputSet.contains(attr)) =>
+          Some(multiply.right)
+        case _ =>
+          None
+      }
+    }
+  }
+
+  private def extractSideFactor(
+      childExpr: Expression,
+      sideOutputSet: AttributeSet,
+      candidateExpr: Expression): Option[Expression] = {
+    childExpr match {
+      case multiply: Multiply if multiply.left.semanticEquals(candidateExpr) =>
+        val right = multiply.right
+        if (right.references.forall(attr => !sideOutputSet.contains(attr))) {
+          Some(right)
+        } else {
+          None
+        }
+      case multiply: Multiply if multiply.right.semanticEquals(candidateExpr) =>
+        val left = multiply.left
+        if (left.references.forall(attr => !sideOutputSet.contains(attr))) {
+          Some(left)
+        } else {
+          None
+        }
+      case _ =>
+        None
+    }
+  }
+
+  private def isRuleGeneratedSideAttr(attr: Attribute, sideOutputSet: AttributeSet): Boolean = {
+    sideOutputSet.contains(attr) &&
+    (attr.name.startsWith("left_mult") || attr.name.startsWith("right_mult"))
   }
 }
