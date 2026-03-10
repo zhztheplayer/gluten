@@ -909,6 +909,24 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("Support star-schema wrapper aggregate in HashAggregateExecTransformer") {
+    val query =
+      """
+        |SELECT
+        |  SUM(l_extendedprice * (1 - l_discount)) AS revenue
+        |FROM lineitem
+        |JOIN part
+        |  ON l_partkey = p_partkey
+        |WHERE p_size > 10 AND l_shipmode IN ('AIR', 'RAIL')
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
   test("Verify parquet field name with special character") {
     withTable("t") {
 
