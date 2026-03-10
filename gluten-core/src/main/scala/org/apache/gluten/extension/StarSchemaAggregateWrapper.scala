@@ -17,6 +17,7 @@
 package org.apache.gluten.extension
 
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, CreateStruct, Expression, GetStructField, Literal}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateMode, Complete, Final, Partial, PartialMerge}
 import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
 import org.apache.spark.sql.types.DataType
 
@@ -48,6 +49,22 @@ object StarSchemaAggregateWrapper {
       innerAgg = innerAgg,
       targetPhase = FinalPhase,
       inputBuffer = Some(inputBuffer))
+  }
+
+  // Translate Spark physical aggregate mode + wrapper semantic phase into wrapper semantic mode.
+  def semanticMode(actualMode: AggregateMode, targetPhase: TargetPhase): AggregateMode = {
+    (actualMode, targetPhase) match {
+      case (Partial, PartialPhase) => Partial
+      case (Final, PartialPhase) => PartialMerge
+      case (Complete, PartialPhase) => Partial
+      case (Partial, FinalPhase) => PartialMerge
+      case (Final, FinalPhase) => Final
+      case (Complete, FinalPhase) => Final
+      case _ =>
+        throw new UnsupportedOperationException(
+          s"Unsupported wrapper semantic mode mapping: actualMode=$actualMode, " +
+            s"targetPhase=$targetPhase")
+    }
   }
 }
 
