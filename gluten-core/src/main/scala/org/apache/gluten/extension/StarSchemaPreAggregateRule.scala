@@ -171,7 +171,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           case (spec, idx) =>
             Alias(
               StarSchemaAggregateWrapper
-                .wrapperPartial(spec.aggregate, StarSchemaAggregateWrapper.PartialPhase)
+                .wrapperPartial(spec.aggregate)
                 .toAggregateExpression(),
               s"${side.partialName}_$idx"
             )()
@@ -234,7 +234,7 @@ case class StarSchemaPreAggregateRule(spark: SparkSession)
           case SidePartialRef(sideSpec, partialAttr)
               if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
             StarSchemaAggregateWrapper
-              .wrapperFinal(spec.aggregate, StarSchemaAggregateWrapper.FinalPhase, partialAttr)
+              .wrapperFinal(spec.aggregate, partialAttr)
               .toAggregateExpression()
         }
     }
