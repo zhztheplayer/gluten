@@ -77,7 +77,7 @@ abstract class HashAggregateExecTransformer(
 
   // Return whether the outputs partial aggregation should be combined for Velox computing.
   // When the partial outputs are multiple-column, row construct is needed.
-  private def rowConstructNeeded(): Boolean = aggregateExpressions.exists {
+  private def veloxAggNeedsStructInput(): Boolean = aggregateExpressions.exists {
     case AggregateExpression(aggFunc, mode, _, _, _) if mode == PartialMerge || mode == Final =>
       aggFunc.inputAggBufferAttributes.size > 1
     case _ => false
@@ -89,7 +89,7 @@ abstract class HashAggregateExecTransformer(
    * @return
    *   extracting needed or not.
    */
-  private def extractStructNeeded(): Boolean = aggregateExpressions.exists {
+  private def veloxAggHasStructOutput(): Boolean = aggregateExpressions.exists {
     case AggregateExpression(aggFunc, mode, _, _, _) if mode == Partial || mode == PartialMerge =>
       aggFunc.aggBufferAttributes.size > 1
     case _ => false
@@ -412,7 +412,7 @@ abstract class HashAggregateExecTransformer(
       validation: Boolean = false): RelNode = {
     val originalInputAttributes = child.output
 
-    val finalInput = if (rowConstructNeeded()) {
+    val finalInput = if (veloxAggNeedsStructInput()) {
       aggParams.rowConstructionNeeded = true
       applyRowConstruct(context, originalInputAttributes, operatorId, input, validation)
     } else {
@@ -427,7 +427,7 @@ abstract class HashAggregateExecTransformer(
       validation,
       aggParams.rowConstructionNeeded)
 
-    if (extractStructNeeded()) {
+    if (veloxAggHasStructOutput()) {
       aggParams.extractionNeeded = true
       aggRel = applyExtractStruct(context, aggRel, operatorId, validation)
     }
