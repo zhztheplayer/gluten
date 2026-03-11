@@ -354,7 +354,14 @@ case class PushStarSchemaPreAggregateBatch(spark: SparkSession) extends Rule[Log
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
+    if (!isEnabled) {
+      return plan
+    }
     executor.execute(plan)
+  }
+
+  private def isEnabled: Boolean = {
+    GlutenConfig.get.enableStarSchemaJoinAggregateRules
   }
 }
 
