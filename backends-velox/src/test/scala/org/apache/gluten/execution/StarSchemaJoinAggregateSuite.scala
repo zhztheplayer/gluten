@@ -19,8 +19,6 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.types.Decimal
-
 class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
@@ -125,41 +123,83 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   }
 
   test("Reproduce duplicate sum/isEmpty remap assertion") {
-    withTempView("ss_fact", "ss_dim") {
-      import spark.implicits._
+    withTempView("ss_fact", "ss_sales", "ss_returns", "ss_dim") {
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_fact AS
+                  |SELECT
+                  |  CAST(item_sk AS INT) AS item_sk,
+                  |  CAST(cp_catalog_page_id AS INT) AS cp_catalog_page_id,
+                  |  CAST(sales_price AS DECIMAL(12, 2)) AS sales_price,
+                  |  CAST(return_amt AS DECIMAL(12, 2)) AS return_amt,
+                  |  CAST(profit AS DECIMAL(12, 2)) AS profit,
+                  |  CAST(net_loss AS DECIMAL(12, 2)) AS net_loss
+                  |FROM VALUES
+                  |  (1, 100, 10.00, 5.00, 7.00, 3.00),
+                  |  (1, 100, 20.00, 8.00, 6.00, 2.00),
+                  |  (2, 200, 30.00, 9.00, 4.00, 1.00)
+                  |AS t(item_sk, cp_catalog_page_id, sales_price, return_amt, profit, net_loss)
+                  |""".stripMargin)
 
-      Seq(
-        (1, 100, Decimal(10), Decimal(5), Decimal(7), Decimal(3)),
-        (1, 100, Decimal(20), Decimal(8), Decimal(6), Decimal(2)),
-        (2, 200, Decimal(30), Decimal(9), Decimal(4), Decimal(1))
-      ).toDF("item_sk", "cp_catalog_page_id", "sales_price", "return_amt", "profit", "net_loss")
-        .selectExpr(
-          "cast(item_sk as int) as item_sk",
-          "cast(cp_catalog_page_id as int) as cp_catalog_page_id",
-          "cast(sales_price as decimal(12,2)) as sales_price",
-          "cast(return_amt as decimal(12,2)) as return_amt",
-          "cast(profit as decimal(12,2)) as profit",
-          "cast(net_loss as decimal(12,2)) as net_loss")
-        .createOrReplaceTempView("ss_fact")
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_sales AS
+                  |SELECT
+                  |  item_sk,
+                  |  cp_catalog_page_id,
+                  |  sales_price,
+                  |  profit
+                  |FROM ss_fact
+                  |""".stripMargin)
 
-      Seq((1), (1), (2), (2), (2))
-        .toDF("item_sk")
-        .selectExpr("cast(item_sk as int) as item_sk")
-        .createOrReplaceTempView("ss_dim")
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_returns AS
+                  |SELECT
+                  |  item_sk,
+                  |  cp_catalog_page_id,
+                  |  return_amt,
+                  |  net_loss
+                  |FROM ss_fact
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_dim AS
+                  |SELECT CAST(item_sk AS INT) AS item_sk
+                  |FROM VALUES
+                  |  (1), (1), (2), (2), (2)
+                  |AS t(item_sk)
+                  |""".stripMargin)
 
       val query =
         """
+          |WITH base AS (
+          |  SELECT
+          |    s.item_sk,
+          |    s.cp_catalog_page_id,
+          |    s.sales_price,
+          |    s.profit,
+          |    CAST(0 AS DECIMAL(12, 2)) AS return_amt,
+          |    CAST(0 AS DECIMAL(12, 2)) AS net_loss
+          |  FROM ss_sales s
+          |  UNION ALL
+          |  SELECT
+          |    r.item_sk,
+          |    r.cp_catalog_page_id,
+          |    CAST(0 AS DECIMAL(12, 2)) AS sales_price,
+          |    CAST(0 AS DECIMAL(12, 2)) AS profit,
+          |    r.return_amt,
+          |    r.net_loss
+          |  FROM ss_returns r
+          |)
           |SELECT
-          |  f.cp_catalog_page_id,
-          |  SUM(f.sales_price) AS sum_sales_price,
-          |  SUM(f.return_amt) AS sum_return_amt,
-          |  SUM(f.profit) AS sum_profit,
-          |  SUM(f.net_loss) AS sum_net_loss
-          |FROM ss_fact f
+          |  b.cp_catalog_page_id,
+          |  SUM(b.sales_price) AS sum_sales_price,
+          |  SUM(b.return_amt) AS sum_return_amt,
+          |  SUM(b.profit) AS sum_profit,
+          |  SUM(b.net_loss) AS sum_net_loss
+          |FROM base b
           |JOIN ss_dim d
-          |  ON f.item_sk = d.item_sk
-          |GROUP BY f.cp_catalog_page_id
-          |ORDER BY f.cp_catalog_page_id
+          |  ON b.item_sk = d.item_sk
+          |GROUP BY b.cp_catalog_page_id
+          |ORDER BY b.cp_catalog_page_id
           |""".stripMargin
 
       runQueryAndCompare(query) {
