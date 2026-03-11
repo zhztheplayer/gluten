@@ -77,7 +77,20 @@ case class PushJoinAggregate(spark: SparkSession)
         } else {
           val groupingRefAttrs = dedupeAttrs(agg.groupingExpressions.flatMap(referencedAttrsInOrder))
           val joinRefAttrs = dedupeAttrs(join.condition.toSeq.flatMap(referencedAttrsInOrder))
-          val partialGroupingKeys = dedupeAttrs(groupingRefAttrs ++ wrapperRequiredAttrs ++ joinRefAttrs)
+          val nonPushableAggAttrs = dedupeAttrs(agg.aggregateExpressions.flatMap {
+            case Alias(expr, _) if !isPushableExpr(expr) => referencedAttrsInOrder(expr)
+            case expr if !isPushableExpr(expr) => referencedAttrsInOrder(expr)
+            case _ => Nil
+          })
+          val requiredAbovePartial =
+            dedupeAttrs(groupingRefAttrs ++ joinRefAttrs ++ nonPushableAggAttrs)
+          // `wrapperRequiredAttrs` propagated from project/filter extraction can be broader than
+          // what is semantically required above the partial aggregate (e.g. measure inputs like
+          // `ss_sales_price`), which would incorrectly bloat the pushed grouping keys.
+          val requiredWrapperAttrs = wrapperRequiredAttrs.filter {
+            attr => requiredAbovePartial.exists(_.semanticEquals(attr))
+          }
+          val partialGroupingKeys = dedupeAttrs(requiredAbovePartial ++ requiredWrapperAttrs)
           if (partialGroupingKeys.isEmpty) {
             None
           } else {
@@ -143,7 +156,7 @@ case class PushJoinAggregate(spark: SparkSession)
       aggExprs: Seq[NamedExpression],
       child: LogicalPlan): Option[LogicalPlan] = {
     extractJoin(child).flatMap {
-      case (join, wrapperRequiredAttrs, rebuild) =>
+      case (join, _, rebuild) =>
         Seq(JoinLeft, JoinRight).iterator.flatMap {
           side =>
             pushPartialAggToJoinSide(
@@ -151,7 +164,6 @@ case class PushJoinAggregate(spark: SparkSession)
               join,
               groupingExprs,
               aggExprs,
-              wrapperRequiredAttrs,
               rebuild,
               side)
         }.toSeq.headOption
@@ -163,7 +175,6 @@ case class PushJoinAggregate(spark: SparkSession)
       join: Join,
       groupingExprs: Seq[Expression],
       aggExprs: Seq[NamedExpression],
-      wrapperRequiredAttrs: Seq[Attribute],
       rebuild: (Join, Seq[Attribute]) => LogicalPlan,
       side: JoinSide): Option[LogicalPlan] = {
     val wrapperAliases = collectPartialWrapperAliases(aggExprs)
@@ -182,8 +193,6 @@ case class PushJoinAggregate(spark: SparkSession)
     val sideGroupingAttrs = groupingExprs
       .flatMap(referencedAttrsInOrder)
       .collect { case a: Attribute if sideOutputSet.contains(a) => a }
-    val sideWrapperReqAttrs =
-      wrapperRequiredAttrs.collect { case a: Attribute if sideOutputSet.contains(a) => a }
     val sideJoinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
       case EqualTo(l: Attribute, r: Attribute)
           if sideOutputSet.contains(l) && !sideOutputSet.contains(r) =>
@@ -196,8 +205,22 @@ case class PushJoinAggregate(spark: SparkSession)
       .flatMap(referencedAttrsInOrder)
       .collect { case a: Attribute if sideOutputSet.contains(a) => a }
 
+    val sideNonPushableAggAttrs = dedupeAttrs(aggExprs.flatMap {
+      case Alias(expr, _) if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
+        referencedAttrsInOrder(expr).collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
+        }
+      case expr if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
+        referencedAttrsInOrder(expr).collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
+        }
+      case _ => Nil
+    })
+    // Do not use project/filter propagated attrs to build pushed grouping keys.
+    // They can include measure-only attrs (e.g. ss_sales_price) and over-constrain
+    // pre-aggregation. Group only by keys required to preserve join/final semantics.
     val pushedGrouping =
-      dedupeAttrs(sideGroupingAttrs ++ sideWrapperReqAttrs ++ sideJoinKeys ++ sideJoinCondAttrs)
+      dedupeAttrs(sideGroupingAttrs ++ sideJoinKeys ++ sideJoinCondAttrs ++ sideNonPushableAggAttrs)
     if (pushedGrouping.isEmpty) {
       return None
     }
@@ -259,11 +282,17 @@ case class PushJoinAggregate(spark: SparkSession)
               (j: Join, requiredAttrs: Seq[Attribute]) => {
                 val rebuiltChild = rebuild(j, requiredAttrs)
                 val projectOutputSet = AttributeSet(project.projectList.map(_.toAttribute))
+                val requiredAttrSet = AttributeSet(requiredAttrs)
+                val retainedProjectList = project.projectList.filter {
+                  ne => requiredAttrSet.contains(ne.toAttribute)
+                }
                 val passThroughAttrs = requiredAttrs.filter {
                   attr => rebuiltChild.outputSet.contains(attr) && !projectOutputSet.contains(attr)
                 }
+                // Only keep project outputs required by the consumer above this extracted join.
+                // This allows pushdown to replace measure columns with partial-wrapper outputs.
                 project.copy(
-                  projectList = project.projectList ++ dedupeAttrs(passThroughAttrs),
+                  projectList = retainedProjectList ++ dedupeAttrs(passThroughAttrs),
                   child = rebuiltChild
                 )
               }
@@ -302,6 +331,13 @@ case class PushJoinAggregate(spark: SparkSession)
         case AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) => true
         case _ => false
       }
+    }
+  }
+
+  private def containsWrapperAggregateExpr(expr: Expression): Boolean = {
+    expr.exists {
+      case AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) => true
+      case _ => false
     }
   }
 
