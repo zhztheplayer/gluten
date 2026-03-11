@@ -346,18 +346,14 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
 case class PushStarSchemaPreAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan] {
   private val decimalAvgRule = DecimalAggregates
   private val pushRule = PushStarSchemaPreAggregate(spark)
-  private val executor = new RuleExecutor[LogicalPlan] {
-    override protected def batches: Seq[Batch] = {
-      Batch("Decimal AVG rewrite", Once, decimalAvgRule) ::
-        Batch("Push Star Schema Pre-Aggregate", Once, pushRule) :: Nil
-    }
-  }
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     if (!isEnabled) {
       return plan
     }
-    executor.execute(plan)
+    val decimalAvgRewrittenPlan = decimalAvgRule(plan)
+    val pushed = pushRule(decimalAvgRewrittenPlan)
+    pushed
   }
 
   private def isEnabled: Boolean = {
