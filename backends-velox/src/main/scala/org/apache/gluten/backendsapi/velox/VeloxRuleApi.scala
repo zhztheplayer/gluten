@@ -30,7 +30,7 @@ import org.apache.gluten.extension.columnar.transition.{InsertTransitions, Remov
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
 import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
-import org.apache.gluten.extension.staragg.{ExtendedSparkStrategy, PushStarSchemaPreAggregateBatch, UnwrapStarSchemaWrapperAggregate}
+import org.apache.gluten.extension.joinagg.{ExtendedSparkStrategy, PushJoinAggregatePreAggregationBatch, UnwrapJoinAggregateWrapperAggregate}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -66,8 +66,8 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(CollapseGetJsonObjectExpressionRule.apply)
     injector.injectOptimizerRule(RewriteCastFromArray.apply)
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
-    injector.injectOptimizerRule(PushStarSchemaPreAggregateBatch.apply)
-    injector.injectPlannerStrategy(_ => ExtendedSparkStrategy(ExtendedSparkStrategy.templateStrategies().Aggregation, UnwrapStarSchemaWrapperAggregate()))
+    injector.injectOptimizerRule(PushJoinAggregatePreAggregationBatch.apply)
+    injector.injectPlannerStrategy(_ => ExtendedSparkStrategy(ExtendedSparkStrategy.templateStrategies().Aggregation, UnwrapJoinAggregateWrapperAggregate()))
 
     if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {
       injector.injectPlannerStrategy(_ => org.apache.gluten.extension.GlutenJoinKeysCapture())

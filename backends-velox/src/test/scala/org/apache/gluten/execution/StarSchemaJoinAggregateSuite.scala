@@ -23,7 +23,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
-      .set(GlutenConfig.ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES.key, "true")
+      .set(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key, "true")
   }
 
   private val q5TempTables = Seq(
@@ -262,7 +262,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |""".stripMargin)
   }
 
-  test("Star-schema wrapper aggregate") {
+  test("Join-aggregate wrapper aggregate") {
     val query =
       """
         |SELECT
@@ -280,7 +280,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
-  test("Support star-schema wrapper aggregate for simplified TPC-H q12") {
+  test("Support join-aggregate wrapper aggregate for simplified TPC-H q12") {
     val query =
       """
         |SELECT
@@ -314,7 +314,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
-  test("Support star-schema wrapper aggregate for multi-field agg buffer (avg)") {
+  test("Support join-aggregate wrapper aggregate for multi-field agg buffer (avg)") {
     val query =
       """
         |SELECT
@@ -335,7 +335,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
-  test("Support star-schema wrapper aggregate with duplicate decimal sum buffers") {
+  test("Support join-aggregate wrapper aggregate with duplicate decimal sum buffers") {
     val query =
       """
         |SELECT
@@ -653,7 +653,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     runQueryAndCompare(query) {
       df =>
         // Mixed distinct + non-distinct aggregate shape is currently not pushed by the
-        // star-schema pre-aggregate rule.
+        // Join-aggregate pre-aggregate rule.
         checkGlutenPlan[HashAggregateExecTransformer](df)
     }
   }
@@ -703,7 +703,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
-  test("Support star-schema wrapper aggregate for simplified TPC-H q18") {
+  test("Support join-aggregate wrapper aggregate for simplified TPC-H q18") {
     val query =
       """
         |SELECT

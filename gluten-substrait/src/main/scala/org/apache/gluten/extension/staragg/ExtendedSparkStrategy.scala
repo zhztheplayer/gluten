@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.gluten.extension.staragg
+package org.apache.gluten.extension.joinagg
 
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule

@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.staragg.PushStarSchemaPreAggregate
+import org.apache.gluten.extension.joinagg.PushJoinAggregatePreAggregation
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
@@ -28,8 +28,8 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
 
-class PushStarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
-  private val starSchemaRule = PushStarSchemaPreAggregate(spark)
+class PushJoinAggregatePreAggregationSuite extends PlanTest with SharedSparkSession {
+  private val joinAggregateRule = PushJoinAggregatePreAggregation(spark)
   private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
@@ -77,13 +77,13 @@ class PushStarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    withSQLConf(GlutenConfig.ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES.key -> "true") {
+    withSQLConf(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key -> "true") {
       val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
         val df = spark.sql(testCase.inputSql)
         (df.queryExecution.optimizedPlan, df.collect().toSeq.sortBy(_.toString()))
       }
-      val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(starSchemaRule)) {
-        starSchemaRule.resetSuccessfulPushCount()
+      val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(joinAggregateRule)) {
+        joinAggregateRule.resetSuccessfulPushCount()
         val df = spark.sql(testCase.inputSql)
         val withRulePlan = df.queryExecution.optimizedPlan
         val withRuleRows = df.collect().toSeq.sortBy(_.toString())
@@ -101,17 +101,17 @@ class PushStarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
           s"Plan has missing input:\n${nodesWithMissingInput
               .map(_.treeString)
               .mkString("\n---\n")}")
-        assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
+        assert(joinAggregateRule.getSuccessfulPushCount == testCase.expectedPushCount)
         assert(aggregateNodeCount == testCase.expectedAggCount)
         if (debugMode) {
           // scalastyle:off println
-          println("=== Plan Before (without PushStarSchemaPreAggregate) ===")
+          println("=== Plan Before (without PushJoinAggregatePreAggregation) ===")
           println(withoutRulePlan.treeString)
-          println("=== Plan After (with PushStarSchemaPreAggregate) ===")
+          println("=== Plan After (with PushJoinAggregatePreAggregation) ===")
           println(withRulePlan.treeString)
-          println("=== Result Before (without PushStarSchemaPreAggregate) ===")
+          println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
           println(withoutRuleRows.mkString("\n"))
-          println("=== Result After (with PushStarSchemaPreAggregate) ===")
+          println("=== Result After (with PushJoinAggregatePreAggregation) ===")
           println(withRuleRows.mkString("\n"))
           // scalastyle:on println
         }

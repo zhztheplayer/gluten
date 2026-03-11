@@ -909,7 +909,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
-  test("Support star-schema wrapper aggregate in HashAggregateExecTransformer") {
+  test("Support join-aggregate wrapper aggregate in HashAggregateExecTransformer") {
     val query =
       """
         |SELECT

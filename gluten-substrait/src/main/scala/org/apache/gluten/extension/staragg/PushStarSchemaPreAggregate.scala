@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.extension.staragg
+package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.sql.SparkSession
@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 
-case class PushStarSchemaPreAggregate(spark: SparkSession)
+case class PushJoinAggregatePreAggregation(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
   private case class SidePartialSpec(
@@ -87,7 +87,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
   }
 
   private def isEnabled: Boolean = {
-    GlutenConfig.get.enableStarSchemaJoinAggregateRules
+    GlutenConfig.get.enableJoinAggregateRules
   }
 
   private def containsWrapperAggregate(plan: LogicalPlan): Boolean = {
@@ -95,9 +95,9 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
       case Aggregate(_, aggExprs, _) =>
         aggExprs.exists {
           case Alias(ae: AggregateExpression, _) =>
-            ae.aggregateFunction.isInstanceOf[StarSchemaAggregateFunctionWrapper]
+            ae.aggregateFunction.isInstanceOf[JoinAggregateFunctionWrapper]
           case ae: AggregateExpression =>
-            ae.aggregateFunction.isInstanceOf[StarSchemaAggregateFunctionWrapper]
+            ae.aggregateFunction.isInstanceOf[JoinAggregateFunctionWrapper]
           case _ =>
             false
         }
@@ -189,7 +189,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
         val sidePartialAliases = sidePartials.zipWithIndex.map {
           case (spec, idx) =>
             Alias(
-              StarSchemaAggregateFunctionWrapper
+              JoinAggregateFunctionWrapper
                 .wrapperPartial(spec.aggregate, spec.wrapperKey)
                 .toAggregateExpression(),
               s"${side.partialName}_$idx"
@@ -252,7 +252,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
         sidePartials.collectFirst {
           case SidePartialRef(sideSpec, partialAttr)
               if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
-            val wrappedFinal = StarSchemaAggregateFunctionWrapper
+            val wrappedFinal = JoinAggregateFunctionWrapper
               .wrapperFinal(spec.aggregate, partialAttr, spec.wrapperKey)
               .toAggregateExpression()
             if (expr.semanticEquals(spec.originalExpr)) {
@@ -297,7 +297,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
     val candidates = expr.collect {
       case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
         ae.aggregateFunction match {
-          case da: DeclarativeAggregate if !da.isInstanceOf[StarSchemaAggregateFunctionWrapper] =>
+          case da: DeclarativeAggregate if !da.isInstanceOf[JoinAggregateFunctionWrapper] =>
             Some((ae, da))
           case _ => None
         }
@@ -376,9 +376,9 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
   }
 }
 
-case class PushStarSchemaPreAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan] {
+case class PushJoinAggregatePreAggregationBatch(spark: SparkSession) extends Rule[LogicalPlan] {
   private val decimalAvgRule = DecimalAggregates
-  private val pushRule = PushStarSchemaPreAggregate(spark)
+  private val pushRule = PushJoinAggregatePreAggregation(spark)
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     if (!isEnabled) {
@@ -390,6 +390,6 @@ case class PushStarSchemaPreAggregateBatch(spark: SparkSession) extends Rule[Log
   }
 
   private def isEnabled: Boolean = {
-    GlutenConfig.get.enableStarSchemaJoinAggregateRules
+    GlutenConfig.get.enableJoinAggregateRules
   }
 }

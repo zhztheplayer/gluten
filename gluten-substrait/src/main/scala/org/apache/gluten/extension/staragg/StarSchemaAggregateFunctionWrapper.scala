@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.extension.staragg
+package org.apache.gluten.extension.joinagg
 
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, CreateStruct, Expression, GetStructField, Literal}
@@ -23,7 +23,7 @@ import org.apache.spark.sql.types.DataType
 import java.util.Locale
 import scala.collection.mutable
 
-object StarSchemaAggregateFunctionWrapper {
+object JoinAggregateFunctionWrapper {
   sealed trait TargetPhase {
     def sqlName: String
   }
@@ -38,8 +38,8 @@ object StarSchemaAggregateFunctionWrapper {
 
   def wrapperPartial(
       innerAgg: DeclarativeAggregate,
-      wrapperKey: String = "0"): StarSchemaAggregateFunctionWrapper = {
-    StarSchemaAggregateFunctionWrapper(
+      wrapperKey: String = "0"): JoinAggregateFunctionWrapper = {
+    JoinAggregateFunctionWrapper(
       innerAgg = innerAgg,
       targetPhase = PartialPhase,
       inputBuffer = None,
@@ -49,8 +49,8 @@ object StarSchemaAggregateFunctionWrapper {
   def wrapperFinal(
       innerAgg: DeclarativeAggregate,
       inputBuffer: Expression,
-      wrapperKey: String = "0"): StarSchemaAggregateFunctionWrapper = {
-    StarSchemaAggregateFunctionWrapper(
+      wrapperKey: String = "0"): JoinAggregateFunctionWrapper = {
+    JoinAggregateFunctionWrapper(
       innerAgg = innerAgg,
       targetPhase = FinalPhase,
       inputBuffer = Some(inputBuffer),
@@ -76,13 +76,13 @@ object StarSchemaAggregateFunctionWrapper {
   }
 }
 
-case class StarSchemaAggregateFunctionWrapper(
+case class JoinAggregateFunctionWrapper(
     innerAgg: DeclarativeAggregate,
-    targetPhase: StarSchemaAggregateFunctionWrapper.TargetPhase,
+    targetPhase: JoinAggregateFunctionWrapper.TargetPhase,
     inputBuffer: Option[Expression],
     wrapperKey: String = "0")
   extends DeclarativeAggregate {
-  import StarSchemaAggregateFunctionWrapper._
+  import JoinAggregateFunctionWrapper._
 
   private val wrappedBufferAttrs: Seq[AttributeReference] =
     innerAgg.aggBufferAttributes.zipWithIndex.map {
@@ -141,7 +141,7 @@ case class StarSchemaAggregateFunctionWrapper(
         useInputBufferField = false)
   }
 
-  override def nodeName: String = "StarSchemaAggregateWrapper"
+  override def nodeName: String = "JoinAggregateWrapper"
 
   override def prettyName: String =
     s"ss_agg_wrapper_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}"
@@ -166,7 +166,7 @@ case class StarSchemaAggregateFunctionWrapper(
       case FinalPhase =>
         if (newChildren.size != 1) {
           throw new IllegalArgumentException(
-            s"Final StarSchemaAggregateWrapper expects exactly one child, got ${newChildren.size}")
+            s"Final JoinAggregateWrapper expects exactly one child, got ${newChildren.size}")
         }
         copy(inputBuffer = Some(newChildren.head))
     }

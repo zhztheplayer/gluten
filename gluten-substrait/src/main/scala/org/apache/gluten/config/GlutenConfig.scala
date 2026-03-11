@@ -146,8 +146,11 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableCountDistinctWithoutExpand: Boolean =
     getConf(ENABLE_COUNT_DISTINCT_WITHOUT_EXPAND)
 
-  def enableStarSchemaJoinAggregateRules: Boolean =
-    getConf(ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES)
+  def enableJoinAggregateRules: Boolean =
+    getConf(ENABLE_JOIN_AGGREGATE_RULES) || getConf(ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES)
+
+  // Backward-compatible alias for legacy naming.
+  def enableStarSchemaJoinAggregateRules: Boolean = enableJoinAggregateRules
 
   def enableColumnarCudf: Boolean = getConf(COLUMNAR_CUDF_ENABLED)
 
@@ -716,10 +719,19 @@ object GlutenConfig extends ConfigRegistry {
       .stringConf
       .createWithDefault("and,or");
 
+  val ENABLE_JOIN_AGGREGATE_RULES =
+    buildConf("spark.gluten.sql.enableJoinAggregateRules")
+      .doc(
+        "Whether to enable join aggregate optimization rules " +
+          "(logical push + physical unwrap).")
+      .booleanConf
+      .createWithDefault(false)
+
+  // Backward-compatible alias for legacy naming.
   val ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES =
     buildConf("spark.gluten.sql.enableStarSchemaJoinAggregateRules")
       .doc(
-        "Whether to enable star-schema join aggregate optimization rules " +
+        "Whether to enable join aggregate optimization rules " +
           "(logical push + physical unwrap).")
       .booleanConf
       .createWithDefault(false)

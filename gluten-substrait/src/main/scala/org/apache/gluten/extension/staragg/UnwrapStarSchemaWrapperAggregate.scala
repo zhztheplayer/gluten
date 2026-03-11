@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.gluten.extension.staragg
+package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateMode, Complete, Final, Partial, PartialMerge}
@@ -28,8 +28,8 @@ import org.apache.spark.sql.types.{DataType, StructType}
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, Queue}
 
-case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
-  import StarSchemaAggregateFunctionWrapper._
+case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
+  import JoinAggregateFunctionWrapper._
   override def apply(plan: SparkPlan): SparkPlan = {
     if (!isEnabled) {
       return plan
@@ -41,14 +41,14 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
   }
 
   private def isEnabled: Boolean = {
-    GlutenConfig.get.enableStarSchemaJoinAggregateRules
+    GlutenConfig.get.enableJoinAggregateRules
   }
 
   private def hasWrapper(agg: HashAggregateExec): Boolean = {
     agg.aggregateExpressions.exists {
       ae =>
         ae.aggregateFunction match {
-          case _: StarSchemaAggregateFunctionWrapper => true
+          case _: JoinAggregateFunctionWrapper => true
           case _ => false
         }
     }
@@ -61,7 +61,7 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
     val rewrittenAggExprs = agg.aggregateExpressions.map {
       ae =>
         ae.aggregateFunction match {
-          case w: StarSchemaAggregateFunctionWrapper =>
+          case w: JoinAggregateFunctionWrapper =>
             val rewrittenMode = semanticMode(ae.mode, w.targetPhase)
             val rewritten = ae.copy(aggregateFunction = w.innerAgg, mode = rewrittenMode)
             if (isWrapperB(ae.mode, w.targetPhase)) {
@@ -165,7 +165,7 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
           rewrittenAgg.aggregateAttributes.slice(rewrittenCursor, rewrittenCursor + rewrittenCount)
 
         originalAe.aggregateFunction match {
-          case w: StarSchemaAggregateFunctionWrapper
+          case w: JoinAggregateFunctionWrapper
             if isWrapperB(originalAe.mode, w.targetPhase) && originalSlice.nonEmpty =>
             val payloadExpr: Expression = originalSlice.head.dataType match {
               case st: StructType if st.fields.length == rewrittenSlice.length =>
@@ -178,11 +178,11 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
             }
             mappings += originalSlice.head -> payloadExpr
             mappings += originalAe.resultAttribute -> payloadExpr
-          case w: StarSchemaAggregateFunctionWrapper
+          case w: JoinAggregateFunctionWrapper
             if isWrapperD(originalAe.mode, w.targetPhase) =>
             mappings ++= originalSlice.zip(rewrittenSlice)
             mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
-          case _: StarSchemaAggregateFunctionWrapper =>
+          case _: JoinAggregateFunctionWrapper =>
             mappings ++= originalSlice.zip(rewrittenSlice)
             mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
           case _ =>
@@ -336,12 +336,12 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
     // 1) Wrapper-B (Final + PartialPhase): drop distribution so B can consume A directly.
     // 2) Wrapper-C (Partial + FinalPhase): require hash on grouping keys so C aligns with D.
     val hasWrapperBExpr = agg.aggregateExpressions.exists {
-      case AggregateExpression(w: StarSchemaAggregateFunctionWrapper, mode, _, _, _) =>
+      case AggregateExpression(w: JoinAggregateFunctionWrapper, mode, _, _, _) =>
         isWrapperB(mode, w.targetPhase)
       case _ => false
     }
     val hasWrapperCExpr = agg.aggregateExpressions.exists {
-      case AggregateExpression(w: StarSchemaAggregateFunctionWrapper, mode, _, _, _) =>
+      case AggregateExpression(w: JoinAggregateFunctionWrapper, mode, _, _, _) =>
         isWrapperC(mode, w.targetPhase)
       case _ => false
     }
