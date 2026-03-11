@@ -25,6 +25,152 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
   }
 
+  private val q5TempTables = Seq(
+    "store_sales",
+    "store_returns",
+    "catalog_sales",
+    "catalog_returns",
+    "web_sales",
+    "web_returns",
+    "date_dim",
+    "store",
+    "catalog_page",
+    "web_site")
+
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+    createQ5MiniTables()
+  }
+
+  override def afterAll(): Unit = {
+    q5TempTables.foreach {
+      t =>
+        if (spark.catalog.tableExists(t)) {
+          spark.catalog.dropTempView(t)
+        }
+    }
+    super.afterAll()
+  }
+
+  private def createQ5MiniTables(): Unit = {
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW date_dim AS
+                |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk, CAST(d_date AS DATE) AS d_date
+                |FROM VALUES
+                |  (1, DATE'1998-08-05'),
+                |  (2, DATE'1998-08-06'),
+                |  (3, DATE'1998-08-07')
+                |AS t(d_date_sk, d_date)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW store AS
+                |SELECT CAST(s_store_sk AS BIGINT) AS s_store_sk,
+                |       CAST(s_store_id AS STRING) AS s_store_id
+                |FROM VALUES
+                |  (10, 'S10'),
+                |  (20, 'S20')
+                |AS t(s_store_sk, s_store_id)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW catalog_page AS
+                |SELECT CAST(cp_catalog_page_sk AS BIGINT) AS cp_catalog_page_sk,
+                |       CAST(cp_catalog_page_id AS STRING) AS cp_catalog_page_id
+                |FROM VALUES
+                |  (100, 'CP100'),
+                |  (200, 'CP200')
+                |AS t(cp_catalog_page_sk, cp_catalog_page_id)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW web_site AS
+                |SELECT CAST(web_site_sk AS BIGINT) AS web_site_sk,
+                |       CAST(web_site_id AS STRING) AS web_site_id
+                |FROM VALUES
+                |  (1000, 'W1000'),
+                |  (2000, 'W2000')
+                |AS t(web_site_sk, web_site_id)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW store_sales AS
+                |SELECT CAST(ss_store_sk AS BIGINT) AS ss_store_sk,
+                |       CAST(ss_sold_date_sk AS BIGINT) AS ss_sold_date_sk,
+                |       CAST(ss_ext_sales_price AS DECIMAL(7,2)) AS ss_ext_sales_price,
+                |       CAST(ss_net_profit AS DECIMAL(7,2)) AS ss_net_profit
+                |FROM VALUES
+                |  (10, 1, 11.00, 3.00),
+                |  (20, 2, 12.00, 4.00)
+                |AS t(ss_store_sk, ss_sold_date_sk, ss_ext_sales_price, ss_net_profit)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW store_returns AS
+                |SELECT CAST(sr_store_sk AS BIGINT) AS sr_store_sk,
+                |       CAST(sr_returned_date_sk AS BIGINT) AS sr_returned_date_sk,
+                |       CAST(sr_return_amt AS DECIMAL(7,2)) AS sr_return_amt,
+                |       CAST(sr_net_loss AS DECIMAL(7,2)) AS sr_net_loss
+                |FROM VALUES
+                |  (10, 1, 1.00, 0.50),
+                |  (20, 2, 2.00, 0.25)
+                |AS t(sr_store_sk, sr_returned_date_sk, sr_return_amt, sr_net_loss)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW catalog_sales AS
+                |SELECT CAST(cs_catalog_page_sk AS BIGINT) AS cs_catalog_page_sk,
+                |       CAST(cs_sold_date_sk AS BIGINT) AS cs_sold_date_sk,
+                |       CAST(cs_ext_sales_price AS DECIMAL(7,2)) AS cs_ext_sales_price,
+                |       CAST(cs_net_profit AS DECIMAL(7,2)) AS cs_net_profit
+                |FROM VALUES
+                |  (100, 1, 21.00, 5.00),
+                |  (200, 2, 22.00, 6.00)
+                |AS t(cs_catalog_page_sk, cs_sold_date_sk, cs_ext_sales_price, cs_net_profit)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW catalog_returns AS
+                |SELECT CAST(cr_catalog_page_sk AS BIGINT) AS cr_catalog_page_sk,
+                |       CAST(cr_returned_date_sk AS BIGINT) AS cr_returned_date_sk,
+                |       CAST(cr_return_amount AS DECIMAL(7,2)) AS cr_return_amount,
+                |       CAST(cr_net_loss AS DECIMAL(7,2)) AS cr_net_loss
+                |FROM VALUES
+                |  (100, 1, 1.50, 0.30),
+                |  (200, 2, 0.50, 0.10)
+                |AS t(cr_catalog_page_sk, cr_returned_date_sk, cr_return_amount, cr_net_loss)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW web_sales AS
+                |SELECT CAST(ws_web_site_sk AS BIGINT) AS ws_web_site_sk,
+                |       CAST(ws_sold_date_sk AS BIGINT) AS ws_sold_date_sk,
+                |       CAST(ws_ext_sales_price AS DECIMAL(7,2)) AS ws_ext_sales_price,
+                |       CAST(ws_net_profit AS DECIMAL(7,2)) AS ws_net_profit,
+                |       CAST(ws_item_sk AS BIGINT) AS ws_item_sk,
+                |       CAST(ws_order_number AS BIGINT) AS ws_order_number
+                |FROM VALUES
+                |  (1000, 1, 31.00, 7.00, 500, 9000),
+                |  (2000, 2, 32.00, 8.00, 600, 9001)
+                |AS t(
+                |  ws_web_site_sk, ws_sold_date_sk, ws_ext_sales_price,
+                |  ws_net_profit, ws_item_sk, ws_order_number)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW web_returns AS
+                |SELECT CAST(wr_returned_date_sk AS BIGINT) AS wr_returned_date_sk,
+                |       CAST(wr_return_amt AS DECIMAL(7,2)) AS wr_return_amt,
+                |       CAST(wr_net_loss AS DECIMAL(7,2)) AS wr_net_loss,
+                |       CAST(wr_item_sk AS BIGINT) AS wr_item_sk,
+                |       CAST(wr_order_number AS BIGINT) AS wr_order_number
+                |FROM VALUES
+                |  (1, 2.00, 0.60, 500, 9000),
+                |  (2, 3.00, 0.40, 600, 9001)
+                |AS t(wr_returned_date_sk, wr_return_amt, wr_net_loss, wr_item_sk, wr_order_number)
+                |""".stripMargin)
+  }
+
   test("star-schema wrapper aggregate") {
     val query =
       """
@@ -169,6 +315,143 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
             checkGlutenPlan[HashAggregateExecTransformer](df)
         }
       }
+    }
+  }
+
+  test("Support full TPC-DS q5 shape") {
+    val query =
+      """
+        |with ssr as
+        | (select s_store_id,
+        |        sum(sales_price) as sales,
+        |        sum(profit) as profit,
+        |        sum(return_amt) as returns,
+        |        sum(net_loss) as profit_loss
+        | from
+        |  ( select  ss_store_sk as store_sk,
+        |            ss_sold_date_sk  as date_sk,
+        |            ss_ext_sales_price as sales_price,
+        |            ss_net_profit as profit,
+        |            cast(0 as decimal(7,2)) as return_amt,
+        |            cast(0 as decimal(7,2)) as net_loss
+        |    from store_sales
+        |    union all
+        |    select sr_store_sk as store_sk,
+        |           sr_returned_date_sk as date_sk,
+        |           cast(0 as decimal(7,2)) as sales_price,
+        |           cast(0 as decimal(7,2)) as profit,
+        |           sr_return_amt as return_amt,
+        |           sr_net_loss as net_loss
+        |    from store_returns
+        |   ) salesreturns,
+        |     date_dim,
+        |     store
+        | where date_sk = d_date_sk
+        |       and d_date between cast('1998-08-04' as date)
+        |                  and (cast('1998-08-04' as date) + interval '14' day)
+        |       and store_sk = s_store_sk
+        | group by s_store_id)
+        | ,
+        | csr as
+        | (select cp_catalog_page_id,
+        |        sum(sales_price) as sales,
+        |        sum(profit) as profit,
+        |        sum(return_amt) as returns,
+        |        sum(net_loss) as profit_loss
+        | from
+        |  ( select  cs_catalog_page_sk as page_sk,
+        |            cs_sold_date_sk  as date_sk,
+        |            cs_ext_sales_price as sales_price,
+        |            cs_net_profit as profit,
+        |            cast(0 as decimal(7,2)) as return_amt,
+        |            cast(0 as decimal(7,2)) as net_loss
+        |    from catalog_sales
+        |    union all
+        |    select cr_catalog_page_sk as page_sk,
+        |           cr_returned_date_sk as date_sk,
+        |           cast(0 as decimal(7,2)) as sales_price,
+        |           cast(0 as decimal(7,2)) as profit,
+        |           cr_return_amount as return_amt,
+        |           cr_net_loss as net_loss
+        |    from catalog_returns
+        |   ) salesreturns,
+        |     date_dim,
+        |     catalog_page
+        | where date_sk = d_date_sk
+        |       and d_date between cast('1998-08-04' as date)
+        |                  and (cast('1998-08-04' as date) + interval '14' day)
+        |       and page_sk = cp_catalog_page_sk
+        | group by cp_catalog_page_id)
+        | ,
+        | wsr as
+        | (select web_site_id,
+        |        sum(sales_price) as sales,
+        |        sum(profit) as profit,
+        |        sum(return_amt) as returns,
+        |        sum(net_loss) as profit_loss
+        | from
+        |  ( select  ws_web_site_sk as wsr_web_site_sk,
+        |            ws_sold_date_sk  as date_sk,
+        |            ws_ext_sales_price as sales_price,
+        |            ws_net_profit as profit,
+        |            cast(0 as decimal(7,2)) as return_amt,
+        |            cast(0 as decimal(7,2)) as net_loss
+        |    from web_sales
+        |    union all
+        |    select ws_web_site_sk as wsr_web_site_sk,
+        |           wr_returned_date_sk as date_sk,
+        |           cast(0 as decimal(7,2)) as sales_price,
+        |           cast(0 as decimal(7,2)) as profit,
+        |           wr_return_amt as return_amt,
+        |           wr_net_loss as net_loss
+        |    from web_returns left outer join web_sales on
+        |         ( wr_item_sk = ws_item_sk
+        |           and wr_order_number = ws_order_number)
+        |   ) salesreturns,
+        |     date_dim,
+        |     web_site
+        | where date_sk = d_date_sk
+        |       and d_date between cast('1998-08-04' as date)
+        |                  and (cast('1998-08-04' as date) + interval '14' day)
+        |       and wsr_web_site_sk = web_site_sk
+        | group by web_site_id)
+        |  select  channel
+        |        , id
+        |        , sum(sales) as sales
+        |        , sum(returns) as returns
+        |        , sum(profit) as profit
+        | from
+        | (select 'store channel' as channel
+        |        , 'store' || s_store_id as id
+        |        , sales
+        |        , returns
+        |        , (profit - profit_loss) as profit
+        | from   ssr
+        | union all
+        | select 'catalog channel' as channel
+        |        , 'catalog_page' || cp_catalog_page_id as id
+        |        , sales
+        |        , returns
+        |        , (profit - profit_loss) as profit
+        | from  csr
+        | union all
+        | select 'web channel' as channel
+        |        , 'web_site' || web_site_id as id
+        |        , sales
+        |        , returns
+        |        , (profit - profit_loss) as profit
+        | from   wsr
+        | ) x
+        | group by rollup (channel, id)
+        | order by channel
+        |         ,id
+        | LIMIT 100
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
     }
   }
 
