@@ -36,6 +36,8 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     "date_dim",
     "store",
     "catalog_page",
+    "customer_address",
+    "call_center",
     "web_site",
     "item",
     "promotion",
@@ -66,7 +68,9 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |FROM VALUES
                 |  (1, DATE'1998-08-05', 1998),
                 |  (2, DATE'1998-08-06', 1998),
-                |  (3, DATE'1998-08-07', 1998)
+                |  (3, DATE'1998-08-07', 1998),
+                |  (10, DATE'1999-02-10', 1999),
+                |  (11, DATE'1999-03-01', 1999)
                 |AS t(d_date_sk, d_date, d_year)
                 |""".stripMargin)
 
@@ -173,11 +177,23 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |SELECT CAST(cs_catalog_page_sk AS BIGINT) AS cs_catalog_page_sk,
                 |       CAST(cs_sold_date_sk AS BIGINT) AS cs_sold_date_sk,
                 |       CAST(cs_ext_sales_price AS DECIMAL(7,2)) AS cs_ext_sales_price,
-                |       CAST(cs_net_profit AS DECIMAL(7,2)) AS cs_net_profit
+                |       CAST(cs_net_profit AS DECIMAL(7,2)) AS cs_net_profit,
+                |       CAST(cs_order_number AS BIGINT) AS cs_order_number,
+                |       CAST(cs_ext_ship_cost AS DECIMAL(7,2)) AS cs_ext_ship_cost,
+                |       CAST(cs_ship_date_sk AS BIGINT) AS cs_ship_date_sk,
+                |       CAST(cs_ship_addr_sk AS BIGINT) AS cs_ship_addr_sk,
+                |       CAST(cs_call_center_sk AS BIGINT) AS cs_call_center_sk,
+                |       CAST(cs_warehouse_sk AS BIGINT) AS cs_warehouse_sk
                 |FROM VALUES
-                |  (100, 1, 21.00, 5.00),
-                |  (200, 2, 22.00, 6.00)
-                |AS t(cs_catalog_page_sk, cs_sold_date_sk, cs_ext_sales_price, cs_net_profit)
+                |  (100, 1, 21.00, 5.00, 4001, 2.00, 1, 9001, 7001, 1),
+                |  (200, 2, 22.00, 6.00, 4002, 3.00, 2, 9002, 7002, 1),
+                |  (100, 10, 30.00, 2.00, 5001, 5.00, 10, 9001, 7001, 1),
+                |  (200, 10, 35.00, 1.50, 5001, 3.00, 10, 9001, 7001, 2),
+                |  (100, 10, 40.00, 1.00, 5002, 4.00, 10, 9001, 7001, 1)
+                |AS t(
+                |  cs_catalog_page_sk, cs_sold_date_sk, cs_ext_sales_price, cs_net_profit,
+                |  cs_order_number, cs_ext_ship_cost, cs_ship_date_sk, cs_ship_addr_sk,
+                |  cs_call_center_sk, cs_warehouse_sk)
                 |""".stripMargin)
 
     spark.sql("""
@@ -185,11 +201,35 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |SELECT CAST(cr_catalog_page_sk AS BIGINT) AS cr_catalog_page_sk,
                 |       CAST(cr_returned_date_sk AS BIGINT) AS cr_returned_date_sk,
                 |       CAST(cr_return_amount AS DECIMAL(7,2)) AS cr_return_amount,
-                |       CAST(cr_net_loss AS DECIMAL(7,2)) AS cr_net_loss
+                |       CAST(cr_net_loss AS DECIMAL(7,2)) AS cr_net_loss,
+                |       CAST(cr_order_number AS BIGINT) AS cr_order_number
                 |FROM VALUES
-                |  (100, 1, 1.50, 0.30),
-                |  (200, 2, 0.50, 0.10)
-                |AS t(cr_catalog_page_sk, cr_returned_date_sk, cr_return_amount, cr_net_loss)
+                |  (100, 1, 1.50, 0.30, 3001),
+                |  (200, 2, 0.50, 0.10, 3002),
+                |  (100, 10, 1.00, 0.10, 5002)
+                |AS t(
+                |  cr_catalog_page_sk, cr_returned_date_sk, cr_return_amount, cr_net_loss,
+                |  cr_order_number)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW customer_address AS
+                |SELECT CAST(ca_address_sk AS BIGINT) AS ca_address_sk,
+                |       CAST(ca_state AS STRING) AS ca_state
+                |FROM VALUES
+                |  (9001, 'IL'),
+                |  (9002, 'CA')
+                |AS t(ca_address_sk, ca_state)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW call_center AS
+                |SELECT CAST(cc_call_center_sk AS BIGINT) AS cc_call_center_sk,
+                |       CAST(cc_county AS STRING) AS cc_county
+                |FROM VALUES
+                |  (7001, 'Williamson County'),
+                |  (7002, 'Other County')
+                |AS t(cc_call_center_sk, cc_county)
                 |""".stripMargin)
 
     spark.sql("""
@@ -575,6 +615,45 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
           assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
           checkGlutenPlan[HashAggregateExecTransformer](df)
       }
+    }
+  }
+
+  test("Support simplified TPC-DS q16 shape") {
+    val query =
+      """
+        |select
+        |   count(distinct cs_order_number) as `order count`
+        |  ,sum(cs_ext_ship_cost) as `total shipping cost`
+        |  ,sum(cs_net_profit) as `total net profit`
+        |from
+        |   catalog_sales cs1
+        |  ,date_dim
+        |  ,customer_address
+        |  ,call_center
+        |where
+        |    d_date between '1999-2-01' and
+        |           (cast('1999-2-01' as date) + interval '60' day)
+        |and cs1.cs_ship_date_sk = d_date_sk
+        |and cs1.cs_ship_addr_sk = ca_address_sk
+        |and ca_state = 'IL'
+        |and cs1.cs_call_center_sk = cc_call_center_sk
+        |and cc_county in ('Williamson County','Williamson County','Williamson County',
+        |                  'Williamson County','Williamson County')
+        |and exists (select *
+        |            from catalog_sales cs2
+        |            where cs1.cs_order_number = cs2.cs_order_number
+        |              and cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+        |and not exists(select *
+        |               from catalog_returns cr1
+        |               where cs1.cs_order_number = cr1.cr_order_number)
+        |order by count(distinct cs_order_number)
+        |limit 100
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
     }
   }
 
