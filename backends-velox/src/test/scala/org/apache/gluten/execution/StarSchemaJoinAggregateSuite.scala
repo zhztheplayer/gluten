@@ -66,14 +66,20 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |CREATE OR REPLACE TEMP VIEW date_dim AS
                 |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk,
                 |       CAST(d_date AS DATE) AS d_date,
-                |       CAST(d_year AS INT) AS d_year
+                |       CAST(d_year AS INT) AS d_year,
+                |       CAST(d_week_seq AS INT) AS d_week_seq,
+                |       CAST(d_day_name AS STRING) AS d_day_name
                 |FROM VALUES
-                |  (1, DATE'1998-08-05', 1998),
-                |  (2, DATE'1998-08-06', 1998),
-                |  (3, DATE'1998-08-07', 1998),
-                |  (10, DATE'1999-02-10', 1999),
-                |  (11, DATE'1999-03-01', 1999)
-                |AS t(d_date_sk, d_date, d_year)
+                |  (1, DATE'1998-08-05', 1998, 10, 'Wednesday'),
+                |  (2, DATE'1998-08-06', 1998, 10, 'Thursday'),
+                |  (3, DATE'1998-08-07', 1998, 10, 'Friday'),
+                |  (10, DATE'1999-02-10', 1999, 40, 'Wednesday'),
+                |  (11, DATE'1999-03-01', 1999, 43, 'Monday'),
+                |  (1001, DATE'2001-01-07', 2001, 1, 'Sunday'),
+                |  (1002, DATE'2001-01-08', 2001, 1, 'Monday'),
+                |  (1054, DATE'2002-01-13', 2002, 54, 'Sunday'),
+                |  (1055, DATE'2002-01-14', 2002, 54, 'Monday')
+                |AS t(d_date_sk, d_date, d_year, d_week_seq, d_day_name)
                 |""".stripMargin)
 
     spark.sql("""
@@ -191,7 +197,9 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |  (200, 2, 22.00, 6.00, 4002, 3.00, 2, 9002, 7002, 1),
                 |  (100, 10, 30.00, 2.00, 5001, 5.00, 10, 9001, 7001, 1),
                 |  (200, 10, 35.00, 1.50, 5001, 3.00, 10, 9001, 7001, 2),
-                |  (100, 10, 40.00, 1.00, 5002, 4.00, 10, 9001, 7001, 1)
+                |  (100, 10, 40.00, 1.00, 5002, 4.00, 10, 9001, 7001, 1),
+                |  (100, 1001, 50.00, 3.00, 6001, 2.00, 1001, 9001, 7001, 1),
+                |  (100, 1054, 70.00, 4.00, 6002, 2.00, 1054, 9001, 7001, 1)
                 |AS t(
                 |  cs_catalog_page_sk, cs_sold_date_sk, cs_ext_sales_price, cs_net_profit,
                 |  cs_order_number, cs_ext_ship_cost, cs_ship_date_sk, cs_ship_addr_sk,
@@ -244,7 +252,9 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |       CAST(ws_order_number AS BIGINT) AS ws_order_number
                 |FROM VALUES
                 |  (1000, 1, 31.00, 7.00, 500, 9000),
-                |  (2000, 2, 32.00, 8.00, 600, 9001)
+                |  (2000, 2, 32.00, 8.00, 600, 9001),
+                |  (1000, 1002, 40.00, 5.00, 700, 9100),
+                |  (1000, 1055, 80.00, 6.00, 701, 9101)
                 |AS t(
                 |  ws_web_site_sk, ws_sold_date_sk, ws_ext_sales_price,
                 |  ws_net_profit, ws_item_sk, ws_order_number)
@@ -737,6 +747,74 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         df =>
           checkGlutenPlan[HashAggregateExecTransformer](df)
       }
+    }
+  }
+
+  test("Support simplified TPC-DS q2 shape") {
+    val query =
+      """
+        |with wscs as
+        | (select sold_date_sk
+        |        ,sales_price
+        |  from (select ws_sold_date_sk sold_date_sk
+        |              ,ws_ext_sales_price sales_price
+        |        from web_sales
+        |        union all
+        |        select cs_sold_date_sk sold_date_sk
+        |              ,cs_ext_sales_price sales_price
+        |        from catalog_sales)),
+        | wswscs as
+        | (select d_week_seq,
+        |        sum(case when (d_day_name='Sunday') then sales_price else null end) sun_sales,
+        |        sum(case when (d_day_name='Monday') then sales_price else null end) mon_sales,
+        |        sum(case when (d_day_name='Tuesday') then sales_price else  null end) tue_sales,
+        |        sum(case when (d_day_name='Wednesday') then sales_price else null end) wed_sales,
+        |        sum(case when (d_day_name='Thursday') then sales_price else null end) thu_sales,
+        |        sum(case when (d_day_name='Friday') then sales_price else null end) fri_sales,
+        |        sum(case when (d_day_name='Saturday') then sales_price else null end) sat_sales
+        | from wscs
+        |     ,date_dim
+        | where d_date_sk = sold_date_sk
+        | group by d_week_seq)
+        | select d_week_seq1
+        |       ,round(sun_sales1/sun_sales2,2)
+        |       ,round(mon_sales1/mon_sales2,2)
+        |       ,round(tue_sales1/tue_sales2,2)
+        |       ,round(wed_sales1/wed_sales2,2)
+        |       ,round(thu_sales1/thu_sales2,2)
+        |       ,round(fri_sales1/fri_sales2,2)
+        |       ,round(sat_sales1/sat_sales2,2)
+        | from
+        | (select wswscs.d_week_seq d_week_seq1
+        |        ,sun_sales sun_sales1
+        |        ,mon_sales mon_sales1
+        |        ,tue_sales tue_sales1
+        |        ,wed_sales wed_sales1
+        |        ,thu_sales thu_sales1
+        |        ,fri_sales fri_sales1
+        |        ,sat_sales sat_sales1
+        |  from wswscs,date_dim
+        |  where date_dim.d_week_seq = wswscs.d_week_seq and
+        |        d_year = 2001) y,
+        | (select wswscs.d_week_seq d_week_seq2
+        |        ,sun_sales sun_sales2
+        |        ,mon_sales mon_sales2
+        |        ,tue_sales tue_sales2
+        |        ,wed_sales wed_sales2
+        |        ,thu_sales thu_sales2
+        |        ,fri_sales fri_sales2
+        |        ,sat_sales sat_sales2
+        |  from wswscs
+        |      ,date_dim
+        |  where date_dim.d_week_seq = wswscs.d_week_seq and
+        |        d_year = 2001+1) z
+        | where d_week_seq1=d_week_seq2-53
+        | order by d_week_seq1
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        checkGlutenPlan[HashAggregateExecTransformer](df)
     }
   }
 
