@@ -16,12 +16,15 @@
  */
 package org.apache.gluten.extension
 
+import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.internal.SQLConf
 
 case class PushStarSchemaPreAggregate(spark: SparkSession)
   extends Rule[LogicalPlan]
@@ -44,6 +47,9 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
   def getSuccessfulPushCount: Int = successfulPushCount
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
+    if (!isEnabled) {
+      return plan
+    }
     if (successfulPushCount > 0 || containsWrapperAggregate(plan)) {
       return plan
     }
@@ -76,6 +82,10 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
           }
           .getOrElse(agg)
     }
+  }
+
+  private def isEnabled: Boolean = {
+    new GlutenConfig(SQLConf.get).enableStarSchemaJoinAggregateRules
   }
 
   private def containsWrapperAggregate(plan: LogicalPlan): Boolean = {

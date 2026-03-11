@@ -23,6 +23,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
+      .set(GlutenConfig.ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES.key, "true")
   }
 
   private val q5TempTables = Seq(

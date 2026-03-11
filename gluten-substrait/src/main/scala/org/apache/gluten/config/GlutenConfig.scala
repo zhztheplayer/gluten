@@ -146,6 +146,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def enableCountDistinctWithoutExpand: Boolean =
     getConf(ENABLE_COUNT_DISTINCT_WITHOUT_EXPAND)
 
+  def enableStarSchemaJoinAggregateRules: Boolean =
+    getConf(ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES)
+
   def enableColumnarCudf: Boolean = getConf(COLUMNAR_CUDF_ENABLED)
 
   def enableExtendedColumnPruning: Boolean =
@@ -712,6 +715,14 @@ object GlutenConfig extends ConfigRegistry {
       .doc("Flatten nested functions as one for optimization.")
       .stringConf
       .createWithDefault("and,or");
+
+  val ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES =
+    buildConf("spark.gluten.sql.enableStarSchemaJoinAggregateRules")
+      .doc(
+        "Whether to enable star-schema join aggregate optimization rules " +
+          "(logical push + physical unwrap).")
+      .booleanConf
+      .createWithDefault(false)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")

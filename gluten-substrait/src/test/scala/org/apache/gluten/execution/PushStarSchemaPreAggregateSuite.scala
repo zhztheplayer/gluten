@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.PushStarSchemaPreAggregate
 
 import org.apache.spark.sql.Row
@@ -76,44 +77,46 @@ class PushStarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
-      val df = spark.sql(testCase.inputSql)
-      (df.queryExecution.optimizedPlan, df.collect().toSeq.sortBy(_.toString()))
-    }
-    val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(starSchemaRule)) {
-      starSchemaRule.resetSuccessfulPushCount()
-      val df = spark.sql(testCase.inputSql)
-      val withRulePlan = df.queryExecution.optimizedPlan
-      val withRuleRows = df.collect().toSeq.sortBy(_.toString())
-      val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
-      val nodesWithMissingInput = withRulePlan.collect {
-        case p if p.missingInput.nonEmpty => p
+    withSQLConf(GlutenConfig.ENABLE_STAR_SCHEMA_JOIN_AGGREGATE_RULES.key -> "true") {
+      val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
+        val df = spark.sql(testCase.inputSql)
+        (df.queryExecution.optimizedPlan, df.collect().toSeq.sortBy(_.toString()))
       }
+      val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(starSchemaRule)) {
+        starSchemaRule.resetSuccessfulPushCount()
+        val df = spark.sql(testCase.inputSql)
+        val withRulePlan = df.queryExecution.optimizedPlan
+        val withRuleRows = df.collect().toSeq.sortBy(_.toString())
+        val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
+        val nodesWithMissingInput = withRulePlan.collect {
+          case p if p.missingInput.nonEmpty => p
+        }
 
-      assert(
-        withRulePlan.resolved,
-        s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
-          s"MissingInput=${withRulePlan.missingInput}")
-      assert(
-        nodesWithMissingInput.isEmpty,
-        s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
-      assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
-      assert(aggregateNodeCount == testCase.expectedAggCount)
-      if (debugMode) {
-        // scalastyle:off println
-        println("=== Plan Before (without PushStarSchemaPreAggregate) ===")
-        println(withoutRulePlan.treeString)
-        println("=== Plan After (with PushStarSchemaPreAggregate) ===")
-        println(withRulePlan.treeString)
-        println("=== Result Before (without PushStarSchemaPreAggregate) ===")
-        println(withoutRuleRows.mkString("\n"))
-        println("=== Result After (with PushStarSchemaPreAggregate) ===")
-        println(withRuleRows.mkString("\n"))
-        // scalastyle:on println
+        assert(
+          withRulePlan.resolved,
+          s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
+            s"MissingInput=${withRulePlan.missingInput}")
+        assert(
+          nodesWithMissingInput.isEmpty,
+          s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString).mkString("\n---\n")}")
+        assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
+        assert(aggregateNodeCount == testCase.expectedAggCount)
+        if (debugMode) {
+          // scalastyle:off println
+          println("=== Plan Before (without PushStarSchemaPreAggregate) ===")
+          println(withoutRulePlan.treeString)
+          println("=== Plan After (with PushStarSchemaPreAggregate) ===")
+          println(withRulePlan.treeString)
+          println("=== Result Before (without PushStarSchemaPreAggregate) ===")
+          println(withoutRuleRows.mkString("\n"))
+          println("=== Result After (with PushStarSchemaPreAggregate) ===")
+          println(withRuleRows.mkString("\n"))
+          // scalastyle:on println
+        }
+        (withRulePlan, withRuleRows)
       }
-      (withRulePlan, withRuleRows)
+      assertRowsEqual(withRuleRows, withoutRuleRows)
     }
-    assertRowsEqual(withRuleRows, withoutRuleRows)
   }
 
   private def assertRowsEqual(left: Seq[Row], right: Seq[Row]): Unit = {

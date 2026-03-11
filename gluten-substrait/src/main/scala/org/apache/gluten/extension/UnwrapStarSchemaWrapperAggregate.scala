@@ -16,12 +16,15 @@
  */
 package org.apache.gluten.extension
 
+import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{DataType, StructType}
 
 import scala.collection.mutable
@@ -33,10 +36,17 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
   import StarSchemaAggregateWrapper._
 
   override def apply(plan: SparkPlan): SparkPlan = {
+    if (!isEnabled) {
+      return plan
+    }
     plan.transformUp {
       case agg: HashAggregateExec if hasWrapper(agg) =>
         rewriteHashAggregate(agg)
     }
+  }
+
+  private def isEnabled: Boolean = {
+    new GlutenConfig(SQLConf.get).enableStarSchemaJoinAggregateRules
   }
 
   private def hasWrapper(agg: HashAggregateExec): Boolean = {
