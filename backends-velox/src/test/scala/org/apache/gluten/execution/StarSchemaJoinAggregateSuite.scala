@@ -35,7 +35,10 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     "date_dim",
     "store",
     "catalog_page",
-    "web_site")
+    "web_site",
+    "item",
+    "promotion",
+    "customer_demographics")
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -55,12 +58,14 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   private def createQ5MiniTables(): Unit = {
     spark.sql("""
                 |CREATE OR REPLACE TEMP VIEW date_dim AS
-                |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk, CAST(d_date AS DATE) AS d_date
+                |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk,
+                |       CAST(d_date AS DATE) AS d_date,
+                |       CAST(d_year AS INT) AS d_year
                 |FROM VALUES
-                |  (1, DATE'1998-08-05'),
-                |  (2, DATE'1998-08-06'),
-                |  (3, DATE'1998-08-07')
-                |AS t(d_date_sk, d_date)
+                |  (1, DATE'1998-08-05', 1998),
+                |  (2, DATE'1998-08-06', 1998),
+                |  (3, DATE'1998-08-07', 1998)
+                |AS t(d_date_sk, d_date, d_year)
                 |""".stripMargin)
 
     spark.sql("""
@@ -98,11 +103,55 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |SELECT CAST(ss_store_sk AS BIGINT) AS ss_store_sk,
                 |       CAST(ss_sold_date_sk AS BIGINT) AS ss_sold_date_sk,
                 |       CAST(ss_ext_sales_price AS DECIMAL(7,2)) AS ss_ext_sales_price,
-                |       CAST(ss_net_profit AS DECIMAL(7,2)) AS ss_net_profit
+                |       CAST(ss_net_profit AS DECIMAL(7,2)) AS ss_net_profit,
+                |       CAST(ss_item_sk AS BIGINT) AS ss_item_sk,
+                |       CAST(ss_cdemo_sk AS BIGINT) AS ss_cdemo_sk,
+                |       CAST(ss_promo_sk AS BIGINT) AS ss_promo_sk,
+                |       CAST(ss_quantity AS DECIMAL(7,2)) AS ss_quantity,
+                |       CAST(ss_list_price AS DECIMAL(7,2)) AS ss_list_price,
+                |       CAST(ss_coupon_amt AS DECIMAL(7,2)) AS ss_coupon_amt,
+                |       CAST(ss_sales_price AS DECIMAL(7,2)) AS ss_sales_price
                 |FROM VALUES
-                |  (10, 1, 11.00, 3.00),
-                |  (20, 2, 12.00, 4.00)
-                |AS t(ss_store_sk, ss_sold_date_sk, ss_ext_sales_price, ss_net_profit)
+                |  (10, 1, 11.00, 3.00, 1001, 2001, 3001, 1.00, 10.00, 0.50, 9.50),
+                |  (20, 2, 12.00, 4.00, 1002, 2002, 3002, 2.00, 20.00, 1.00, 19.00),
+                |  (10, 3, 13.00, 5.00, 1001, 2001, 3001, 3.00, 30.00, 1.50, 28.50)
+                |AS t(
+                |  ss_store_sk, ss_sold_date_sk, ss_ext_sales_price, ss_net_profit,
+                |  ss_item_sk, ss_cdemo_sk, ss_promo_sk,
+                |  ss_quantity, ss_list_price, ss_coupon_amt, ss_sales_price)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW item AS
+                |SELECT CAST(i_item_sk AS BIGINT) AS i_item_sk,
+                |       CAST(i_item_id AS STRING) AS i_item_id
+                |FROM VALUES
+                |  (1001, 'I1001'),
+                |  (1002, 'I1002')
+                |AS t(i_item_sk, i_item_id)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW promotion AS
+                |SELECT CAST(p_promo_sk AS BIGINT) AS p_promo_sk,
+                |       CAST(p_channel_email AS STRING) AS p_channel_email,
+                |       CAST(p_channel_event AS STRING) AS p_channel_event
+                |FROM VALUES
+                |  (3001, 'N', 'Y'),
+                |  (3002, 'Y', 'N')
+                |AS t(p_promo_sk, p_channel_email, p_channel_event)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW customer_demographics AS
+                |SELECT CAST(cd_demo_sk AS BIGINT) AS cd_demo_sk,
+                |       CAST(cd_gender AS STRING) AS cd_gender,
+                |       CAST(cd_marital_status AS STRING) AS cd_marital_status,
+                |       CAST(cd_education_status AS STRING) AS cd_education_status
+                |FROM VALUES
+                |  (2001, 'F', 'W', 'Primary'),
+                |  (2002, 'F', 'W', 'Primary')
+                |AS t(cd_demo_sk, cd_gender, cd_marital_status, cd_education_status)
                 |""".stripMargin)
 
     spark.sql("""
@@ -446,6 +495,36 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
         | order by channel
         |         ,id
         | LIMIT 100
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+  test("Support simplified TPC-DS q7 shape") {
+    val query =
+      """
+        |select  i_item_id,
+        |        avg(ss_quantity) agg1,
+        |        avg(ss_list_price) agg2,
+        |        avg(ss_coupon_amt) agg3,
+        |        avg(ss_sales_price) agg4
+        |from store_sales, customer_demographics, date_dim, item, promotion
+        |where ss_sold_date_sk = d_date_sk and
+        |      ss_item_sk = i_item_sk and
+        |      ss_cdemo_sk = cd_demo_sk and
+        |      ss_promo_sk = p_promo_sk and
+        |      cd_gender = 'F' and
+        |      cd_marital_status = 'W' and
+        |      cd_education_status = 'Primary' and
+        |      (p_channel_email = 'N' or p_channel_event = 'N') and
+        |      d_year = 1998
+        |group by i_item_id
+        |order by i_item_id
+        |limit 100
         |""".stripMargin
 
     runQueryAndCompare(query) {
