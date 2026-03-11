@@ -19,44 +19,57 @@ package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateMode, Complete, Final, Partial, PartialMerge}
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, CreateStruct, ExprId, Expression, GetStructField, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, CreateStruct, ExprId, Expression, GetStructField, NamedExpression}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
-import org.apache.spark.sql.types.{DataType, StructType}
+import org.apache.spark.sql.types.StructType
 
-import scala.collection.mutable
-import scala.collection.mutable.{ArrayBuffer, Queue}
+import scala.collection.mutable.ArrayBuffer
 
+/**
+ * Unwraps JoinAggregateFunctionWrapper for one adjacent aggregate pair.
+ *
+ * Design:
+ * - match only HashAggregateExec(parent) + HashAggregateExec(child)
+ * - unwrap child first, then parent
+ * - never insert a middle Project between parent and child while unwrapping the pair
+ */
 case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
   import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper._
+
   override def apply(plan: SparkPlan): SparkPlan = {
-    if (!isEnabled) {
+    if (!GlutenConfig.get.enableJoinAggregateRules) {
       return plan
     }
-    plan.transformUp {
-      case agg: HashAggregateExec if hasWrapper(agg) =>
-        rewriteHashAggregate(agg)
+    plan match {
+      case parent @ HashAggregateExec(_, _, _, _, _, _, _, _, child: HashAggregateExec)
+          if hasWrapper(parent) || hasWrapper(child) =>
+        rewritePair(parent, child)
+      case _ =>
+        plan
     }
   }
 
-  private def isEnabled: Boolean = {
-    GlutenConfig.get.enableJoinAggregateRules
+  private def rewritePair(parent: HashAggregateExec, child: HashAggregateExec): SparkPlan = {
+    val rewrittenChild = rewriteSingle(child, allowMiddleProject = true)
+    val rewrittenParentInput = parent.copy(child = rewrittenChild)
+    rewriteSingle(rewrittenParentInput, allowMiddleProject = false)
   }
 
   private def hasWrapper(agg: HashAggregateExec): Boolean = {
     agg.aggregateExpressions.exists {
-      ae =>
-        ae.aggregateFunction match {
-          case _: JoinAggregateFunctionWrapper => true
-          case _ => false
-        }
+      _.aggregateFunction.isInstanceOf[JoinAggregateFunctionWrapper]
     }
   }
 
-  private def rewriteHashAggregate(agg: HashAggregateExec): SparkPlan = {
+  private def rewriteSingle(agg: HashAggregateExec, allowMiddleProject: Boolean): HashAggregateExec = {
+    if (!hasWrapper(agg)) {
+      return agg
+    }
+
     val childAdaptations = ArrayBuffer.empty[NamedExpression]
-    val consumedChildExprIds = mutable.HashSet.empty[ExprId]
+    val exprIdRewrite = collection.mutable.HashMap.empty[ExprId, Expression]
 
     val rewrittenAggExprs = agg.aggregateExpressions.map {
       ae =>
@@ -64,22 +77,38 @@ case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
           case w: JoinAggregateFunctionWrapper =>
             val rewrittenMode = semanticMode(ae.mode, w.targetPhase)
             val rewritten = ae.copy(aggregateFunction = w.innerAgg, mode = rewrittenMode)
-            if (isWrapperB(ae.mode, w.targetPhase)) {
-              val oldInputs = ae.aggregateFunction.inputAggBufferAttributes
-              val newInputs = rewritten.aggregateFunction.inputAggBufferAttributes
-              childAdaptations ++=
-                remapWrapperBuffers(oldInputs, newInputs, agg.child.output, consumedChildExprIds)
+
+            if (isWrapperB(ae.mode, w.targetPhase) || isWrapperD(ae.mode, w.targetPhase)) {
+              val oldIter = ae.aggregateFunction.inputAggBufferAttributes.iterator
+              val newIter = rewritten.aggregateFunction.inputAggBufferAttributes.iterator
+              while (oldIter.hasNext && newIter.hasNext) {
+                val oldAttr = oldIter.next()
+                val newAttr = newIter.next()
+                val source = findSourceAttr(
+                  agg.child.output,
+                  oldAttr.asInstanceOf[AttributeReference],
+                  newAttr)
+                if (allowMiddleProject) {
+                  childAdaptations += Alias(source, newAttr.name)(exprId = newAttr.exprId)
+                } else {
+                  exprIdRewrite += newAttr.exprId -> source
+                }
+              }
             }
+
             if (isWrapperC(ae.mode, w.targetPhase)) {
               val payload = w.children.head
               val targets = rewritten.aggregateFunction.inputAggBufferAttributes
-              childAdaptations ++= expandPayload(payload, targets, agg.child.output)
-            }
-            if (isWrapperD(ae.mode, w.targetPhase)) {
-              val oldInputs = ae.aggregateFunction.inputAggBufferAttributes
-              val newInputs = rewritten.aggregateFunction.inputAggBufferAttributes
-              childAdaptations ++=
-                remapWrapperBuffers(oldInputs, newInputs, agg.child.output, consumedChildExprIds)
+              if (targets.size == 1 && !payload.dataType.isInstanceOf[StructType]) {
+                val target = targets.head
+                childAdaptations += Alias(payload, target.name)(exprId = target.exprId)
+              } else {
+                targets.zipWithIndex.foreach {
+                  case (target, idx) =>
+                    childAdaptations +=
+                      Alias(GetStructField(payload, idx), target.name)(exprId = target.exprId)
+                }
+              }
             }
             rewritten
           case _ =>
@@ -87,18 +116,14 @@ case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
         }
     }
 
-    val rewrittenChild = if (childAdaptations.nonEmpty) {
-      val adaptedNameTypes = childAdaptations
-        .map(ne => (ne.name, ne.dataType))
-        .toSet
-      val base = agg.child.output
-        .filterNot(a => adaptedNameTypes.contains((a.name, a.dataType)))
-        .map(a => Alias(a, a.name)(exprId = a.exprId))
-      val dedup = childAdaptations.foldLeft(Seq.empty[NamedExpression]) {
-        case (acc, ne) if acc.exists(_.exprId == ne.exprId) => acc
-        case (acc, ne) => acc :+ ne
+    val rewrittenChild = if (childAdaptations.nonEmpty && allowMiddleProject) {
+      val projectedExprIds = collection.mutable.HashSet.empty[ExprId]
+      val base = agg.child.output.map { a =>
+        projectedExprIds += a.exprId
+        Alias(a, a.name)(exprId = a.exprId)
       }
-      ProjectExec(base ++ dedup, agg.child)
+      val append = childAdaptations.filterNot(ne => projectedExprIds.contains(ne.exprId))
+      ProjectExec(base ++ append, agg.child)
     } else {
       agg.child
     }
@@ -111,87 +136,76 @@ case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
           case _ => Seq(ae.resultAttribute)
         }
     }
-    val preRewriteAgg = agg.copy(
-      aggregateExpressions = rewrittenAggExprs,
-      aggregateAttributes = rewrittenAggregateAttributes,
-      child = rewrittenChild
-    )
-    val outputMappings = buildOutputMappingsByAggregateAttributes(agg, preRewriteAgg)
-    val fallbackPools = mutable.HashMap.empty[(String, DataType), Queue[Expression]]
-    outputMappings.foreach {
-      case (from, to) =>
-        val key = (from.name, from.dataType)
-        val q = fallbackPools.getOrElseUpdate(key, Queue.empty[Expression])
-        q.enqueue(to)
-    }
-    val fallbackAssignments = mutable.HashMap.empty[ExprId, Expression]
-    val rewrittenResultExpressions = agg.resultExpressions.map {
-      re =>
-        val rewritten =
-          rewriteAttr(re, outputMappings.toSeq, fallbackPools, fallbackAssignments)
-        rewritten match {
-          case ne: NamedExpression => ne
-          case other =>
-            Alias(other, re.name)(exprId = re.exprId, qualifier = re.qualifier)
-        }
-    }
-    val rewrittenRequiredChildDistributionExpressions = rewrittenRequiredChildDistribution(agg)
 
-    val rewrittenAgg = agg.copy(
-      requiredChildDistributionExpressions = rewrittenRequiredChildDistributionExpressions,
-      aggregateExpressions = rewrittenAggExprs,
+    val outputRewrites =
+      buildOutputRewrites(agg, rewrittenAggExprs, rewrittenAggregateAttributes, exprIdRewrite.toMap)
+
+    val rewrittenResultExpressions = agg.resultExpressions.map { re =>
+      rewriteExprByExprId(re, outputRewrites) match {
+        case ne: NamedExpression => ne
+        case other => Alias(other, re.name)(exprId = re.exprId, qualifier = re.qualifier)
+      }
+    }
+
+    val rewrittenRequiredDist = rewrittenRequiredChildDistribution(agg)
+      .map(_.map(expr => rewriteExprByExprId(expr, exprIdRewrite.toMap)))
+
+    val rewrittenGrouping = agg.groupingExpressions
+      .map(expr => rewriteExprByExprId(expr, exprIdRewrite.toMap).asInstanceOf[NamedExpression])
+    val rewrittenAggExprsFinal = rewrittenAggExprs
+      .map(ae => rewriteExprByExprId(ae, exprIdRewrite.toMap).asInstanceOf[AggregateExpression])
+
+    agg.copy(
+      requiredChildDistributionExpressions = rewrittenRequiredDist,
+      groupingExpressions = rewrittenGrouping,
+      aggregateExpressions = rewrittenAggExprsFinal,
       aggregateAttributes = rewrittenAggregateAttributes,
       resultExpressions = rewrittenResultExpressions,
       child = rewrittenChild
     )
-    val result = rewrittenAgg
-    result
   }
 
-  private def buildOutputMappingsByAggregateAttributes(
-    originalAgg: HashAggregateExec,
-    rewrittenAgg: HashAggregateExec): Seq[(Attribute, Expression)] = {
-    val mappings = ArrayBuffer.empty[(Attribute, Expression)]
-    var originalCursor = 0
-    var rewrittenCursor = 0
+  private def buildOutputRewrites(
+      originalAgg: HashAggregateExec,
+      rewrittenAggExprs: Seq[AggregateExpression],
+      rewrittenAggregateAttributes: Seq[Attribute],
+      baseRewrites: Map[ExprId, Expression]): Map[ExprId, Expression] = {
+    val rewrites = collection.mutable.HashMap.empty[ExprId, Expression]
+    rewrites ++= baseRewrites
 
-    originalAgg.aggregateExpressions.zip(rewrittenAgg.aggregateExpressions).foreach {
-      case (originalAe, rewrittenAe) =>
-        val originalCount = outputAttrCount(originalAe)
-        val rewrittenCount = outputAttrCount(rewrittenAe)
-        val originalSlice =
-          originalAgg.aggregateAttributes.slice(originalCursor, originalCursor + originalCount)
-        val rewrittenSlice =
-          rewrittenAgg.aggregateAttributes.slice(rewrittenCursor, rewrittenCursor + rewrittenCount)
+    var oldCursor = 0
+    var newCursor = 0
 
-        originalAe.aggregateFunction match {
-          case w: JoinAggregateFunctionWrapper
-            if isWrapperB(originalAe.mode, w.targetPhase) && originalSlice.nonEmpty =>
-            val payloadExpr: Expression = originalSlice.head.dataType match {
-              case st: StructType if st.fields.length == rewrittenSlice.length =>
-                val renamed = rewrittenSlice.zip(st.fields).map {
-                  case (attr, field) => Alias(attr, field.name)()
-                }
-                CreateStruct(renamed)
-              case _ =>
-                CreateStruct(rewrittenSlice)
-            }
-            mappings += originalSlice.head -> payloadExpr
-            mappings += originalAe.resultAttribute -> payloadExpr
-          case w: JoinAggregateFunctionWrapper
-            if isWrapperD(originalAe.mode, w.targetPhase) =>
-            mappings ++= originalSlice.zip(rewrittenSlice)
-            mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
-          case _: JoinAggregateFunctionWrapper =>
-            mappings ++= originalSlice.zip(rewrittenSlice)
-            mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
-          case _ =>
-          // Non-wrapper aggregate output attrs should keep their original binding.
+    originalAgg.aggregateExpressions.zip(rewrittenAggExprs).foreach {
+      case (oldAe, newAe) =>
+        val oldCount = outputAttrCount(oldAe)
+        val newCount = outputAttrCount(newAe)
+        val oldSlice = originalAgg.aggregateAttributes.slice(oldCursor, oldCursor + oldCount)
+        val newSlice = rewrittenAggregateAttributes.slice(newCursor, newCursor + newCount)
+
+        oldSlice.zip(newSlice).foreach {
+          case (oldAttr, newAttr) => rewrites += oldAttr.exprId -> newAttr
         }
-        originalCursor += originalCount
-        rewrittenCursor += rewrittenCount
+
+        oldAe.aggregateFunction match {
+          case w: JoinAggregateFunctionWrapper
+              if isWrapperB(oldAe.mode, w.targetPhase) && oldSlice.nonEmpty =>
+            val payloadExpr: Expression = oldSlice.head.dataType match {
+              case st: StructType if st.fields.length == newSlice.length =>
+                CreateStruct(newSlice.zip(st.fields).map { case (a, f) => Alias(a, f.name)() })
+              case _ =>
+                CreateStruct(newSlice)
+            }
+            rewrites += oldSlice.head.exprId -> payloadExpr
+            rewrites += oldAe.resultAttribute.exprId -> payloadExpr
+          case _ =>
+            rewrites += oldAe.resultAttribute.exprId -> newAe.resultAttribute
+        }
+
+        oldCursor += oldCount
+        newCursor += newCount
     }
-    mappings.toSeq
+    rewrites.toMap
   }
 
   private def outputAttrCount(ae: AggregateExpression): Int = {
@@ -202,120 +216,33 @@ case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
     }
   }
 
-  private def rewriteAttr(
-    expr: Expression,
-    pairs: Seq[(Attribute, Expression)],
-    fallbackPools: mutable.HashMap[(String, DataType), Queue[Expression]],
-    fallbackAssignments: mutable.HashMap[ExprId, Expression]): Expression = {
+  private def rewriteExprByExprId(expr: Expression, rewrites: Map[ExprId, Expression]): Expression = {
     expr.transformUp {
-      case a: Attribute =>
-        val byExprId = pairs.collectFirst {
-          case (from, to) if a.semanticEquals(from) => to
-        }
-        byExprId.getOrElse {
-          fallbackAssignments.getOrElseUpdate(
-            a.exprId, {
-              fallbackPools
-                .get((a.name, a.dataType))
-                .flatMap(q => if (q.nonEmpty) Some(q.dequeue()) else None)
-                .getOrElse(a)
-            })
-        }
+      case a: Attribute => rewrites.getOrElse(a.exprId, a)
     }
   }
 
-  private def expandPayload(
-    payload: Expression,
-    targets: Seq[AttributeReference],
-    childOutput: Seq[Attribute]): Seq[NamedExpression] = {
-    val byChild = targets.map {
-      target => resolveFromChild(target, childOutput).map(attr => target -> attr)
-    }
-    if (byChild.forall(_.isDefined)) {
-      return byChild.map {
-        case Some((target, source)) => Alias(source, target.name)(exprId = target.exprId)
-        case None =>
-          throw new IllegalStateException("Unreachable: byChild should be fully defined.")
+  private def findSourceAttr(
+      childOutput: Seq[Attribute],
+      oldAttr: AttributeReference,
+      newAttr: Attribute): Attribute = {
+    childOutput
+      .find(_.exprId == oldAttr.exprId)
+      .orElse(childOutput.find(_.exprId == newAttr.exprId))
+      .orElse {
+        val byNameType = childOutput.filter(a => a.name == oldAttr.name && a.dataType == oldAttr.dataType)
+        if (byNameType.size == 1) Some(byNameType.head) else None
       }
-    }
-
-    val childOutputSet = AttributeSet(childOutput)
-    val payloadResolvable = payload.references.forall {
-      ref => childOutputSet.exists(_.exprId == ref.exprId)
-    }
-
-    if (!payloadResolvable) {
-      throw new IllegalStateException(
-        s"Cannot rebind wrapper payload for targets ${targets.map(_.name).mkString(",")} " +
-          s"from child output.")
-    } else if (targets.size == 1 && !payload.dataType.isInstanceOf[StructType]) {
-      val target = targets.head
-      val source = resolveFromChild(target, childOutput).getOrElse {
+      .orElse {
+        val byNameType = childOutput.filter(a => a.name == newAttr.name && a.dataType == newAttr.dataType)
+        if (byNameType.size == 1) Some(byNameType.head) else None
+      }
+      .getOrElse {
         throw new IllegalStateException(
-          s"Cannot resolve target ${target.name} from child output for scalar payload.")
+          s"Cannot resolve wrapper input ${oldAttr.name}#${oldAttr.exprId.id}/" +
+            s"${newAttr.name}#${newAttr.exprId.id} from child output " +
+            childOutput.map(a => s"${a.name}#${a.exprId.id}").mkString("[", ", ", "]"))
       }
-      Seq(Alias(source, target.name)(exprId = target.exprId))
-    } else {
-      payload.dataType match {
-        case _: StructType =>
-          targets.zipWithIndex.map {
-            case (target, idx) =>
-              Alias(GetStructField(payload, idx), target.name)(exprId = target.exprId)
-          }
-        case _ =>
-          throw new IllegalStateException(
-            s"Wrapper payload $payload cannot be expanded to ${targets.size} target attributes.")
-      }
-    }
-  }
-
-  private def resolveFromChild(
-    target: AttributeReference,
-    childOutput: Seq[Attribute]): Option[Attribute] = {
-    childOutput.find(_.exprId == target.exprId).orElse {
-      val byNameType =
-        childOutput.filter(a => a.name == target.name && a.dataType == target.dataType)
-      if (byNameType.size == 1) Some(byNameType.head) else None
-    }
-  }
-
-  private def remapWrapperBuffers(
-    oldInputs: Seq[AttributeReference],
-    newInputs: Seq[Attribute],
-    childOutput: Seq[Attribute],
-    consumedChildExprIds: mutable.HashSet[ExprId]): Seq[NamedExpression] = {
-    def pickUnused(candidates: Seq[Attribute]): Option[Attribute] = {
-      candidates.find(a => !consumedChildExprIds.contains(a.exprId)).orElse(candidates.headOption)
-    }
-
-    def byNameType(attr: Attribute): Seq[Attribute] = {
-      childOutput.filter(a => a.name == attr.name && a.dataType == attr.dataType)
-    }
-
-    oldInputs.zip(newInputs).map {
-      case (oldAttr, newAttr) =>
-        val source = childOutput
-          .find(_.exprId == oldAttr.exprId)
-          .orElse {
-            pickUnused(byNameType(oldAttr))
-          }
-          .orElse {
-            childOutput.find(_.exprId == newAttr.exprId)
-          }
-          .orElse {
-            pickUnused(byNameType(newAttr))
-          }
-          .getOrElse {
-            throw new IllegalStateException(
-              s"Cannot find wrapper buffer input ${oldAttr.name}#${oldAttr.exprId.id}/" +
-                s"${newAttr.name}#${newAttr.exprId.id} in child output " +
-                childOutput
-                  .map(a => s"${a.name}#${a.exprId.id}:${a.dataType.simpleString}")
-                  .mkString("[", ", ", "]"))
-          }
-        consumedChildExprIds += source.exprId
-        Alias(source, newAttr.name)(exprId = newAttr.exprId)
-    }
   }
 
   private def isWrapperB(mode: AggregateMode, targetPhase: TargetPhase): Boolean = {
@@ -330,25 +257,20 @@ case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
     mode == Final && targetPhase == FinalPhase
   }
 
-  private def rewrittenRequiredChildDistribution(
-      agg: HashAggregateExec): Option[Seq[Expression]] = {
-    // Minor distribution alignment trick:
-    // 1) Wrapper-B (Final + PartialPhase): drop distribution so B can consume A directly.
-    // 2) Wrapper-C (Partial + FinalPhase): require hash on grouping keys so C aligns with D.
-    val hasWrapperBExpr = agg.aggregateExpressions.exists {
+  private def rewrittenRequiredChildDistribution(agg: HashAggregateExec): Option[Seq[Expression]] = {
+    val hasWrapperB = agg.aggregateExpressions.exists {
       case AggregateExpression(w: JoinAggregateFunctionWrapper, mode, _, _, _) =>
         isWrapperB(mode, w.targetPhase)
       case _ => false
     }
-    val hasWrapperCExpr = agg.aggregateExpressions.exists {
+    val hasWrapperC = agg.aggregateExpressions.exists {
       case AggregateExpression(w: JoinAggregateFunctionWrapper, mode, _, _, _) =>
         isWrapperC(mode, w.targetPhase)
       case _ => false
     }
-
-    if (hasWrapperBExpr) {
+    if (hasWrapperB) {
       None
-    } else if (hasWrapperCExpr) {
+    } else if (hasWrapperC) {
       Some(agg.groupingExpressions)
     } else {
       agg.requiredChildDistributionExpressions

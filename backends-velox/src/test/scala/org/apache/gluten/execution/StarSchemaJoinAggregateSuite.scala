@@ -438,7 +438,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         runQueryAndCompare(query) {
           df =>
             assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-            assertOptimizedAggregateCount(df, 2)
+            assertOptimizedAggregateCount(df, 4)
             checkGlutenPlan[HashAggregateExecTransformer](df)
         }
       }
@@ -487,7 +487,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         runQueryAndCompare(query) {
           df =>
             assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-            assertOptimizedAggregateCount(df, 2)
+            assertOptimizedAggregateCount(df, 4)
             checkGlutenPlan[HashAggregateExecTransformer](df)
         }
       }
