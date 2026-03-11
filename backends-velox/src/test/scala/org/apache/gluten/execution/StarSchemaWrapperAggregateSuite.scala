@@ -16,7 +16,16 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.config.GlutenConfig
+
+import org.apache.spark.SparkConf
+
 class StarSchemaWrapperAggregateSuite extends VeloxTPCHTableSupport {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
+  }
+
   test("star-schema wrapper aggregate") {
     val query =
       """
@@ -81,6 +90,45 @@ class StarSchemaWrapperAggregateSuite extends VeloxTPCHTableSupport {
         |WHERE c_mktsegment = 'BUILDING'
         |GROUP BY c_nationkey
         |ORDER BY c_nationkey
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+  test("Support star-schema wrapper aggregate for simplified TPC-H q18") {
+    val query =
+      """
+        |SELECT
+        |  c_name,
+        |  c_custkey,
+        |  o_orderkey,
+        |  o_orderdate,
+        |  o_totalprice,
+        |  SUM(l_quantity)
+        |FROM customer, orders, lineitem
+        |WHERE o_orderkey IN (
+        |  SELECT
+        |    l_orderkey
+        |  FROM lineitem
+        |  GROUP BY l_orderkey
+        |  HAVING SUM(l_quantity) > 300
+        |)
+        |  AND c_custkey = o_custkey
+        |  AND o_orderkey = l_orderkey
+        |GROUP BY
+        |  c_name,
+        |  c_custkey,
+        |  o_orderkey,
+        |  o_orderdate,
+        |  o_totalprice
+        |ORDER BY
+        |  o_totalprice DESC,
+        |  o_orderdate
+        |LIMIT 100
         |""".stripMargin
 
     runQueryAndCompare(query) {
