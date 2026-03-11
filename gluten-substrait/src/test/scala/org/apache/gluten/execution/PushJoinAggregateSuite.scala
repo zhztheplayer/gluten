@@ -53,14 +53,14 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
     import testImplicits._
 
     Seq(
-      (1, 100, 10.0),
-      (1, 100, 12.5),
-      (1, 100, 7.5),
-      (1, 101, 9.0),
-      (2, 100, 3.5),
-      (2, 100, 4.5),
-      (2, 103, 8.0)
-    ).toDF("ss_item_sk", "ss_sold_date_sk", "ss_sales_price")
+      (1, 100, 10.0, 1.0),
+      (1, 100, 12.5, 2.0),
+      (1, 100, 7.5, 3.0),
+      (1, 101, 9.0, 2.0),
+      (2, 100, 3.5, 1.0),
+      (2, 100, 4.5, 2.0),
+      (2, 103, 8.0, 4.0)
+    ).toDF("ss_item_sk", "ss_sold_date_sk", "ss_sales_price", "ss_quantity")
       .createOrReplaceTempView("store_sales")
 
     Seq(
@@ -227,6 +227,44 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
                    |  i_item_desc AS item_desc,
                    |  d_date AS sold_date,
                    |  sum(ss_sales_price) AS total_sales_price
+                   |FROM store_sales
+                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY item_desc, d_date
+                   |""".stripMargin,
+      expectedPushCount = 2,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales for sum and avg on different fact columns on three-way join") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  i_item_desc AS item_desc,
+                   |  d_date AS sold_date,
+                   |  sum(ss_sales_price) AS total_sales_price,
+                   |  avg(ss_quantity) AS avg_quantity
+                   |FROM store_sales
+                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY item_desc, d_date
+                   |""".stripMargin,
+      expectedPushCount = 2,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales for sum and avg on same fact column on three-way join") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  i_item_desc AS item_desc,
+                   |  d_date AS sold_date,
+                   |  sum(ss_sales_price) AS total_sales_price,
+                   |  avg(ss_sales_price) AS avg_sales_price
                    |FROM store_sales
                    |JOIN date_dim ON ss_sold_date_sk = d_date_sk
                    |JOIN item ON ss_item_sk = i_item_sk
