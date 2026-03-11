@@ -30,7 +30,7 @@ import org.apache.gluten.extension.columnar.transition.{InsertTransitions, Remov
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
 import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
-import org.apache.gluten.extension.staragg.{PushStarSchemaPreAggregateBatch, UnwrapStarSchemaWrapperAggregate}
+import org.apache.gluten.extension.staragg.{ExtendedSparkStrategy, PushStarSchemaPreAggregateBatch, UnwrapStarSchemaWrapperAggregate}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -67,6 +67,7 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(RewriteCastFromArray.apply)
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
     injector.injectOptimizerRule(PushStarSchemaPreAggregateBatch.apply)
+    injector.injectPlannerStrategy(_ => ExtendedSparkStrategy(ExtendedSparkStrategy.templateStrategies().Aggregation, UnwrapStarSchemaWrapperAggregate()))
 
     if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {
       injector.injectPlannerStrategy(_ => org.apache.gluten.extension.GlutenJoinKeysCapture())
@@ -87,7 +88,6 @@ object VeloxRuleApi {
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
     injector.injectPreTransform(c => FallbackMultiCodegens.apply(c.session))
-    injector.injectPreTransform(c => UnwrapStarSchemaWrapperAggregate(c.session))
     injector.injectPreTransform(c => MergeTwoPhasesHashBaseAggregate(c.session))
     injector.injectPreTransform(_ => RewriteSubqueryBroadcast())
     injector.injectPreTransform(
@@ -169,7 +169,6 @@ object VeloxRuleApi {
     injector.injectPreTransform(_ => RemoveTransitions)
     injector.injectPreTransform(_ => PushDownInputFileExpression.PreOffload)
     injector.injectPreTransform(c => FallbackOnANSIMode.apply(c.session))
-    injector.injectPreTransform(c => UnwrapStarSchemaWrapperAggregate(c.session))
     injector.injectPreTransform(c => MergeTwoPhasesHashBaseAggregate(c.session))
     injector.injectPreTransform(_ => RewriteSubqueryBroadcast())
     injector.injectPreTransform(

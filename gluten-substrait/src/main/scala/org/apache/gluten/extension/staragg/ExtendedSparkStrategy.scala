@@ -17,9 +17,21 @@
 
 package org.apache.gluten.extension.staragg
 
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.{PlanLater, SparkPlan, SparkPlanner, SparkStrategies, SparkStrategy}
 
-case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
-  override def apply(plan: SparkPlan): SparkPlan = ???
+case class ExtendedSparkStrategy(delegate: SparkStrategy, postRule: Rule[SparkPlan]) extends SparkStrategy {
+  override def apply(plan: LogicalPlan): Seq[SparkPlan] = {
+    val plans = delegate.apply(plan)
+    val out = plans.map {
+      case later: PlanLater => later
+      case other => postRule.apply(other)
+    }
+    out
+  }
+}
+
+object ExtendedSparkStrategy {
+  def templateStrategies(): SparkStrategies = new SparkPlanner(null, null)
 }
