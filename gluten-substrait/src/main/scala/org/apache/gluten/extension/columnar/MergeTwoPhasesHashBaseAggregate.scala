@@ -62,6 +62,15 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
   private def mergeModes(
       childAgg: BaseAggregateExec,
       parentAgg: BaseAggregateExec): Option[Seq[AggregateMode]] = {
+    // Both phases must represent the same aggregate-expression vector.
+    // If sizes differ (e.g. DISTINCT de-dup stage has 0 aggs under a non-empty parent),
+    // they are not mergeable.
+    if (
+      childAgg.aggregateExpressions.isEmpty ||
+      childAgg.aggregateExpressions.size != parentAgg.aggregateExpressions.size) {
+      return None
+    }
+
     val zipped = childAgg.aggregateExpressions.zip(parentAgg.aggregateExpressions)
     val merged = zipped.map {
       case (childExpr, parentExpr) => mergedMode(childExpr.mode, parentExpr.mode)
