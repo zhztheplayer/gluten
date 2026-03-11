@@ -14,21 +14,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.extension
+package org.apache.gluten.extension.staragg
 
 import org.apache.gluten.config.GlutenConfig
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
+import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.types.{DataType, StructType}
 
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-import scala.collection.mutable.Queue
+import scala.collection.mutable.{ArrayBuffer, Queue}
 
 /** Unwraps star-schema wrapper aggregates (A/B/C/D) back to original Spark aggregates. */
 case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[SparkPlan] {

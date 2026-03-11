@@ -14,15 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.extension
+package org.apache.gluten.extension.staragg
 
+import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, CreateStruct, Expression, GetStructField, Literal}
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateMode, Complete, Final, Partial, PartialMerge}
-import org.apache.spark.sql.catalyst.expressions.aggregate.DeclarativeAggregate
 import org.apache.spark.sql.types.DataType
 
 import java.util.Locale
-
 import scala.collection.mutable
 
 object StarSchemaAggregateFunctionWrapper {

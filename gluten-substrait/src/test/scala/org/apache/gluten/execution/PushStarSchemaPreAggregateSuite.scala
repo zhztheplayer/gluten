@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.PushStarSchemaPreAggregate
+import org.apache.gluten.extension.staragg.PushStarSchemaPreAggregate
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
