@@ -17,21 +17,10 @@
 
 package org.apache.gluten.extension.joinagg
 
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{PlanLater, SparkPlan, SparkPlanner, SparkStrategies, SparkStrategy}
+import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 
-case class ExtendedSparkStrategy(delegate: SparkStrategy, postRule: Rule[SparkPlan]) extends SparkStrategy {
-  override def apply(plan: LogicalPlan): Seq[SparkPlan] = {
-    val plans = delegate.apply(plan)
-    val out = plans.map {
-      case later: PlanLater => later
-      case other => postRule.apply(other)
-    }
-    out
-  }
-}
-
-object ExtendedSparkStrategy {
-  def templateStrategies(): SparkStrategies = new SparkPlanner(null, null)
+case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
+  override def apply(plan: LogicalPlan): Seq[SparkPlan] = ???
 }
