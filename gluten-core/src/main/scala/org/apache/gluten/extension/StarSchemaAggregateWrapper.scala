@@ -39,8 +39,8 @@ object StarSchemaAggregateWrapper {
   }
 
   def wrapperPartial(
-    innerAgg: DeclarativeAggregate,
-    wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
+      innerAgg: DeclarativeAggregate,
+      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
     StarSchemaAggregateWrapper(
       innerAgg = innerAgg,
       targetPhase = PartialPhase,
@@ -49,9 +49,9 @@ object StarSchemaAggregateWrapper {
   }
 
   def wrapperFinal(
-    innerAgg: DeclarativeAggregate,
-    inputBuffer: Expression,
-    wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
+      innerAgg: DeclarativeAggregate,
+      inputBuffer: Expression,
+      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
     StarSchemaAggregateWrapper(
       innerAgg = innerAgg,
       targetPhase = FinalPhase,
@@ -77,10 +77,10 @@ object StarSchemaAggregateWrapper {
 }
 
 case class StarSchemaAggregateWrapper(
-  innerAgg: DeclarativeAggregate,
-  targetPhase: StarSchemaAggregateWrapper.TargetPhase,
-  inputBuffer: Option[Expression],
-  wrapperKey: String = "0")
+    innerAgg: DeclarativeAggregate,
+    targetPhase: StarSchemaAggregateWrapper.TargetPhase,
+    inputBuffer: Option[Expression],
+    wrapperKey: String = "0")
   extends DeclarativeAggregate {
   import StarSchemaAggregateWrapper._
 
@@ -158,7 +158,7 @@ case class StarSchemaAggregateWrapper(
   }
 
   override protected def withNewChildrenInternal(
-    newChildren: IndexedSeq[Expression]): Expression = {
+      newChildren: IndexedSeq[Expression]): Expression = {
     targetPhase match {
       case PartialPhase =>
         val newInner = innerAgg.withNewChildren(newChildren).asInstanceOf[DeclarativeAggregate]
@@ -173,16 +173,16 @@ case class StarSchemaAggregateWrapper(
   }
 
   private def rewrite(
-    exprs: Seq[Expression],
-    childReplacements: Map[Expression, Expression],
-    useInputBufferField: Boolean): Seq[Expression] = {
+      exprs: Seq[Expression],
+      childReplacements: Map[Expression, Expression],
+      useInputBufferField: Boolean): Seq[Expression] = {
     exprs.map(rewrite(_, childReplacements, useInputBufferField))
   }
 
   private def rewrite(
-    expr: Expression,
-    childReplacements: Map[Expression, Expression],
-    useInputBufferField: Boolean): Expression = {
+      expr: Expression,
+      childReplacements: Map[Expression, Expression],
+      useInputBufferField: Boolean): Expression = {
     val innerToWrappedBuffer = innerAgg.aggBufferAttributes.zip(aggBufferAttributes)
     val innerToInputBuffer = innerAgg.inputAggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>
