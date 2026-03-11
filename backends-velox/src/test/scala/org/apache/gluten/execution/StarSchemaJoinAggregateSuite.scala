@@ -19,8 +19,9 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.types.Decimal
 
-class StarSchemaWrapperAggregateSuite extends VeloxTPCHTableSupport {
+class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
@@ -96,6 +97,76 @@ class StarSchemaWrapperAggregateSuite extends VeloxTPCHTableSupport {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
         checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+  test("Support star-schema wrapper aggregate with duplicate decimal sum buffers") {
+    val query =
+      """
+        |SELECT
+        |  c_nationkey,
+        |  SUM(o_totalprice) AS sum_totalprice_a,
+        |  SUM(o_totalprice + CAST(1 AS DECIMAL(12, 2))) AS sum_totalprice_b,
+        |  SUM(CAST(o_shippriority AS BIGINT)) AS sum_shippriority,
+        |  SUM(CAST(o_orderkey AS BIGINT)) AS sum_orderkey
+        |FROM customer
+        |JOIN orders
+        |  ON c_custkey = o_custkey
+        |WHERE c_mktsegment = 'BUILDING'
+        |GROUP BY c_nationkey
+        |ORDER BY c_nationkey
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+  test("Reproduce duplicate sum/isEmpty remap assertion") {
+    withTempView("ss_fact", "ss_dim") {
+      import spark.implicits._
+
+      Seq(
+        (1, 100, Decimal(10), Decimal(5), Decimal(7), Decimal(3)),
+        (1, 100, Decimal(20), Decimal(8), Decimal(6), Decimal(2)),
+        (2, 200, Decimal(30), Decimal(9), Decimal(4), Decimal(1))
+      ).toDF("item_sk", "cp_catalog_page_id", "sales_price", "return_amt", "profit", "net_loss")
+        .selectExpr(
+          "cast(item_sk as int) as item_sk",
+          "cast(cp_catalog_page_id as int) as cp_catalog_page_id",
+          "cast(sales_price as decimal(12,2)) as sales_price",
+          "cast(return_amt as decimal(12,2)) as return_amt",
+          "cast(profit as decimal(12,2)) as profit",
+          "cast(net_loss as decimal(12,2)) as net_loss")
+        .createOrReplaceTempView("ss_fact")
+
+      Seq((1), (1), (2), (2), (2))
+        .toDF("item_sk")
+        .selectExpr("cast(item_sk as int) as item_sk")
+        .createOrReplaceTempView("ss_dim")
+
+      val query =
+        """
+          |SELECT
+          |  f.cp_catalog_page_id,
+          |  SUM(f.sales_price) AS sum_sales_price,
+          |  SUM(f.return_amt) AS sum_return_amt,
+          |  SUM(f.profit) AS sum_profit,
+          |  SUM(f.net_loss) AS sum_net_loss
+          |FROM ss_fact f
+          |JOIN ss_dim d
+          |  ON f.item_sk = d.item_sk
+          |GROUP BY f.cp_catalog_page_id
+          |ORDER BY f.cp_catalog_page_id
+          |""".stripMargin
+
+      runQueryAndCompare(query) {
+        df =>
+          assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+          checkGlutenPlan[HashAggregateExecTransformer](df)
+      }
     }
   }
 
