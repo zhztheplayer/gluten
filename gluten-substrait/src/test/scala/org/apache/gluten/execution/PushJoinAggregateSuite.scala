@@ -30,7 +30,7 @@ import java.sql.Date
 
 class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
   private val joinAggregateRule = PushJoinAggregate(spark)
-  private val debugMode: Boolean = true
+  private val debugMode: Boolean = false
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
 
@@ -215,6 +215,24 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
                    |GROUP BY ss_sold_date_sk
                    |""".stripMargin,
       expectedPushCount = 1,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales for sum on three-way join") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  i_item_sk AS item_sk,
+                   |  d_date AS sold_date,
+                   |  sum(ss_sales_price) AS total_sales_price
+                   |FROM store_sales
+                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY i_item_sk, d_date
+                   |""".stripMargin,
+      expectedPushCount = 2,
       expectedAggCount = 2
     )
     runCase(pushdownCase)
