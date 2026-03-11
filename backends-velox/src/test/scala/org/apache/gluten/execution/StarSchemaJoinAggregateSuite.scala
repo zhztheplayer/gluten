@@ -280,6 +280,27 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
+  test("Join-aggregate wrapper aggregate 2") {
+    val query =
+      """
+        |SELECT
+        |  l_discount, p_partkey, AVG(l_extendedprice)
+        |FROM lineitem
+        |JOIN part
+        |  ON l_partkey = p_partkey
+        |GROUP BY l_discount, p_partkey
+        |ORDER BY l_discount, p_partkey
+        |LIMIT 100
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+
   test("Support join-aggregate wrapper aggregate for simplified TPC-H q12") {
     val query =
       """
