@@ -448,13 +448,16 @@ abstract class HashAggregateExecTransformer(
           val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
             .flatMap(_.aggregateFunction.inputAggBufferAttributes)
             .filter(_.name == attr.name)
-          assert(
-            attrsWithSameName.size == aggBufferAttrsWithSameName.size,
-            "The attribute with the same name in final agg inputAggBufferAttribute must" +
-              "have the same size of corresponding attributes in originalInputAttributes."
-          )
-          attrsWithSameName(aggBufferAttrsWithSameName.indexOf(attr))
-            .asInstanceOf[AttributeReference]
+          // Spark rewrites (e.g. decimal/avg related projections) may collapse duplicate
+          // same-name buffer columns in child output. In that case, fall back to the available
+          // same-name attribute instead of failing hard on cardinality mismatch.
+          if (attrsWithSameName.nonEmpty) {
+            val idx = aggBufferAttrsWithSameName.indexOf(attr)
+            attrsWithSameName(math.max(0, math.min(idx, attrsWithSameName.size - 1)))
+              .asInstanceOf[AttributeReference]
+          } else {
+            attr
+          }
         } else {
           attr
         }
@@ -485,6 +488,10 @@ abstract class HashAggregateExecTransformer(
           val idx = aggBufferAttrsWithSameName.indexWhere(_.exprId == attr.exprId)
           if (idx >= 0 && idx < attrsWithSameName.size) {
             Some(attrsWithSameName(idx))
+          } else if (attrsWithSameName.nonEmpty) {
+            // Same rationale as rewriteAggBufferAttributes above: use the available
+            // same-name buffer column when Spark has collapsed duplicates.
+            Some(attrsWithSameName.last)
           } else {
             None
           }

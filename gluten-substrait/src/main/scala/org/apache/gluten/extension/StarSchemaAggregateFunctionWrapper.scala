@@ -25,7 +25,7 @@ import java.util.Locale
 
 import scala.collection.mutable
 
-object StarSchemaAggregateWrapper {
+object StarSchemaAggregateFunctionWrapper {
   sealed trait TargetPhase {
     def sqlName: String
   }
@@ -40,8 +40,8 @@ object StarSchemaAggregateWrapper {
 
   def wrapperPartial(
       innerAgg: DeclarativeAggregate,
-      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
-    StarSchemaAggregateWrapper(
+      wrapperKey: String = "0"): StarSchemaAggregateFunctionWrapper = {
+    StarSchemaAggregateFunctionWrapper(
       innerAgg = innerAgg,
       targetPhase = PartialPhase,
       inputBuffer = None,
@@ -51,8 +51,8 @@ object StarSchemaAggregateWrapper {
   def wrapperFinal(
       innerAgg: DeclarativeAggregate,
       inputBuffer: Expression,
-      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
-    StarSchemaAggregateWrapper(
+      wrapperKey: String = "0"): StarSchemaAggregateFunctionWrapper = {
+    StarSchemaAggregateFunctionWrapper(
       innerAgg = innerAgg,
       targetPhase = FinalPhase,
       inputBuffer = Some(inputBuffer),
@@ -76,13 +76,13 @@ object StarSchemaAggregateWrapper {
   }
 }
 
-case class StarSchemaAggregateWrapper(
+case class StarSchemaAggregateFunctionWrapper(
     innerAgg: DeclarativeAggregate,
-    targetPhase: StarSchemaAggregateWrapper.TargetPhase,
+    targetPhase: StarSchemaAggregateFunctionWrapper.TargetPhase,
     inputBuffer: Option[Expression],
     wrapperKey: String = "0")
   extends DeclarativeAggregate {
-  import StarSchemaAggregateWrapper._
+  import StarSchemaAggregateFunctionWrapper._
 
   private val wrappedBufferAttrs: Seq[AttributeReference] =
     innerAgg.aggBufferAttributes.zipWithIndex.map {

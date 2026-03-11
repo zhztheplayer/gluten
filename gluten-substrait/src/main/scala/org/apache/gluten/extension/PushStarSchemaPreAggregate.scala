@@ -66,8 +66,10 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
                           rewrittenAggExprs =>
                             val rewrittenJoin = side.replace(join, preAggInfo.plan)
                             val requiredAttrs =
-                              dedupeAttrs((groupingExprs ++ rewrittenAggExprs).flatMap(
-                                referencedAttrsInOrder))
+                              dedupeAttrs(
+                                (groupingExprs ++ rewrittenAggExprs).flatMap(
+                                  referencedAttrsInOrder) ++
+                                  rewrittenAggExprs.flatMap(aggregateBufferAttrsInOrder))
                             successfulPushCount += 1
                             agg.copy(
                               aggregateExpressions = rewrittenAggExprs,
@@ -92,9 +94,9 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
       case Aggregate(_, aggExprs, _) =>
         aggExprs.exists {
           case Alias(ae: AggregateExpression, _) =>
-            ae.aggregateFunction.isInstanceOf[StarSchemaAggregateWrapper]
+            ae.aggregateFunction.isInstanceOf[StarSchemaAggregateFunctionWrapper]
           case ae: AggregateExpression =>
-            ae.aggregateFunction.isInstanceOf[StarSchemaAggregateWrapper]
+            ae.aggregateFunction.isInstanceOf[StarSchemaAggregateFunctionWrapper]
           case _ =>
             false
         }
@@ -186,7 +188,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
         val sidePartialAliases = sidePartials.zipWithIndex.map {
           case (spec, idx) =>
             Alias(
-              StarSchemaAggregateWrapper
+              StarSchemaAggregateFunctionWrapper
                 .wrapperPartial(spec.aggregate, spec.wrapperKey)
                 .toAggregateExpression(),
               s"${side.partialName}_$idx"
@@ -249,7 +251,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
         sidePartials.collectFirst {
           case SidePartialRef(sideSpec, partialAttr)
               if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
-            val wrappedFinal = StarSchemaAggregateWrapper
+            val wrappedFinal = StarSchemaAggregateFunctionWrapper
               .wrapperFinal(spec.aggregate, partialAttr, spec.wrapperKey)
               .toAggregateExpression()
             if (expr.semanticEquals(spec.originalExpr)) {
@@ -285,7 +287,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
     val candidates = expr.collect {
       case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
         ae.aggregateFunction match {
-          case da: DeclarativeAggregate if !da.isInstanceOf[StarSchemaAggregateWrapper] =>
+          case da: DeclarativeAggregate if !da.isInstanceOf[StarSchemaAggregateFunctionWrapper] =>
             Some((ae, da))
           case _ => None
         }
@@ -333,6 +335,13 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
 
   private def referencedAttrsInOrder(expr: Expression): Seq[Attribute] = {
     expr.collect { case attr: Attribute => attr }
+  }
+
+  private def aggregateBufferAttrsInOrder(expr: Expression): Seq[Attribute] = {
+    expr.collect {
+      case ae: AggregateExpression =>
+        ae.aggregateFunction.inputAggBufferAttributes ++ ae.aggregateFunction.aggBufferAttributes
+    }.flatten
   }
 
   sealed private trait JoinSide {

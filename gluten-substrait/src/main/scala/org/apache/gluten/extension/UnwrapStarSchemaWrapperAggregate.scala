@@ -32,7 +32,7 @@ import scala.collection.mutable.Queue
 
 /** Unwraps star-schema wrapper aggregates (A/B/C/D) back to original Spark aggregates. */
 case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[SparkPlan] {
-  import StarSchemaAggregateWrapper._
+  import StarSchemaAggregateFunctionWrapper._
 
   override def apply(plan: SparkPlan): SparkPlan = {
     if (!isEnabled) {
@@ -52,7 +52,7 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
     agg.aggregateExpressions.exists {
       ae =>
         ae.aggregateFunction match {
-          case _: StarSchemaAggregateWrapper => true
+          case _: StarSchemaAggregateFunctionWrapper => true
           case _ => false
         }
     }
@@ -65,7 +65,7 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
     val rewrittenAggExprs = agg.aggregateExpressions.map {
       ae =>
         ae.aggregateFunction match {
-          case w: StarSchemaAggregateWrapper =>
+          case w: StarSchemaAggregateFunctionWrapper =>
             val rewrittenMode = semanticMode(ae.mode, w.targetPhase)
             val rewritten = ae.copy(aggregateFunction = w.innerAgg, mode = rewrittenMode)
             if (isWrapperB(ae.mode, w.targetPhase)) {
@@ -166,7 +166,7 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
           rewrittenAgg.aggregateAttributes.slice(rewrittenCursor, rewrittenCursor + rewrittenCount)
 
         originalAe.aggregateFunction match {
-          case w: StarSchemaAggregateWrapper
+          case w: StarSchemaAggregateFunctionWrapper
               if isWrapperB(originalAe.mode, w.targetPhase) && originalSlice.nonEmpty =>
             val payloadExpr: Expression = originalSlice.head.dataType match {
               case st: StructType if st.fields.length == rewrittenSlice.length =>
@@ -179,10 +179,10 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
             }
             mappings += originalSlice.head -> payloadExpr
             mappings += originalAe.resultAttribute -> payloadExpr
-          case w: StarSchemaAggregateWrapper if isWrapperD(originalAe.mode, w.targetPhase) =>
+          case w: StarSchemaAggregateFunctionWrapper if isWrapperD(originalAe.mode, w.targetPhase) =>
             mappings ++= originalSlice.zip(rewrittenSlice)
             mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
-          case _: StarSchemaAggregateWrapper =>
+          case _: StarSchemaAggregateFunctionWrapper =>
             mappings ++= originalSlice.zip(rewrittenSlice)
             mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
           case _ =>

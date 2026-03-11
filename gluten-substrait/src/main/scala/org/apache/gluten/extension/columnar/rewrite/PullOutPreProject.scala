@@ -37,6 +37,18 @@ import scala.collection.mutable
  * execution by the native engine.
  */
 object PullOutPreProject extends RewriteSingleNode with PullOutProjectHelper {
+  private def preserveChildOutputForAggPreProject(
+      childOutput: Seq[Attribute],
+      appendNamedExprs: Seq[NamedExpression]): Seq[NamedExpression] = {
+    // For aggregate pre-project, keep child.output as-is (not outputSet) so duplicate
+    // aggregate buffer attrs (same name/expr shape) are preserved in order.
+    // This avoids dropping buffer companions such as decimal sum's "isEmpty".
+    val childExprIds = childOutput.map(_.exprId).toSet
+    childOutput ++ appendNamedExprs
+      .filterNot(ne => childExprIds.contains(ne.exprId))
+      .sortWith(_.exprId.id < _.exprId.id)
+  }
+
   override def isRewritable(plan: SparkPlan): Boolean = {
     plan match {
       case _: SortExec => true
@@ -181,7 +193,7 @@ object PullOutPreProject extends RewriteSingleNode with PullOutProjectHelper {
         newGroupingExpressions = newGroupingExpressions,
         newAggregateExpressions = newAggregateExpressions)
       val preProject = ProjectExec(
-        eliminateProjectList(agg.child.outputSet, expressionMap.values.toSeq),
+        preserveChildOutputForAggPreProject(agg.child.output, expressionMap.values.toSeq),
         agg.child)
       agg.child.logicalLink.foreach(preProject.setLogicalLink)
       newAgg.withNewChildren(Seq(preProject))
