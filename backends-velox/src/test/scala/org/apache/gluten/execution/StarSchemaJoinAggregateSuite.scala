@@ -272,8 +272,8 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     val actual = optimizedAggregateCount(df)
     assert(
       actual == expected,
-      s"Expected $expected Aggregate nodes in optimized plan, but got $actual.\n" +
-        s"Optimized plan:\n${df.queryExecution.optimizedPlan.treeString}")
+      s"Expected $expected HashAggregateExecBaseTransformer nodes in executed plan, " +
+        s"but got $actual.\nExecuted plan:\n${df.queryExecution.executedPlan.treeString}")
   }
 
   test("Join-aggregate wrapper aggregate") {

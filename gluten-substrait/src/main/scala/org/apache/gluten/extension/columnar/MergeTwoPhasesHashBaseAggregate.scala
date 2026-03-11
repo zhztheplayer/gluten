@@ -20,8 +20,11 @@ import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, ExprId, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateMode, Complete, Final, Partial, PartialMerge}
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.ProjectExec
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 
@@ -114,6 +117,44 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
             initialInputBufferOffset = 0,
             child = child.child
           )
+        // PullOutPreProject and wrapper-unwrapping can leave a pass-through projection
+        // between two mergeable hash aggregates. Rebind parent expressions through the
+        // project aliases and then merge phases as usual.
+        case hashAgg @ HashAggregateExec(
+              _,
+              isStreaming,
+              _,
+              _,
+              aggregateExpressions,
+              aggregateAttributes,
+              _,
+              resultExpressions,
+              project @ ProjectExec(projectList, child: HashAggregateExec))
+            if !isStreaming && isAliasOnlyProject(projectList) && canMergeTwoPhases(child, hashAgg) =>
+          val projectAttrMap = buildProjectAttrMap(project)
+          val reboundGrouping = hashAgg.groupingExpressions.map(rewriteByProjectMap(_, projectAttrMap))
+          val reboundAggExprs = hashAgg.aggregateExpressions.map {
+            ae => rewriteByProjectMap(ae, projectAttrMap).asInstanceOf[AggregateExpression]
+          }
+          val reboundResultExprs = hashAgg.resultExpressions.map {
+            re => rewriteByProjectMap(re, projectAttrMap).asInstanceOf[NamedExpression]
+          }
+          val reboundRequiredDistribution = hashAgg.requiredChildDistributionExpressions.map {
+            _.map(rewriteByProjectMap(_, projectAttrMap))
+          }
+          val mergedModes = mergeModes(child, hashAgg).get
+          val mergedAggregateExpressions =
+            reboundAggExprs.zip(mergedModes).map {
+              case (ae, mode) => ae.copy(mode = mode)
+            }
+          hashAgg.copy(
+            requiredChildDistributionExpressions = reboundRequiredDistribution,
+            groupingExpressions = reboundGrouping,
+            aggregateExpressions = mergedAggregateExpressions,
+            initialInputBufferOffset = 0,
+            resultExpressions = reboundResultExprs,
+            child = child.child
+          )
         case objectHashAgg @ ObjectHashAggregateExec(
               _,
               isStreaming,
@@ -164,4 +205,33 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
       }
     }
   }
+
+  private def isAliasOnlyProject(projectList: Seq[NamedExpression]): Boolean = {
+    projectList.forall {
+      case _: Attribute => true
+      case Alias(_: Attribute, _) => true
+      case _ => false
+    }
+  }
+
+  private def buildProjectAttrMap(project: ProjectExec): Map[ExprId, Attribute] = {
+    project.projectList.flatMap {
+      case a: Attribute =>
+        Some(a.exprId -> a)
+      case Alias(a: Attribute, _) =>
+        // Parent expressions bind by the alias output ExprId.
+        Some(a.toAttribute.exprId -> a)
+      case _ =>
+        None
+    }.toMap
+  }
+
+  private def rewriteByProjectMap[T <: Expression](
+      expr: T,
+      projectAttrMap: Map[ExprId, Attribute]): T = {
+    expr.transformUp {
+      case a: Attribute => projectAttrMap.getOrElse(a.exprId, a)
+    }.asInstanceOf[T]
+  }
+
 }
