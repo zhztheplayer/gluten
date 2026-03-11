@@ -135,7 +135,10 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
             Alias(other, re.name)(exprId = re.exprId, qualifier = re.qualifier)
         }
     }
+    val rewrittenRequiredChildDistributionExpressions = rewrittenRequiredChildDistribution(agg)
+
     val rewrittenAgg = agg.copy(
+      requiredChildDistributionExpressions = rewrittenRequiredChildDistributionExpressions,
       aggregateExpressions = rewrittenAggExprs,
       aggregateAttributes = rewrittenAggregateAttributes,
       resultExpressions = rewrittenResultExpressions,
@@ -325,5 +328,30 @@ case class UnwrapStarSchemaWrapperAggregate() extends Rule[SparkPlan] {
 
   private def isWrapperD(mode: AggregateMode, targetPhase: TargetPhase): Boolean = {
     mode == Final && targetPhase == FinalPhase
+  }
+
+  private def rewrittenRequiredChildDistribution(
+      agg: HashAggregateExec): Option[Seq[Expression]] = {
+    // Minor distribution alignment trick:
+    // 1) Wrapper-B (Final + PartialPhase): drop distribution so B can consume A directly.
+    // 2) Wrapper-C (Partial + FinalPhase): require hash on grouping keys so C aligns with D.
+    val hasWrapperBExpr = agg.aggregateExpressions.exists {
+      case AggregateExpression(w: StarSchemaAggregateFunctionWrapper, mode, _, _, _) =>
+        isWrapperB(mode, w.targetPhase)
+      case _ => false
+    }
+    val hasWrapperCExpr = agg.aggregateExpressions.exists {
+      case AggregateExpression(w: StarSchemaAggregateFunctionWrapper, mode, _, _, _) =>
+        isWrapperC(mode, w.targetPhase)
+      case _ => false
+    }
+
+    if (hasWrapperBExpr) {
+      None
+    } else if (hasWrapperCExpr) {
+      Some(agg.groupingExpressions)
+    } else {
+      agg.requiredChildDistributionExpressions
+    }
   }
 }
