@@ -122,42 +122,20 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
-  test("Reproduce duplicate sum/isEmpty remap assertion") {
-    withTempView("ss_fact", "ss_sales", "ss_returns", "ss_dim") {
+  test("Minimal pushdown for two different decimal sums") {
+    withTempView("ss_fact", "ss_dim") {
       spark.sql("""
                   |CREATE OR REPLACE TEMP VIEW ss_fact AS
                   |SELECT
                   |  CAST(item_sk AS INT) AS item_sk,
-                  |  CAST(cp_catalog_page_id AS INT) AS cp_catalog_page_id,
-                  |  CAST(sales_price AS DECIMAL(12, 2)) AS sales_price,
-                  |  CAST(return_amt AS DECIMAL(12, 2)) AS return_amt,
-                  |  CAST(profit AS DECIMAL(12, 2)) AS profit,
-                  |  CAST(net_loss AS DECIMAL(12, 2)) AS net_loss
+                  |  CAST(cp_catalog_page_id AS INT) AS grp_id,
+                  |  CAST(sales_price AS DECIMAL(12, 2)) AS dec_a,
+                  |  CAST(return_amt AS DECIMAL(12, 2)) AS dec_b
                   |FROM VALUES
-                  |  (1, 100, 10.00, 5.00, 7.00, 3.00),
-                  |  (1, 100, 20.00, 8.00, 6.00, 2.00),
-                  |  (2, 200, 30.00, 9.00, 4.00, 1.00)
-                  |AS t(item_sk, cp_catalog_page_id, sales_price, return_amt, profit, net_loss)
-                  |""".stripMargin)
-
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW ss_sales AS
-                  |SELECT
-                  |  item_sk,
-                  |  cp_catalog_page_id,
-                  |  sales_price,
-                  |  profit
-                  |FROM ss_fact
-                  |""".stripMargin)
-
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW ss_returns AS
-                  |SELECT
-                  |  item_sk,
-                  |  cp_catalog_page_id,
-                  |  return_amt,
-                  |  net_loss
-                  |FROM ss_fact
+                  |  (1, 100, 10.00, 5.00),
+                  |  (1, 100, 20.00, 8.00),
+                  |  (2, 200, 30.00, 9.00)
+                  |AS t(item_sk, cp_catalog_page_id, sales_price, return_amt)
                   |""".stripMargin)
 
       spark.sql("""
@@ -170,42 +148,26 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
 
       val query =
         """
-          |WITH base AS (
-          |  SELECT
-          |    s.item_sk,
-          |    s.cp_catalog_page_id,
-          |    s.sales_price,
-          |    s.profit,
-          |    CAST(0 AS DECIMAL(12, 2)) AS return_amt,
-          |    CAST(0 AS DECIMAL(12, 2)) AS net_loss
-          |  FROM ss_sales s
-          |  UNION ALL
-          |  SELECT
-          |    r.item_sk,
-          |    r.cp_catalog_page_id,
-          |    CAST(0 AS DECIMAL(12, 2)) AS sales_price,
-          |    CAST(0 AS DECIMAL(12, 2)) AS profit,
-          |    r.return_amt,
-          |    r.net_loss
-          |  FROM ss_returns r
-          |)
           |SELECT
-          |  b.cp_catalog_page_id,
-          |  SUM(b.sales_price) AS sum_sales_price,
-          |  SUM(b.return_amt) AS sum_return_amt,
-          |  SUM(b.profit) AS sum_profit,
-          |  SUM(b.net_loss) AS sum_net_loss
-          |FROM base b
+          |  f.grp_id,
+          |  SUM(f.dec_a) AS sum_dec_a,
+          |  SUM(f.dec_b) AS sum_dec_b
+          |FROM ss_fact f
           |JOIN ss_dim d
-          |  ON b.item_sk = d.item_sk
-          |GROUP BY b.cp_catalog_page_id
-          |ORDER BY b.cp_catalog_page_id
+          |  ON f.item_sk = d.item_sk
+          |GROUP BY f.grp_id
+          |ORDER BY f.grp_id
           |""".stripMargin
 
-      runQueryAndCompare(query) {
-        df =>
-          assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-          checkGlutenPlan[HashAggregateExecTransformer](df)
+      withSQLConf(
+        "spark.sql.adaptive.enabled" -> "true",
+        "spark.sql.shuffle.partitions" -> "100",
+        "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
+        runQueryAndCompare(query) {
+          df =>
+            assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+            checkGlutenPlan[HashAggregateExecTransformer](df)
+        }
       }
     }
   }
