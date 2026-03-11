@@ -368,6 +368,54 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
+  test("Minimal pushdown for decimal avg") {
+    withTempView("ss_fact_avg", "ss_dim_avg") {
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_fact_avg AS
+                  |SELECT
+                  |  CAST(item_sk AS INT) AS item_sk,
+                  |  CAST(grp_id AS INT) AS grp_id,
+                  |  CAST(metric AS DECIMAL(7, 2)) AS metric
+                  |FROM VALUES
+                  |  (1, 100, 10.00),
+                  |  (1, 100, 20.00),
+                  |  (2, 200, 30.00)
+                  |AS t(item_sk, grp_id, metric)
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_dim_avg AS
+                  |SELECT CAST(item_sk AS INT) AS item_sk
+                  |FROM VALUES
+                  |  (1), (1), (2), (2), (2)
+                  |AS t(item_sk)
+                  |""".stripMargin)
+
+      val query =
+        """
+          |SELECT
+          |  f.grp_id,
+          |  AVG(f.metric) AS avg_metric
+          |FROM ss_fact_avg f
+          |JOIN ss_dim_avg d
+          |  ON f.item_sk = d.item_sk
+          |GROUP BY f.grp_id
+          |ORDER BY f.grp_id
+          |""".stripMargin
+
+      withSQLConf(
+        "spark.sql.adaptive.enabled" -> "false",
+        "spark.sql.shuffle.partitions" -> "100",
+        "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
+        runQueryAndCompare(query) {
+          df =>
+            assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+            checkGlutenPlan[HashAggregateExecTransformer](df)
+        }
+      }
+    }
+  }
+
   test("Support full TPC-DS q5 shape") {
     val query =
       """

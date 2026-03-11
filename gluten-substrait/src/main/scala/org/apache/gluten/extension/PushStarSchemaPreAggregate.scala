@@ -23,7 +23,7 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression,
 import org.apache.spark.sql.catalyst.optimizer.DecimalAggregates
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan, Project}
-import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
+import org.apache.spark.sql.catalyst.rules.Rule
 
 case class PushStarSchemaPreAggregate(spark: SparkSession)
   extends Rule[LogicalPlan]
@@ -360,4 +360,3 @@ case class PushStarSchemaPreAggregateBatch(spark: SparkSession) extends Rule[Log
     GlutenConfig.get.enableStarSchemaJoinAggregateRules
   }
 }
-
