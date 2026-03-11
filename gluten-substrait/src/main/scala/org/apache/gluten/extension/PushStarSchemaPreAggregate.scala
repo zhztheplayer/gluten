@@ -54,7 +54,8 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
       return plan
     }
     plan.transformUp {
-      case agg @ Aggregate(groupingExprs, aggExprs, child) if hasPushableAggExpr(aggExprs) =>
+      case agg @ Aggregate(groupingExprs, aggExprs, child)
+          if hasPushableAggExpr(aggExprs) && !hasDistinctAggExpr(aggExprs) =>
         extractJoin(child)
           .flatMap {
             case (join, wrapperRequiredAttrs, rebuild) =>
@@ -282,6 +283,15 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
 
   private def isPushableExpr(expr: Expression): Boolean = {
     pushableSpec(expr).isDefined
+  }
+
+  private def hasDistinctAggExpr(aggExprs: Seq[NamedExpression]): Boolean = {
+    aggExprs.exists {
+      _.exists {
+        case ae: AggregateExpression if ae.isDistinct => true
+        case _ => false
+      }
+    }
   }
 
   private def pushableSpec(expr: Expression): Option[SidePartialSpec] = {
