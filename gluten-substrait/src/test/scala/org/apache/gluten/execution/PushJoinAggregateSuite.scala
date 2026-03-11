@@ -224,13 +224,13 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT
-                   |  i_item_sk AS item_sk,
+                   |  i_item_desc AS item_desc,
                    |  d_date AS sold_date,
                    |  sum(ss_sales_price) AS total_sales_price
                    |FROM store_sales
                    |JOIN date_dim ON ss_sold_date_sk = d_date_sk
                    |JOIN item ON ss_item_sk = i_item_sk
-                   |GROUP BY i_item_sk, d_date
+                   |GROUP BY item_desc, d_date
                    |""".stripMargin,
       expectedPushCount = 2,
       expectedAggCount = 2
