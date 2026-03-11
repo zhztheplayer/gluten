@@ -499,17 +499,9 @@ abstract class HashAggregateExecTransformer(
                   .doTransform(context))
           }
           .getOrElse {
-            // 3) Last-resort safety:
-            // If a buffer attribute cannot be rebound, emit type-correct default literal
-            // to keep row-construction schema consistent and avoid planner-time assertion
-            // failures from missing inputs.
-            val synthetic = AttributeReference(attr.name, attr.dataType, attr.nullable)()
-            val defaultLiteral = Literal.default(attr.dataType)
-            val literalNode = ExpressionBuilder.makeLiteral(
-              defaultLiteral.value,
-              defaultLiteral.dataType,
-              defaultLiteral.nullable)
-            (synthetic, literalNode)
+            throw new GlutenNotSupportException(
+              s"Cannot resolve agg buffer input ${attr.name}#${attr.exprId.id} " +
+                s"from ${originalInputAttributes.map(a => s"${a.name}#${a.exprId.id}").mkString("[", ", ", "]")}")
           }
     }
   }
