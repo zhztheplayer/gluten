@@ -27,7 +27,7 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
 
-class StarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
+class PushStarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
   private val starSchemaRule = PushStarSchemaPreAggregate(spark)
   private val debugMode: Boolean = true
 

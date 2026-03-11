@@ -68,4 +68,25 @@ class StarSchemaWrapperAggregateSuite extends VeloxTPCHTableSupport {
         checkGlutenPlan[HashAggregateExecTransformer](df)
     }
   }
+
+  test("Support star-schema wrapper aggregate for multi-field agg buffer (avg)") {
+    val query =
+      """
+        |SELECT
+        |  c_nationkey,
+        |  AVG(CAST(o_shippriority AS DOUBLE)) AS avg_shippriority
+        |FROM customer
+        |JOIN orders
+        |  ON c_custkey = o_custkey
+        |WHERE c_mktsegment = 'BUILDING'
+        |GROUP BY c_nationkey
+        |ORDER BY c_nationkey
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
 }
