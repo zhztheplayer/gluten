@@ -104,7 +104,15 @@ case class PushJoinAggregate(spark: SparkSession)
                 )()
             }
 
-            val rebuiltChild = rebuild(join, partialGroupingKeys ++ partialAliases.map(_.toAttribute))
+            // Keep wrapper-input dependencies (e.g. CASE operands from dimension columns) when
+            // rebuilding extracted Project/Filter nodes. These inputs must be preserved for
+            // aggregate pre-project generation, but they must not be promoted into grouping keys.
+            val partialInputAttrs = dedupeAttrs(pushableSpecs.flatMap {
+              spec => spec.aggregate.children.flatMap(referencedAttrsInOrder)
+            })
+            val rebuildRequiredAttrs =
+              dedupeAttrs(partialGroupingKeys ++ partialAliases.map(_.toAttribute) ++ partialInputAttrs)
+            val rebuiltChild = rebuild(join, rebuildRequiredAttrs)
             val partialAgg = Aggregate(
               groupingExpressions = partialGroupingKeys,
               aggregateExpressions = partialGroupingKeys ++ partialAliases,
@@ -280,12 +288,16 @@ case class PushJoinAggregate(spark: SparkSession)
               join,
               projectRequiredAttrs,
               (j: Join, requiredAttrs: Seq[Attribute]) => {
-                val rebuiltChild = rebuild(j, requiredAttrs)
-                val projectOutputSet = AttributeSet(project.projectList.map(_.toAttribute))
                 val requiredAttrSet = AttributeSet(requiredAttrs)
                 val retainedProjectList = project.projectList.filter {
                   ne => requiredAttrSet.contains(ne.toAttribute)
                 }
+                // If a retained project expression depends on child columns (e.g. CASE refs),
+                // propagate those dependencies when rebuilding the join subtree.
+                val requiredForChild =
+                  dedupeAttrs(requiredAttrs ++ retainedProjectList.flatMap(referencedAttrsInOrder))
+                val rebuiltChild = rebuild(j, requiredForChild)
+                val projectOutputSet = AttributeSet(project.projectList.map(_.toAttribute))
                 val passThroughAttrs = requiredAttrs.filter {
                   attr => rebuiltChild.outputSet.contains(attr) && !projectOutputSet.contains(attr)
                 }
