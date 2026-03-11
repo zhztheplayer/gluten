@@ -221,7 +221,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |""".stripMargin)
   }
 
-  test("star-schema wrapper aggregate") {
+  test("Star-schema wrapper aggregate") {
     val query =
       """
         |SELECT
