@@ -63,9 +63,11 @@ object StarSchemaAggregateFunctionWrapper {
   def semanticMode(actualMode: AggregateMode, targetPhase: TargetPhase): AggregateMode = {
     (actualMode, targetPhase) match {
       case (Partial, PartialPhase) => Partial
+      case (PartialMerge, PartialPhase) => PartialMerge
       case (Final, PartialPhase) => PartialMerge
       case (Complete, PartialPhase) => Partial
       case (Partial, FinalPhase) => PartialMerge
+      case (PartialMerge, FinalPhase) => PartialMerge
       case (Final, FinalPhase) => Final
       case (Complete, FinalPhase) => Final
       case _ =>
