@@ -658,6 +658,51 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     }
   }
 
+  test("Support simplified SUM + COUNT DISTINCT shape") {
+    withTempView("ss_fact_distinct", "ss_dim_distinct") {
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_fact_distinct AS
+                  |SELECT
+                  |  CAST(item_sk AS INT) AS item_sk,
+                  |  CAST(grp_id AS INT) AS grp_id,
+                  |  CAST(metric AS DECIMAL(7, 2)) AS metric,
+                  |  CAST(order_no AS BIGINT) AS order_no
+                  |FROM VALUES
+                  |  (1, 100, 10.00, 9001),
+                  |  (1, 100, 20.00, 9002),
+                  |  (2, 200, 30.00, 9002),
+                  |  (2, 200, 15.00, 9003)
+                  |AS t(item_sk, grp_id, metric, order_no)
+                  |""".stripMargin)
+
+      spark.sql("""
+                  |CREATE OR REPLACE TEMP VIEW ss_dim_distinct AS
+                  |SELECT CAST(item_sk AS INT) AS item_sk
+                  |FROM VALUES
+                  |  (1), (2)
+                  |AS t(item_sk)
+                  |""".stripMargin)
+
+      val query =
+        """
+          |SELECT
+          |  f.grp_id,
+          |  SUM(f.metric) AS sum_metric,
+          |  COUNT(DISTINCT f.order_no) AS distinct_orders
+          |FROM ss_fact_distinct f
+          |JOIN ss_dim_distinct d
+          |  ON f.item_sk = d.item_sk
+          |GROUP BY f.grp_id
+          |ORDER BY f.grp_id
+          |""".stripMargin
+
+      runQueryAndCompare(query) {
+        df =>
+          checkGlutenPlan[HashAggregateExecTransformer](df)
+      }
+    }
+  }
+
   test("Support star-schema wrapper aggregate for simplified TPC-H q18") {
     val query =
       """
