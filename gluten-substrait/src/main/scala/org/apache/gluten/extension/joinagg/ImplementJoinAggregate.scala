@@ -135,7 +135,10 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
             // in the temporary unpack projection to prevent nested-field style mis-binding.
             val safeName = s"_joinagg_buf_${bufferAttr.exprId.id}_$idx"
             unpackAliases += Alias(
-              GetStructField(bufferExpr, idx, Some(bufferAttr.name)),
+              // Keep extraction positional to avoid mismatches between Spark buffer names
+              // (e.g. "sum") and wrapper struct field names
+              // (e.g. "ss_wrapper_buf_partial_xxx_0").
+              GetStructField(bufferExpr, idx, None),
               safeName
             )(exprId = bufferAttr.exprId, qualifier = bufferAttr.qualifier)
           case _ =>
