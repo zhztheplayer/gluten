@@ -22,9 +22,11 @@ import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan}
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, StructType}
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.Queue
 
 /** Unwraps star-schema wrapper aggregates (A/B/C/D) back to original Spark aggregates. */
 case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[SparkPlan] {
@@ -49,6 +51,7 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
 
   private def rewriteHashAggregate(agg: HashAggregateExec): SparkPlan = {
     val childAdaptations = ArrayBuffer.empty[NamedExpression]
+    val consumedChildExprIds = mutable.HashSet.empty[ExprId]
 
     val rewrittenAggExprs = agg.aggregateExpressions.map {
       ae =>
@@ -57,9 +60,10 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
             val rewrittenMode = semanticMode(ae.mode, w.targetPhase)
             val rewritten = ae.copy(aggregateFunction = w.innerAgg, mode = rewrittenMode)
             if (isWrapperB(ae.mode, w.targetPhase)) {
-              val oldInputs = ae.aggregateFunction.aggBufferAttributes
+              val oldInputs = ae.aggregateFunction.inputAggBufferAttributes
               val newInputs = rewritten.aggregateFunction.inputAggBufferAttributes
-              childAdaptations ++= remapWrapperBuffers(oldInputs, newInputs, agg.child.output)
+              childAdaptations ++=
+                remapWrapperBuffers(oldInputs, newInputs, agg.child.output, consumedChildExprIds)
             }
             if (isWrapperC(ae.mode, w.targetPhase)) {
               val payload = w.children.head
@@ -69,7 +73,8 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
             if (isWrapperD(ae.mode, w.targetPhase)) {
               val oldInputs = ae.aggregateFunction.inputAggBufferAttributes
               val newInputs = rewritten.aggregateFunction.inputAggBufferAttributes
-              childAdaptations ++= remapWrapperBuffers(oldInputs, newInputs, agg.child.output)
+              childAdaptations ++=
+                remapWrapperBuffers(oldInputs, newInputs, agg.child.output, consumedChildExprIds)
             }
             rewritten
           case _ =>
@@ -107,9 +112,18 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
       child = rewrittenChild
     )
     val outputMappings = buildOutputMappingsByAggregateAttributes(agg, preRewriteAgg)
+    val fallbackPools = mutable.HashMap.empty[(String, DataType), Queue[Expression]]
+    outputMappings.foreach {
+      case (from, to) =>
+        val key = (from.name, from.dataType)
+        val q = fallbackPools.getOrElseUpdate(key, Queue.empty[Expression])
+        q.enqueue(to)
+    }
+    val fallbackAssignments = mutable.HashMap.empty[ExprId, Expression]
     val rewrittenResultExpressions = agg.resultExpressions.map {
       re =>
-        val rewritten = rewriteAttr(re, outputMappings.toSeq)
+        val rewritten =
+          rewriteAttr(re, outputMappings.toSeq, fallbackPools, fallbackAssignments)
         rewritten match {
           case ne: NamedExpression => ne
           case other =>
@@ -179,17 +193,25 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
     }
   }
 
-  private def rewriteAttr(expr: Expression, pairs: Seq[(Attribute, Expression)]): Expression = {
+  private def rewriteAttr(
+      expr: Expression,
+      pairs: Seq[(Attribute, Expression)],
+      fallbackPools: mutable.HashMap[(String, DataType), Queue[Expression]],
+      fallbackAssignments: mutable.HashMap[ExprId, Expression]): Expression = {
     expr.transformUp {
       case a: Attribute =>
-        pairs
-          .collectFirst {
-            case (from, to) if a.semanticEquals(from) => to
-            case (from: AttributeReference, to)
-                if a.name == from.name && a.dataType == from.dataType =>
-              to
-          }
-          .getOrElse(a)
+        val byExprId = pairs.collectFirst {
+          case (from, to) if a.semanticEquals(from) => to
+        }
+        byExprId.getOrElse {
+          fallbackAssignments.getOrElseUpdate(
+            a.exprId, {
+              fallbackPools
+                .get((a.name, a.dataType))
+                .flatMap(q => if (q.nonEmpty) Some(q.dequeue()) else None)
+                .getOrElse(a)
+            })
+        }
     }
   }
 
@@ -242,31 +264,47 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
       target: AttributeReference,
       childOutput: Seq[Attribute]): Option[Attribute] = {
     childOutput.find(_.exprId == target.exprId).orElse {
-      childOutput.find(a => a.name == target.name && a.dataType == target.dataType)
+      val byNameType =
+        childOutput.filter(a => a.name == target.name && a.dataType == target.dataType)
+      if (byNameType.size == 1) Some(byNameType.head) else None
     }
   }
 
   private def remapWrapperBuffers(
       oldInputs: Seq[AttributeReference],
       newInputs: Seq[Attribute],
-      childOutput: Seq[Attribute]): Seq[NamedExpression] = {
+      childOutput: Seq[Attribute],
+      consumedChildExprIds: mutable.HashSet[ExprId]): Seq[NamedExpression] = {
+    def pickUnused(candidates: Seq[Attribute]): Option[Attribute] = {
+      candidates.find(a => !consumedChildExprIds.contains(a.exprId)).orElse(candidates.headOption)
+    }
+
+    def byNameType(attr: Attribute): Seq[Attribute] = {
+      childOutput.filter(a => a.name == attr.name && a.dataType == attr.dataType)
+    }
+
     oldInputs.zip(newInputs).map {
       case (oldAttr, newAttr) =>
         val source = childOutput
           .find(_.exprId == oldAttr.exprId)
           .orElse {
-            childOutput.find(a => a.name == oldAttr.name && a.dataType == oldAttr.dataType)
+            pickUnused(byNameType(oldAttr))
           }
           .orElse {
             childOutput.find(_.exprId == newAttr.exprId)
           }
           .orElse {
-            childOutput.find(a => a.name == newAttr.name && a.dataType == newAttr.dataType)
+            pickUnused(byNameType(newAttr))
           }
           .getOrElse {
             throw new IllegalStateException(
-              s"Cannot find wrapper buffer input ${oldAttr.name}/${newAttr.name} in child output.")
+              s"Cannot find wrapper buffer input ${oldAttr.name}#${oldAttr.exprId.id}/" +
+                s"${newAttr.name}#${newAttr.exprId.id} in child output " +
+                childOutput
+                  .map(a => s"${a.name}#${a.exprId.id}:${a.dataType.simpleString}")
+                  .mkString("[", ", ", "]"))
           }
+        consumedChildExprIds += source.exprId
         Alias(source, newAttr.name)(exprId = newAttr.exprId)
     }
   }

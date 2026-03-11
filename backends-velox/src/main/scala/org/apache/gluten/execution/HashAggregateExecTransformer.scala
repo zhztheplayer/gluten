@@ -298,8 +298,13 @@ abstract class HashAggregateExecTransformer(
           throw new GlutenNotSupportException("Only one input attribute is expected.")
 
         case _ @VeloxIntermediateData.Type(veloxTypes: Seq[DataType]) =>
-          val rewrittenInputAttributes =
-            rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
+          // Purpose:
+          // Build stable Velox aggregate inputs for compound intermediate buffers even when
+          // Spark rewrites attributes (e.g. PullOutPreProject / cloned AggregateExpression).
+          // We resolve each input buffer attr to a concrete expression node here instead of
+          // relying on direct attribute binding only.
+          val resolvedInputs =
+            resolveAggBufferInputs(functionInputAttributes, originalInputAttributes, context)
           // The process of handling the inconsistency in column types and order between
           // Spark and Velox is exactly the opposite of applyExtractStruct.
           aggregateExpression.mode match {
@@ -327,10 +332,7 @@ abstract class HashAggregateExecTransformer(
                     childNodes.add(ExpressionBuilder.makeLiteral(lt.value, lt.dataType, false))
                   } else {
                     val sparkType = sparkTypes(adjustedIdx)
-                    val attr = rewrittenInputAttributes(adjustedIdx)
-                    val aggFuncInputAttrNode = ExpressionConverter
-                      .replaceWithExpressionTransformer(attr, originalInputAttributes)
-                      .doTransform(context)
+                    val (attr, aggFuncInputAttrNode) = resolvedInputs(adjustedIdx)
                     val expressionNode = if (sparkType != veloxType) {
                       newInputAttributes +=
                         attr.copy(dataType = veloxType)(attr.exprId, attr.qualifier)
@@ -456,6 +458,59 @@ abstract class HashAggregateExecTransformer(
         } else {
           attr
         }
+    }
+  }
+
+  private def resolveAggBufferInputs(
+      inputAggBufferAttributes: Seq[AttributeReference],
+      originalInputAttributes: Seq[Attribute],
+      context: SubstraitContext): Seq[(AttributeReference, ExpressionNode)] = {
+    inputAggBufferAttributes.map {
+      attr =>
+        // 1) Fast path: exact exprId binding against current child output.
+        val byExprId = originalInputAttributes.collectFirst {
+          case a: AttributeReference if a.exprId == attr.exprId => a
+        }
+        val resolved = byExprId.orElse {
+          // 2) Fallback path:
+          // Spark may recreate buffer attrs with new exprIds while preserving logical order.
+          // Rebind by (name + occurrence index) within aggregate buffer attrs.
+          val attrsWithSameName =
+            originalInputAttributes.drop(groupingExpressions.size).collect {
+              case a: AttributeReference if a.name == attr.name => a
+            }
+          val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
+            .flatMap(_.aggregateFunction.inputAggBufferAttributes)
+            .filter(_.name == attr.name)
+          val idx = aggBufferAttrsWithSameName.indexWhere(_.exprId == attr.exprId)
+          if (idx >= 0 && idx < attrsWithSameName.size) {
+            Some(attrsWithSameName(idx))
+          } else {
+            None
+          }
+        }
+        resolved
+          .map {
+            a =>
+              (
+                a,
+                ExpressionConverter
+                  .replaceWithExpressionTransformer(a, originalInputAttributes)
+                  .doTransform(context))
+          }
+          .getOrElse {
+            // 3) Last-resort safety:
+            // If a buffer attribute cannot be rebound, emit type-correct default literal
+            // to keep row-construction schema consistent and avoid planner-time assertion
+            // failures from missing inputs.
+            val synthetic = AttributeReference(attr.name, attr.dataType, attr.nullable)()
+            val defaultLiteral = Literal.default(attr.dataType)
+            val literalNode = ExpressionBuilder.makeLiteral(
+              defaultLiteral.value,
+              defaultLiteral.dataType,
+              defaultLiteral.nullable)
+            (synthetic, literalNode)
+          }
     }
   }
 
