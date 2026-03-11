@@ -426,6 +426,13 @@ abstract class HashAggregateExecTransformer(
   private def rewriteAggBufferAttributes(
       inputAggBufferAttributes: Seq[AttributeReference],
       originalInputAttributes: Seq[Attribute]): Seq[AttributeReference] = {
+    // Non-grouping input region corresponds to aggregate-buffer inputs for merge/final modes.
+    // We use this region for positional fallback when Spark rewrites buffer attrs.
+    val nonGroupingInputs = originalInputAttributes.drop(groupingExpressions.size)
+    // Flattened input buffer attrs from all aggregate expressions, preserving Spark's
+    // deterministic declaration order. This makes positional rebinding stable.
+    val allInputAggBufferAttributes = aggregateExpressions.toIndexedSeq
+      .flatMap(_.aggregateFunction.inputAggBufferAttributes)
     inputAggBufferAttributes.map {
       attr =>
         val sameAttr = originalInputAttributes.find(_.exprId == attr.exprId)
@@ -448,15 +455,26 @@ abstract class HashAggregateExecTransformer(
           val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
             .flatMap(_.aggregateFunction.inputAggBufferAttributes)
             .filter(_.name == attr.name)
-          // Spark rewrites (e.g. decimal/avg related projections) may collapse duplicate
-          // same-name buffer columns in child output. In that case, fall back to the available
-          // same-name attribute instead of failing hard on cardinality mismatch.
+          // Spark rewrites (e.g. decimal/avg related projections) may collapse or rename
+          // intermediate buffer columns. Prefer same-name binding when possible, then fall back
+          // to positional binding on non-grouping inputs.
           if (attrsWithSameName.nonEmpty) {
             val idx = aggBufferAttrsWithSameName.indexOf(attr)
             attrsWithSameName(math.max(0, math.min(idx, attrsWithSameName.size - 1)))
               .asInstanceOf[AttributeReference]
           } else {
-            attr
+            // Final fallback: bind by aggregate-buffer position. This handles plans where
+            // Spark keeps logical buffer order but rewrites names to temporary aliases
+            // (for example `_pre_*`), making name-based rebinding impossible.
+            val globalIdx = allInputAggBufferAttributes.indexWhere(_.exprId == attr.exprId) match {
+              case -1 => allInputAggBufferAttributes.indexOf(attr)
+              case i => i
+            }
+            if (globalIdx >= 0 && globalIdx < nonGroupingInputs.size) {
+              nonGroupingInputs(globalIdx).asInstanceOf[AttributeReference]
+            } else {
+              attr
+            }
           }
         } else {
           attr
