@@ -31,6 +31,7 @@ import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
 import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
 import org.apache.gluten.sql.shims.SparkShimLoader
+
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.datasources.WriteFilesExec

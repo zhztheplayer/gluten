@@ -179,7 +179,8 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
             }
             mappings += originalSlice.head -> payloadExpr
             mappings += originalAe.resultAttribute -> payloadExpr
-          case w: StarSchemaAggregateFunctionWrapper if isWrapperD(originalAe.mode, w.targetPhase) =>
+          case w: StarSchemaAggregateFunctionWrapper
+              if isWrapperD(originalAe.mode, w.targetPhase) =>
             mappings ++= originalSlice.zip(rewrittenSlice)
             mappings += originalAe.resultAttribute -> rewrittenAe.resultAttribute
           case _: StarSchemaAggregateFunctionWrapper =>

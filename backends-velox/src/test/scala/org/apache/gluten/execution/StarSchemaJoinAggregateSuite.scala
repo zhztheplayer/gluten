@@ -39,7 +39,8 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
     "web_site",
     "item",
     "promotion",
-    "customer_demographics")
+    "customer_demographics"
+  )
 
   override def beforeAll(): Unit = {
     super.beforeAll()
