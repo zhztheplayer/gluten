@@ -20,7 +20,6 @@ import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.exception.GlutenNotSupportException
 import org.apache.gluten.expression._
 import org.apache.gluten.expression.ConverterUtils.FunctionConfig
-import org.apache.gluten.extension.StarSchemaAggregateWrapper
 import org.apache.gluten.substrait.`type`.{TypeBuilder, TypeNode}
 import org.apache.gluten.substrait.{AggregationParams, SubstraitContext}
 import org.apache.gluten.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode, ScalarFunctionNode}
@@ -77,10 +76,8 @@ abstract class HashAggregateExecTransformer(
 
   // Return whether the outputs partial aggregation should be combined for Velox computing.
   // When the partial outputs are multiple-column, row construct is needed.
-  private def veloxAggNeedsStructInput(): Boolean = aggregateExpressions.exists {
-    case AggregateExpression(aggFunc, mode, _, _, _) =>
-      val modeForVelox = semanticMode(aggFunc, mode)
-      (modeForVelox == PartialMerge || modeForVelox == Final) &&
+  private def rowConstructNeeded(): Boolean = aggregateExpressions.exists {
+    case AggregateExpression(aggFunc, PartialMerge | Final, _, _, _) =>
       aggFunc.inputAggBufferAttributes.size > 1
     case _ => false
   }
@@ -91,41 +88,10 @@ abstract class HashAggregateExecTransformer(
    * @return
    *   extracting needed or not.
    */
-  private def veloxAggHasStructOutput(): Boolean = aggregateExpressions.exists {
-    case AggregateExpression(aggFunc, mode, _, _, _) =>
-      val modeForVelox = semanticMode(aggFunc, mode)
-      (modeForVelox == Partial || modeForVelox == PartialMerge) &&
+  private def extractStructNeeded(): Boolean = aggregateExpressions.exists {
+    case AggregateExpression(aggFunc, Partial | PartialMerge, _, _, _) =>
       aggFunc.aggBufferAttributes.size > 1
     case _ => false
-  }
-
-  private def isWrapperTypeB(aggExpr: AggregateExpression): Boolean = {
-    aggExpr.aggregateFunction match {
-      // B: ss_agg_wrapper_partial in Spark Final mode.
-      case wrapper: StarSchemaAggregateWrapper =>
-        wrapper.targetPhase == StarSchemaAggregateWrapper.PartialPhase && aggExpr.mode == Final
-      case _ => false
-    }
-  }
-
-  private def isWrapperTypeC(aggExpr: AggregateExpression): Boolean = {
-    aggExpr.aggregateFunction match {
-      // C: ss_agg_wrapper_final in Spark Partial mode.
-      case wrapper: StarSchemaAggregateWrapper =>
-        wrapper.targetPhase == StarSchemaAggregateWrapper.FinalPhase && aggExpr.mode == Partial
-      case _ => false
-    }
-  }
-
-  private def semanticMode(
-      aggregateFunction: AggregateFunction,
-      aggregateMode: AggregateMode): AggregateMode = {
-    aggregateFunction match {
-      case wrapper: StarSchemaAggregateWrapper =>
-        StarSchemaAggregateWrapper.semanticMode(aggregateMode, wrapper.targetPhase)
-      case _ =>
-        aggregateMode
-    }
   }
 
   /**
@@ -152,18 +118,10 @@ abstract class HashAggregateExecTransformer(
       colIdx += 1
     }
 
-    for (aggExpr <- aggregateExpressions) {
-      aggExpr match {
-        case expr if isWrapperTypeB(expr) =>
-          // Type B wrapper keeps its payload shape; skip extract for this expression.
-          expressionNodes.add(ExpressionBuilder.makeSelection(colIdx))
-          colIdx += 1
-        case AggregateExpression(
-              aggFunc @ VeloxIntermediateData.Type(veloxTypes: Seq[DataType]),
-              _,
-              _,
-              _,
-              _) =>
+    for (expr <- aggregateExpressions) {
+      val aggFunc = expr.aggregateFunction
+      aggFunc match {
+        case _ @VeloxIntermediateData.Type(veloxTypes: Seq[DataType]) =>
           val (sparkOrders, sparkTypes) =
             aggFunc.aggBufferAttributes.map(attr => (attr.name, attr.dataType)).unzip
           val veloxOrders = VeloxIntermediateData.veloxIntermediateDataOrder(aggFunc)
@@ -229,9 +187,8 @@ abstract class HashAggregateExecTransformer(
       aggregateFunction: AggregateFunction,
       childrenNodeList: JList[ExpressionNode],
       aggregateMode: AggregateMode): AggregateFunctionNode = {
-    val semanticAggMode = semanticMode(aggregateFunction, aggregateMode)
 
-    val outputTypeNode = semanticAggMode match {
+    val outputTypeNode = aggregateMode match {
       case Partial | PartialMerge if aggregateFunction.aggBufferAttributes.size > 1 =>
         VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction)
       case Partial | PartialMerge =>
@@ -244,7 +201,7 @@ abstract class HashAggregateExecTransformer(
     ExpressionBuilder.makeAggregateFunction(
       VeloxAggregateFunctionsBuilder.create(context, aggregateFunction, aggregateMode),
       childrenNodeList,
-      modeToKeyWord(semanticAggMode),
+      modeToKeyWord(aggregateMode),
       outputTypeNode
     )
   }
@@ -263,10 +220,9 @@ abstract class HashAggregateExecTransformer(
     aggregateExpressions.foreach(
       expression => {
         val aggregateFunction = expression.aggregateFunction
-        val semanticAggMode = semanticMode(aggregateFunction, expression.mode)
         aggregateFunction match {
           case _ if aggregateFunction.aggBufferAttributes.size > 1 =>
-            semanticAggMode match {
+            expression.mode match {
               case Partial | PartialMerge =>
                 typeNodeList.add(VeloxIntermediateData.getIntermediateTypeNode(aggregateFunction))
               case Final | Complete =>
@@ -324,40 +280,11 @@ abstract class HashAggregateExecTransformer(
             .doTransform(context))
       })
 
-    for (aggExpr <- aggregateExpressions) {
-      aggExpr match {
-        case aggregateExpression if isWrapperTypeC(aggregateExpression) =>
-          val aggFunc = aggregateExpression.aggregateFunction
-          // Type C wrapper should not be row-constructed.
-          // Depending on the phase, Spark may expose either payload child attributes
-          // or wrapper input buffer attributes on this aggregate node.
-          val functionInputAttributes = aggFunc.inputAggBufferAttributes
-          val useFunctionInputAttrs = functionInputAttributes.forall(
-            attr =>
-              originalInputAttributes.exists(
-                inAttr => inAttr.exprId == attr.exprId || inAttr.name == attr.name))
-          val childNodes = if (useFunctionInputAttrs) {
-            val rewrittenInputAttributes =
-              rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
-            rewrittenInputAttributes
-              .map(
-                ExpressionConverter
-                  .replaceWithExpressionTransformer(_, originalInputAttributes)
-                  .doTransform(context)
-              )
-              .asJava
-          } else {
-            aggFunc.children
-              .map(
-                ExpressionConverter
-                  .replaceWithExpressionTransformer(_, originalInputAttributes)
-                  .doTransform(context)
-              )
-              .asJava
-          }
-          exprNodes.addAll(childNodes)
-        case AggregateExpression(aggFunc, layoutAggMode, _, _, _)
-            if layoutAggMode == Partial || layoutAggMode == Complete =>
+    for (aggregateExpression <- aggregateExpressions) {
+      val aggFunc = aggregateExpression.aggregateFunction
+      val functionInputAttributes = aggFunc.inputAggBufferAttributes
+      aggFunc match {
+        case _ if aggregateExpression.mode == Partial || aggregateExpression.mode == Complete =>
           val childNodes = aggFunc.children
             .map(
               ExpressionConverter
@@ -367,22 +294,15 @@ abstract class HashAggregateExecTransformer(
             .asJava
           exprNodes.addAll(childNodes)
 
-        case AggregateExpression(aggFunc: HyperLogLogPlusPlus, _, _, _, _)
-            if aggFunc.aggBufferAttributes.size != 1 =>
+        case _: HyperLogLogPlusPlus if aggFunc.aggBufferAttributes.size != 1 =>
           throw new GlutenNotSupportException("Only one input attribute is expected.")
 
-        case AggregateExpression(
-              aggFunc @ VeloxIntermediateData.Type(veloxTypes: Seq[DataType]),
-              layoutAggMode,
-              _,
-              _,
-              _) =>
-          val functionInputAttributes = aggFunc.inputAggBufferAttributes
+        case _ @VeloxIntermediateData.Type(veloxTypes: Seq[DataType]) =>
           val rewrittenInputAttributes =
             rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
           // The process of handling the inconsistency in column types and order between
           // Spark and Velox is exactly the opposite of applyExtractStruct.
-          layoutAggMode match {
+          aggregateExpression.mode match {
             case PartialMerge | Final =>
               val newInputAttributes = new ArrayBuffer[Attribute]()
               val childNodes = new JArrayList[ExpressionNode]()
@@ -395,13 +315,11 @@ abstract class HashAggregateExecTransformer(
                   val adjustedIdx = adjustedOrders(idx)
                   if (adjustedIdx == -1) {
                     // The Velox aggregate intermediate buffer column not found in Spark.
-                    // For example, skewness and kurtosis share the same aggregate buffer
-                    // in Velox,
+                    // For example, skewness and kurtosis share the same aggregate buffer in Velox,
                     // and Kurtosis additionally requires the buffer column of m4, which is
-                    // always 0 for skewness. In Spark, the aggregate buffer of skewness
-                    // does not have the column of m4, thus a placeholder m4 with a value
-                    // of 0 must be passed to Velox, and this value cannot be omitted.
-                    // Velox will always read m4 column
+                    // always 0 for skewness. In Spark, the aggregate buffer of skewness does not
+                    // have the column of m4, thus a placeholder m4 with a value of 0 must be passed
+                    // to Velox, and this value cannot be omitted. Velox will always read m4 column
                     // when accessing the intermediate data.
                     val extraAttr = AttributeReference(veloxOrders(idx).head, veloxType)()
                     newInputAttributes += extraAttr
@@ -433,8 +351,7 @@ abstract class HashAggregateExecTransformer(
               throw new GlutenNotSupportException(s"$other is not supported.")
           }
 
-        case AggregateExpression(aggFunc, _, _, _, _) =>
-          val functionInputAttributes = aggFunc.inputAggBufferAttributes
+        case _ =>
           val rewrittenInputAttributes =
             rewriteAggBufferAttributes(functionInputAttributes, originalInputAttributes)
           val childNodes = rewrittenInputAttributes
@@ -480,7 +397,7 @@ abstract class HashAggregateExecTransformer(
       validation: Boolean = false): RelNode = {
     val originalInputAttributes = child.output
 
-    val finalInput = if (veloxAggNeedsStructInput()) {
+    val finalInput = if (rowConstructNeeded()) {
       aggParams.rowConstructionNeeded = true
       applyRowConstruct(context, originalInputAttributes, operatorId, input, validation)
     } else {
@@ -495,7 +412,7 @@ abstract class HashAggregateExecTransformer(
       validation,
       aggParams.rowConstructionNeeded)
 
-    if (veloxAggHasStructOutput()) {
+    if (extractStructNeeded()) {
       aggParams.extractionNeeded = true
       aggRel = applyExtractStruct(context, aggRel, operatorId, validation)
     }
@@ -507,40 +424,37 @@ abstract class HashAggregateExecTransformer(
   private def rewriteAggBufferAttributes(
       inputAggBufferAttributes: Seq[AttributeReference],
       originalInputAttributes: Seq[Attribute]): Seq[AttributeReference] = {
-    val originalAggInput = originalInputAttributes.drop(groupingExpressions.size)
-    inputAggBufferAttributes.zipWithIndex.map {
-      case (attr, index) =>
-        originalInputAttributes.find(_.exprId == attr.exprId) match {
-          case Some(matched) =>
-            matched.asInstanceOf[AttributeReference]
-          case None =>
-            // 1. When aggregateExpressions includes subquery, Spark's PlanAdaptiveSubqueries
-            // Rule will transform the subquery within the final agg. The aggregateFunction
-            // in the aggregateExpressions of the final aggregation will be cloned, resulting
-            // in creating new aggregateFunction object. The inputAggBufferAttributes will
-            // also generate new AttributeReference instances with larger exprId, which leads
-            // to a failure in binding with the output of the partial agg. We need to adapt
-            // to this situation; when encountering a failure to bind, it is necessary to
-            // allow the binding of inputAggBufferAttribute with the same name but different
-            // exprId.
-            // 2. After apply `PullOutPreProject`, the aggregate expression may be created a new
-            // instance.
-            val attrsWithSameName = originalAggInput.collect {
+    inputAggBufferAttributes.map {
+      attr =>
+        val sameAttr = originalInputAttributes.find(_.exprId == attr.exprId)
+        if (sameAttr.isEmpty) {
+          // 1. When aggregateExpressions includes subquery, Spark's PlanAdaptiveSubqueries
+          // Rule will transform the subquery within the final agg. The aggregateFunction
+          // in the aggregateExpressions of the final aggregation will be cloned, resulting
+          // in creating new aggregateFunction object. The inputAggBufferAttributes will
+          // also generate new AttributeReference instances with larger exprId, which leads
+          // to a failure in binding with the output of the partial agg. We need to adapt
+          // to this situation; when encountering a failure to bind, it is necessary to
+          // allow the binding of inputAggBufferAttribute with the same name but different
+          // exprId.
+          // 2. After apply `PullOutPreProject`, the aggregate expression may be created a new
+          // instance.
+          val attrsWithSameName =
+            originalInputAttributes.drop(groupingExpressions.size).collect {
               case a if a.name == attr.name => a
             }
-            val sameNameOrdinal = inputAggBufferAttributes.take(index).count(_.name == attr.name)
-            if (sameNameOrdinal < attrsWithSameName.size) {
-              attrsWithSameName(sameNameOrdinal).asInstanceOf[AttributeReference]
-            } else {
-              val originalAggInputNames = originalAggInput.map(a => s"${a.name}:${a.exprId.id}")
-              val requestedNames = inputAggBufferAttributes.map(a => s"${a.name}:${a.exprId.id}")
-              throw new IllegalStateException(
-                s"Cannot bind aggregate buffer attribute ${attr.sql} by exprId or name. " +
-                  s"Expected at least ${sameNameOrdinal + 1} '${attr.name}' in child output, " +
-                  s"but found ${attrsWithSameName.size}. " +
-                  s"requested=[${requestedNames.mkString(", ")}], " +
-                  s"childAggInput=[${originalAggInputNames.mkString(", ")}]")
-            }
+          val aggBufferAttrsWithSameName = aggregateExpressions.toIndexedSeq
+            .flatMap(_.aggregateFunction.inputAggBufferAttributes)
+            .filter(_.name == attr.name)
+          assert(
+            attrsWithSameName.size == aggBufferAttrsWithSameName.size,
+            "The attribute with the same name in final agg inputAggBufferAttribute must" +
+              "have the same size of corresponding attributes in originalInputAttributes."
+          )
+          attrsWithSameName(aggBufferAttrsWithSameName.indexOf(attr))
+            .asInstanceOf[AttributeReference]
+        } else {
+          attr
         }
     }
   }
@@ -638,16 +552,6 @@ abstract class HashAggregateExecTransformer(
 
 /** An aggregation function builder specifically used by Velox backend. */
 object VeloxAggregateFunctionsBuilder {
-  private def semanticMode(
-      aggregateFunction: AggregateFunction,
-      aggregateMode: AggregateMode): AggregateMode = {
-    aggregateFunction match {
-      case wrapper: StarSchemaAggregateWrapper =>
-        StarSchemaAggregateWrapper.semanticMode(aggregateMode, wrapper.targetPhase)
-      case _ =>
-        aggregateMode
-    }
-  }
 
   /**
    * Create a scalar function for the input aggregate function.
@@ -663,23 +567,14 @@ object VeloxAggregateFunctionsBuilder {
       context: SubstraitContext,
       aggregateFunc: AggregateFunction,
       mode: AggregateMode): Long = {
-    val normalizedAggFunc = aggregateFunc match {
-      case wrapper: StarSchemaAggregateWrapper => wrapper.innerAgg
-      case other => other
-    }
-    val forMergeCompanion = semanticMode(aggregateFunc, mode) match {
-      case PartialMerge | Final => true
-      case _ => false
-    }
-
     val (sigName, aggFunc) =
       try {
-        (AggregateFunctionsBuilder.getSubstraitFunctionName(normalizedAggFunc), normalizedAggFunc)
+        (AggregateFunctionsBuilder.getSubstraitFunctionName(aggregateFunc), aggregateFunc)
       } catch {
         case e: GlutenNotSupportException =>
-          HiveUDAFInspector.getUDAFClassName(normalizedAggFunc) match {
+          HiveUDAFInspector.getUDAFClassName(aggregateFunc) match {
             case Some(udafClass) if UDFResolver.UDAFNames.contains(udafClass) =>
-              (udafClass, UDFResolver.getUdafExpression(udafClass)(normalizedAggFunc.children))
+              (udafClass, UDFResolver.getUdafExpression(udafClass)(aggregateFunc.children))
             case _ => throw e
           }
         case e: Throwable => throw e
@@ -689,7 +584,7 @@ object VeloxAggregateFunctionsBuilder {
       ConverterUtils.makeFuncName(
         // Substrait-to-Velox procedure will choose appropriate companion function if needed.
         sigName,
-        VeloxIntermediateData.getInputTypes(aggFunc, forMergeCompanion),
+        VeloxIntermediateData.getInputTypes(aggFunc, mode == PartialMerge || mode == Final),
         FunctionConfig.REQ
       )
     )
