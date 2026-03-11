@@ -29,7 +29,7 @@ import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, Queue}
 
 case class UnwrapJoinAggregateWrapperAggregate() extends Rule[SparkPlan] {
-  import JoinAggregateFunctionWrapper._
+  import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper._
   override def apply(plan: SparkPlan): SparkPlan = {
     if (!isEnabled) {
       return plan
