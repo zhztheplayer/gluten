@@ -98,8 +98,9 @@ class PushStarSchemaPreAggregateSuite extends PlanTest with SharedSparkSession {
             s"MissingInput=${withRulePlan.missingInput}")
         assert(
           nodesWithMissingInput.isEmpty,
-          s"Plan has missing input:\n${nodesWithMissingInput.map(_.treeString)
-            .mkString("\n---\n")}")
+          s"Plan has missing input:\n${nodesWithMissingInput
+              .map(_.treeString)
+              .mkString("\n---\n")}")
         assert(starSchemaRule.getSuccessfulPushCount == testCase.expectedPushCount)
         assert(aggregateNodeCount == testCase.expectedAggCount)
         if (debugMode) {
