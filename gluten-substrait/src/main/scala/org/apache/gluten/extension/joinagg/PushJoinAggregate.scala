@@ -17,6 +17,7 @@
 package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
+
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
@@ -28,14 +29,13 @@ import org.apache.spark.sql.catalyst.rules.Rule
 case class PushJoinAggregate(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
+
   private case class SidePartialSpec(
       originalExpr: Expression,
       aggregate: DeclarativeAggregate,
       wrapperKey: String)
 
   private case class SidePartialRef(spec: SidePartialSpec, attr: AttributeReference)
-
-  private case class PreAggInfo(plan: Aggregate, sidePartials: Seq[SidePartialRef])
 
   private var successfulPushCount: Int = 0
 
@@ -49,60 +49,198 @@ case class PushJoinAggregate(spark: SparkSession)
     if (!isEnabled) {
       return plan
     }
-    if (successfulPushCount > 0 || containsWrapperAggregate(plan)) {
-      return plan
-    }
+
+    // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
+    val split = splitAggregateWithJoin(plan)
+    // 2) Exhaustively push PartialWrapperAgg through join edges.
+    pushPartialWrapperAggregate(split)
+  }
+
+  private def isEnabled: Boolean = GlutenConfig.get.enableJoinAggregateRules
+
+  private def splitAggregateWithJoin(plan: LogicalPlan): LogicalPlan = {
     plan.transformUp {
-      case agg @ Aggregate(groupingExprs, aggExprs, child)
-          if hasPushableAggExpr(aggExprs) && !hasDistinctAggExpr(aggExprs) =>
-        extractJoin(child)
-          .flatMap {
-            case (join, wrapperRequiredAttrs, rebuild) =>
-              Seq(JoinLeft, JoinRight).iterator
-                .flatMap {
-                  side =>
-                    buildPreAgg(join, groupingExprs, wrapperRequiredAttrs, aggExprs, side).flatMap {
-                      preAggInfo =>
-                        rewriteAggregateExpressions(aggExprs, preAggInfo.sidePartials).map {
-                          rewrittenAggExprs =>
-                            val rewrittenJoin = side.replace(join, preAggInfo.plan)
-                            val requiredAttrs =
-                              dedupeAttrs(
-                                (groupingExprs ++ rewrittenAggExprs).flatMap(
-                                  referencedAttrsInOrder) ++
-                                  rewrittenAggExprs.flatMap(aggregateBufferAttrsInOrder))
-                            successfulPushCount += 1
-                            agg.copy(
-                              aggregateExpressions = rewrittenAggExprs,
-                              child = rebuild(rewrittenJoin, requiredAttrs)
-                            )
-                        }
-                    }
-                }
-                .toSeq
-                .headOption
-          }
-          .getOrElse(agg)
+      case agg @ Aggregate(_, aggExprs, _)
+          if !containsWrapperAggregateInOutput(aggExprs) &&
+            hasPushableAggExpr(aggExprs) &&
+            !hasDistinctAggExpr(aggExprs) =>
+        splitAggregate(agg).getOrElse(agg)
     }
   }
 
-  private def isEnabled: Boolean = {
-    GlutenConfig.get.enableJoinAggregateRules
+  private def splitAggregate(agg: Aggregate): Option[LogicalPlan] = {
+    extractJoin(agg.child).flatMap {
+      case (join, wrapperRequiredAttrs, rebuild) =>
+        val pushableSpecs = collectPushableSpecs(agg.aggregateExpressions)
+        if (pushableSpecs.isEmpty) {
+          None
+        } else {
+          val groupingRefAttrs = dedupeAttrs(agg.groupingExpressions.flatMap(referencedAttrsInOrder))
+          val joinRefAttrs = dedupeAttrs(join.condition.toSeq.flatMap(referencedAttrsInOrder))
+          val partialGroupingKeys = dedupeAttrs(groupingRefAttrs ++ wrapperRequiredAttrs ++ joinRefAttrs)
+          if (partialGroupingKeys.isEmpty) {
+            None
+          } else {
+            val partialAliases = pushableSpecs.zipWithIndex.map {
+              case (spec, idx) =>
+                Alias(
+                  JoinAggregateFunctionWrapper
+                    .wrapperPartial(spec.aggregate, spec.wrapperKey)
+                    .toAggregateExpression(),
+                  s"partial_wrapper_$idx"
+                )()
+            }
+
+            val rebuiltChild = rebuild(join, partialGroupingKeys ++ partialAliases.map(_.toAttribute))
+            val partialAgg = Aggregate(
+              groupingExpressions = partialGroupingKeys,
+              aggregateExpressions = partialGroupingKeys ++ partialAliases,
+              child = rebuiltChild
+            )
+
+            val partialOutputAttrs =
+              partialAgg.output.drop(partialGroupingKeys.size).take(partialAliases.size).map(cleanAttr)
+            val partialRefs = pushableSpecs.zip(partialOutputAttrs).map {
+              case (spec, attr) => SidePartialRef(spec, attr)
+            }
+
+            rewriteAggregateExpressions(agg.aggregateExpressions, partialRefs).map {
+              rewrittenAggExprs =>
+                agg.copy(
+                  aggregateExpressions = rewrittenAggExprs,
+                  child = partialAgg
+                )
+            }
+          }
+        }
+    }
   }
 
-  private def containsWrapperAggregate(plan: LogicalPlan): Boolean = {
-    plan.exists {
-      case Aggregate(_, aggExprs, _) =>
-        aggExprs.exists {
-          case Alias(ae: AggregateExpression, _) =>
-            ae.aggregateFunction.isInstanceOf[JoinAggregateFunctionWrapper]
-          case ae: AggregateExpression =>
-            ae.aggregateFunction.isInstanceOf[JoinAggregateFunctionWrapper]
-          case _ =>
-            false
-        }
-      case _ =>
-        false
+  private def pushPartialWrapperAggregate(plan: LogicalPlan): LogicalPlan = {
+    var current = plan
+    var changed = true
+    while (changed) {
+      changed = false
+      current = current.transformUp {
+        case partialAgg @ Aggregate(groupingExprs, aggExprs, child)
+            if isPurePartialWrapperAggregate(partialAgg) =>
+          pushOnce(partialAgg, groupingExprs, aggExprs, child) match {
+            case Some(newPlan) =>
+              successfulPushCount += 1
+              changed = true
+              newPlan
+            case None =>
+              partialAgg
+          }
+      }
+    }
+    current
+  }
+
+  private def pushOnce(
+      partialAgg: Aggregate,
+      groupingExprs: Seq[Expression],
+      aggExprs: Seq[NamedExpression],
+      child: LogicalPlan): Option[LogicalPlan] = {
+    extractJoin(child).flatMap {
+      case (join, wrapperRequiredAttrs, rebuild) =>
+        Seq(JoinLeft, JoinRight).iterator.flatMap {
+          side =>
+            pushPartialAggToJoinSide(
+              partialAgg,
+              join,
+              groupingExprs,
+              aggExprs,
+              wrapperRequiredAttrs,
+              rebuild,
+              side)
+        }.toSeq.headOption
+    }
+  }
+
+  private def pushPartialAggToJoinSide(
+      partialAgg: Aggregate,
+      join: Join,
+      groupingExprs: Seq[Expression],
+      aggExprs: Seq[NamedExpression],
+      wrapperRequiredAttrs: Seq[Attribute],
+      rebuild: (Join, Seq[Attribute]) => LogicalPlan,
+      side: JoinSide): Option[LogicalPlan] = {
+    val wrapperAliases = collectPartialWrapperAliases(aggExprs)
+    if (wrapperAliases.isEmpty) {
+      return None
+    }
+
+    val sideOutputSet = side.outputSet(join)
+    val allPushable = wrapperAliases.forall {
+      case (_, wrapper) => canPushToSide(wrapper.innerAgg, sideOutputSet)
+    }
+    if (!allPushable) {
+      return None
+    }
+
+    val sideGroupingAttrs = groupingExprs
+      .flatMap(referencedAttrsInOrder)
+      .collect { case a: Attribute if sideOutputSet.contains(a) => a }
+    val sideWrapperReqAttrs =
+      wrapperRequiredAttrs.collect { case a: Attribute if sideOutputSet.contains(a) => a }
+    val sideJoinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
+      case EqualTo(l: Attribute, r: Attribute)
+          if sideOutputSet.contains(l) && !sideOutputSet.contains(r) =>
+        l
+      case EqualTo(l: Attribute, r: Attribute)
+          if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
+        r
+    }
+    val sideJoinCondAttrs = join.condition.toSeq
+      .flatMap(referencedAttrsInOrder)
+      .collect { case a: Attribute if sideOutputSet.contains(a) => a }
+
+    val pushedGrouping =
+      dedupeAttrs(sideGroupingAttrs ++ sideWrapperReqAttrs ++ sideJoinKeys ++ sideJoinCondAttrs)
+    if (pushedGrouping.isEmpty) {
+      return None
+    }
+
+    val pushedWrapperAliases = wrapperAliases.map {
+      case (alias, wrapper) =>
+        val wrapped = JoinAggregateFunctionWrapper
+          .wrapperPartial(wrapper.innerAgg, wrapper.wrapperKey)
+          .toAggregateExpression()
+        Alias(wrapped, alias.name)(
+          exprId = alias.exprId,
+          qualifier = alias.qualifier,
+          explicitMetadata = alias.explicitMetadata,
+          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
+        )
+    }
+
+    val pushedAgg = Aggregate(
+      groupingExpressions = pushedGrouping,
+      aggregateExpressions = pushedGrouping ++ pushedWrapperAliases,
+      child = side.plan(join)
+    )
+
+    val pushedJoin = side.replace(join, pushedAgg)
+    val requiredAttrs = partialAgg.output.collect { case a: Attribute => a }
+    Some(rebuild(pushedJoin, requiredAttrs))
+  }
+
+  private def isPurePartialWrapperAggregate(agg: Aggregate): Boolean = {
+    val wrapperAliases = collectPartialWrapperAliases(agg.aggregateExpressions)
+    wrapperAliases.nonEmpty && agg.aggregateExpressions.forall {
+      case Alias(_: AggregateExpression, _) => true
+      case _: AggregateExpression => false
+      case _ => true
+    }
+  }
+
+  private def collectPartialWrapperAliases(
+      output: Seq[NamedExpression]): Seq[(Alias, JoinAggregateFunctionWrapper)] = {
+    output.collect {
+      case alias @ Alias(AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _), _)
+          if wrapper.targetPhase == JoinAggregateFunctionWrapper.PartialPhase =>
+        (alias, wrapper)
     }
   }
 
@@ -152,63 +290,70 @@ case class PushJoinAggregate(spark: SparkSession)
     }
   }
 
-  private def buildPreAgg(
-      join: Join,
-      groupingExprs: Seq[Expression],
-      wrapperRequiredAttrs: Seq[Attribute],
-      aggExprs: Seq[NamedExpression],
-      side: JoinSide): Option[PreAggInfo] = {
-    val sideOutputSet = side.outputSet(join)
-    val groupingRefAttrs = groupingExprs.flatMap(referencedAttrsInOrder)
-    val sideGroupingAttrs = groupingRefAttrs.collect {
-      case attr: Attribute if sideOutputSet.contains(attr) => attr
-    }
-    val wrapperAttrs = wrapperRequiredAttrs.collect {
-      case attr: Attribute if sideOutputSet.contains(attr) => attr
-    }
-    val joinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
-      case EqualTo(l: Attribute, r: Attribute)
-          if sideOutputSet.contains(l) && !sideOutputSet.contains(r) =>
-        l
-      case EqualTo(l: Attribute, r: Attribute)
-          if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
-        r
-    }
-    val joinConditionAttrs = join.condition.toSeq
-      .flatMap(referencedAttrsInOrder)
-      .collect { case attr: Attribute if sideOutputSet.contains(attr) => attr }
-    val groupingKeys =
-      dedupeAttrs(sideGroupingAttrs ++ wrapperAttrs ++ joinKeys ++ joinConditionAttrs)
-    if (groupingKeys.isEmpty) {
-      None
-    } else {
-      val sidePartials = collectSidePartials(aggExprs, sideOutputSet)
-      if (sidePartials.isEmpty) {
-        None
-      } else {
-        val sidePartialAliases = sidePartials.zipWithIndex.map {
-          case (spec, idx) =>
-            Alias(
-              JoinAggregateFunctionWrapper
-                .wrapperPartial(spec.aggregate, spec.wrapperKey)
-                .toAggregateExpression(),
-              s"${side.partialName}_$idx"
-            )()
-        }
+  private def cleanAttr(attr: Attribute): AttributeReference = {
+    AttributeReference(attr.name, attr.dataType, attr.nullable)(
+      exprId = attr.exprId,
+      qualifier = attr.qualifier)
+  }
 
-        val preAgg = Aggregate(
-          groupingExpressions = groupingKeys,
-          aggregateExpressions = groupingKeys ++ sidePartialAliases,
-          child = side.plan(join)
-        )
-        val sidePartialOutputAttrs =
-          preAgg.output.drop(groupingKeys.size).take(sidePartials.size).map(cleanAttr)
-        val sidePartialRefs = sidePartials.zip(sidePartialOutputAttrs).map {
-          case (spec, attr) => SidePartialRef(spec, attr)
-        }
-        Some(PreAggInfo(preAgg, sidePartialRefs))
+  private def containsWrapperAggregateInOutput(aggExprs: Seq[NamedExpression]): Boolean = {
+    aggExprs.exists {
+      _.exists {
+        case AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) => true
+        case _ => false
       }
     }
+  }
+
+  private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
+    aggExprs.exists {
+      case Alias(expr, _) => isPushableExpr(expr)
+      case expr => isPushableExpr(expr)
+    }
+  }
+
+  private def isPushableExpr(expr: Expression): Boolean = {
+    pushableSpec(expr).isDefined
+  }
+
+  private def hasDistinctAggExpr(aggExprs: Seq[NamedExpression]): Boolean = {
+    aggExprs.exists {
+      _.exists {
+        case ae: AggregateExpression if ae.isDistinct => true
+        case _ => false
+      }
+    }
+  }
+
+  private def pushableSpec(expr: Expression): Option[SidePartialSpec] = {
+    val candidates = expr.collect {
+      case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
+        ae.aggregateFunction match {
+          case da: DeclarativeAggregate if !da.isInstanceOf[JoinAggregateFunctionWrapper] =>
+            Some((ae, da))
+          case _ => None
+        }
+    }.flatten
+
+    if (candidates.size == 1) {
+      val (targetAe, da) = candidates.head
+      val stableExprSql = targetAe.canonicalized.sql
+      Some(SidePartialSpec(targetAe, da, Integer.toUnsignedString(stableExprSql.hashCode)))
+    } else {
+      None
+    }
+  }
+
+  private def collectPushableSpecs(aggExprs: Seq[NamedExpression]): Seq[SidePartialSpec] = {
+    aggExprs
+      .flatMap {
+        case Alias(expr, _) => pushableSpec(expr).toSeq
+        case expr => pushableSpec(expr).toSeq
+      }
+      .foldLeft(Seq.empty[SidePartialSpec]) {
+        case (acc, spec) if acc.exists(_.originalExpr.semanticEquals(spec.originalExpr)) => acc
+        case (acc, spec) => acc :+ spec
+      }
   }
 
   private def rewriteAggregateExpressions(
@@ -267,71 +412,6 @@ case class PushJoinAggregate(spark: SparkSession)
     }
   }
 
-  private def cleanAttr(attr: Attribute): AttributeReference = {
-    AttributeReference(attr.name, attr.dataType, attr.nullable)(
-      exprId = attr.exprId,
-      qualifier = attr.qualifier)
-  }
-
-  private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
-    aggExprs.exists {
-      case Alias(expr, _) => isPushableExpr(expr)
-      case expr => isPushableExpr(expr)
-    }
-  }
-
-  private def isPushableExpr(expr: Expression): Boolean = {
-    pushableSpec(expr).isDefined
-  }
-
-  private def hasDistinctAggExpr(aggExprs: Seq[NamedExpression]): Boolean = {
-    aggExprs.exists {
-      _.exists {
-        case ae: AggregateExpression if ae.isDistinct => true
-        case _ => false
-      }
-    }
-  }
-
-  private def pushableSpec(expr: Expression): Option[SidePartialSpec] = {
-    val candidates = expr.collect {
-      case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
-        ae.aggregateFunction match {
-          case da: DeclarativeAggregate if !da.isInstanceOf[JoinAggregateFunctionWrapper] =>
-            Some((ae, da))
-          case _ => None
-        }
-    }.flatten
-
-    if (candidates.size == 1) {
-      val (targetAe, da) = candidates.head
-      val stableExprSql = targetAe.canonicalized.sql
-      Some(SidePartialSpec(targetAe, da, Integer.toUnsignedString(stableExprSql.hashCode)))
-    } else {
-      None
-    }
-  }
-
-  private def collectSidePartials(
-      aggExprs: Seq[NamedExpression],
-      sideOutputSet: AttributeSet): Seq[SidePartialSpec] = {
-    aggExprs
-      .flatMap {
-        case Alias(expr, _) =>
-          pushableSpec(expr)
-            .filter(spec => canPushToSide(spec.aggregate, sideOutputSet))
-            .toSeq
-        case expr =>
-          pushableSpec(expr)
-            .filter(spec => canPushToSide(spec.aggregate, sideOutputSet))
-            .toSeq
-      }
-      .foldLeft(Seq.empty[SidePartialSpec]) {
-        case (acc, spec) if acc.exists(_.originalExpr.semanticEquals(spec.originalExpr)) => acc
-        case (acc, spec) => acc :+ spec
-      }
-  }
-
   private def canPushToSide(agg: DeclarativeAggregate, sideOutputSet: AttributeSet): Boolean = {
     agg.children.forall(_.references.forall(sideOutputSet.contains))
   }
@@ -347,29 +427,19 @@ case class PushJoinAggregate(spark: SparkSession)
     expr.collect { case attr: Attribute => attr }
   }
 
-  private def aggregateBufferAttrsInOrder(expr: Expression): Seq[Attribute] = {
-    expr.collect {
-      case ae: AggregateExpression =>
-        ae.aggregateFunction.inputAggBufferAttributes ++ ae.aggregateFunction.aggBufferAttributes
-    }.flatten
-  }
-
   sealed private trait JoinSide {
-    def partialName: String
     def plan(join: Join): LogicalPlan
     def outputSet(join: Join): AttributeSet
     def replace(join: Join, newPlan: LogicalPlan): Join
   }
 
   private case object JoinLeft extends JoinSide {
-    override val partialName: String = "left_partial"
     override def plan(join: Join): LogicalPlan = join.left
     override def outputSet(join: Join): AttributeSet = join.left.outputSet
     override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(left = newPlan)
   }
 
   private case object JoinRight extends JoinSide {
-    override val partialName: String = "right_partial"
     override def plan(join: Join): LogicalPlan = join.right
     override def outputSet(join: Join): AttributeSet = join.right.outputSet
     override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(right = newPlan)
@@ -385,8 +455,7 @@ case class PushJoinAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan]
       return plan
     }
     val decimalAvgRewrittenPlan = decimalAvgRule(plan)
-    val pushed = pushRule(decimalAvgRewrittenPlan)
-    pushed
+    pushRule(decimalAvgRewrittenPlan)
   }
 
   private def isEnabled: Boolean = {

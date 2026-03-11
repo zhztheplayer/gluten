@@ -150,7 +150,7 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
                    |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
                    |HAVING count(1) > 4
                    |""".stripMargin,
-      expectedPushCount = 1,
+      expectedPushCount = 2,
       expectedAggCount = 2
     )
     runCase(pushdownCase)
