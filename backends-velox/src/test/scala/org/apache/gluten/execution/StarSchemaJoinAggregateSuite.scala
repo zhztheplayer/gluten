@@ -19,6 +19,8 @@ package org.apache.gluten.execution
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.SparkConf
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
@@ -262,6 +264,18 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
                 |""".stripMargin)
   }
 
+  private def optimizedAggregateCount(df: DataFrame): Int = {
+    df.queryExecution.optimizedPlan.collect { case _: Aggregate => 1 }.size
+  }
+
+  private def assertOptimizedAggregateCount(df: DataFrame, expected: Int): Unit = {
+    val actual = optimizedAggregateCount(df)
+    assert(
+      actual == expected,
+      s"Expected $expected Aggregate nodes in optimized plan, but got $actual.\n" +
+        s"Optimized plan:\n${df.queryExecution.optimizedPlan.treeString}")
+  }
+
   test("Join-aggregate wrapper aggregate") {
     val query =
       """
@@ -424,6 +438,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
         runQueryAndCompare(query) {
           df =>
             assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+            assertOptimizedAggregateCount(df, 2)
             checkGlutenPlan[HashAggregateExecTransformer](df)
         }
       }
@@ -472,6 +487,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
         runQueryAndCompare(query) {
           df =>
             assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+            assertOptimizedAggregateCount(df, 2)
             checkGlutenPlan[HashAggregateExecTransformer](df)
         }
       }
