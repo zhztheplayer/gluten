@@ -131,9 +131,12 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         val bufferExpr = wrapper.children.head
         rewrittenAe.aggregateFunction.inputAggBufferAttributes.zipWithIndex.foreach {
           case (bufferAttr, idx) if seenExprIds.add(bufferAttr.exprId.id) =>
+            // Keep exprId for binding correctness, but avoid dotted names (e.g. a.b)
+            // in the temporary unpack projection to prevent nested-field style mis-binding.
+            val safeName = s"_joinagg_buf_${bufferAttr.exprId.id}_$idx"
             unpackAliases += Alias(
               GetStructField(bufferExpr, idx, Some(bufferAttr.name)),
-              bufferAttr.name
+              safeName
             )(exprId = bufferAttr.exprId, qualifier = bufferAttr.qualifier)
           case _ =>
         }
