@@ -17,11 +17,11 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.catalyst.plans.logical.Aggregate
-class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+
+class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSparkPlanHelper {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
@@ -265,7 +265,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
   }
 
   private def optimizedAggregateCount(df: DataFrame): Int = {
-    df.queryExecution.optimizedPlan.collect { case _: Aggregate => 1 }.size
+    collect(df.queryExecution.executedPlan) { case _: HashAggregateExecBaseTransformer => 1 }.size
   }
 
   private def assertOptimizedAggregateCount(df: DataFrame, expected: Int): Unit = {
