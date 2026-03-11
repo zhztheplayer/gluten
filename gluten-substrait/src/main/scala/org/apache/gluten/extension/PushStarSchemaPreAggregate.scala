@@ -17,13 +17,13 @@
 package org.apache.gluten.extension
 
 import org.apache.gluten.config.GlutenConfig
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, DeclarativeAggregate}
+import org.apache.spark.sql.catalyst.optimizer.DecimalAggregates
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LogicalPlan, Project}
-import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
 
 case class PushStarSchemaPreAggregate(spark: SparkSession)
   extends Rule[LogicalPlan]
@@ -342,3 +342,19 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
     override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(right = newPlan)
   }
 }
+
+case class PushStarSchemaPreAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan] {
+  private val decimalAvgRule = DecimalAggregates
+  private val pushRule = PushStarSchemaPreAggregate(spark)
+  private val executor = new RuleExecutor[LogicalPlan] {
+    override protected def batches: Seq[Batch] = {
+      Batch("Decimal AVG rewrite", Once, decimalAvgRule) ::
+        Batch("Push Star Schema Pre-Aggregate", Once, pushRule) :: Nil
+    }
+  }
+
+  override def apply(plan: LogicalPlan): LogicalPlan = {
+    executor.execute(plan)
+  }
+}
+

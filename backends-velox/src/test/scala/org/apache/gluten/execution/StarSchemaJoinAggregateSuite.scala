@@ -517,11 +517,15 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport {
         |limit 100
         |""".stripMargin
 
-    spark.sql("set spark.sql.adaptive.enabled = false").show
-    runQueryAndCompare(query) {
-      df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+    withSQLConf(
+      "spark.sql.adaptive.enabled" -> "false",
+      "spark.sql.shuffle.partitions" -> "100",
+      "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
+      runQueryAndCompare(query) {
+        df =>
+          assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+          checkGlutenPlan[HashAggregateExecTransformer](df)
+      }
     }
   }
 
