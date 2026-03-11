@@ -39,8 +39,8 @@ object StarSchemaAggregateWrapper {
   }
 
   def wrapperPartial(
-      innerAgg: DeclarativeAggregate,
-      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
+    innerAgg: DeclarativeAggregate,
+    wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
     StarSchemaAggregateWrapper(
       innerAgg = innerAgg,
       targetPhase = PartialPhase,
@@ -49,9 +49,9 @@ object StarSchemaAggregateWrapper {
   }
 
   def wrapperFinal(
-      innerAgg: DeclarativeAggregate,
-      inputBuffer: Expression,
-      wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
+    innerAgg: DeclarativeAggregate,
+    inputBuffer: Expression,
+    wrapperKey: String = "0"): StarSchemaAggregateWrapper = {
     StarSchemaAggregateWrapper(
       innerAgg = innerAgg,
       targetPhase = FinalPhase,
@@ -77,10 +77,10 @@ object StarSchemaAggregateWrapper {
 }
 
 case class StarSchemaAggregateWrapper(
-    innerAgg: DeclarativeAggregate,
-    targetPhase: StarSchemaAggregateWrapper.TargetPhase,
-    inputBuffer: Option[Expression],
-    wrapperKey: String = "0")
+  innerAgg: DeclarativeAggregate,
+  targetPhase: StarSchemaAggregateWrapper.TargetPhase,
+  inputBuffer: Option[Expression],
+  wrapperKey: String = "0")
   extends DeclarativeAggregate {
   import StarSchemaAggregateWrapper._
 
@@ -93,23 +93,14 @@ case class StarSchemaAggregateWrapper(
           attr.nullable)()
     }
 
-  private val useStructPayload: Boolean = wrappedBufferAttrs.size > 1
-
   private def outputBufferExpr: Expression =
-    inputBuffer.getOrElse {
-      if (useStructPayload) {
-        CreateStruct(innerAgg.inputAggBufferAttributes)
-      } else {
-        innerAgg.inputAggBufferAttributes.head
-      }
-    }
+    inputBuffer.getOrElse(CreateStruct(innerAgg.inputAggBufferAttributes))
 
   override lazy val nullable: Boolean = true
 
   override lazy val dataType: DataType = targetPhase match {
     case PartialPhase =>
-      if (useStructPayload) CreateStruct(wrappedBufferAttrs).dataType
-      else wrappedBufferAttrs.head.dataType
+      CreateStruct(wrappedBufferAttrs).dataType
     case FinalPhase =>
       innerAgg.dataType
   }
@@ -142,7 +133,7 @@ case class StarSchemaAggregateWrapper(
 
   override lazy val evaluateExpression: Expression = targetPhase match {
     case PartialPhase =>
-      if (useStructPayload) CreateStruct(aggBufferAttributes) else aggBufferAttributes.head
+      CreateStruct(aggBufferAttributes)
     case FinalPhase =>
       rewrite(
         innerAgg.evaluateExpression,
@@ -167,7 +158,7 @@ case class StarSchemaAggregateWrapper(
   }
 
   override protected def withNewChildrenInternal(
-      newChildren: IndexedSeq[Expression]): Expression = {
+    newChildren: IndexedSeq[Expression]): Expression = {
     targetPhase match {
       case PartialPhase =>
         val newInner = innerAgg.withNewChildren(newChildren).asInstanceOf[DeclarativeAggregate]
@@ -182,30 +173,21 @@ case class StarSchemaAggregateWrapper(
   }
 
   private def rewrite(
-      exprs: Seq[Expression],
-      childReplacements: Map[Expression, Expression],
-      useInputBufferField: Boolean): Seq[Expression] = {
+    exprs: Seq[Expression],
+    childReplacements: Map[Expression, Expression],
+    useInputBufferField: Boolean): Seq[Expression] = {
     exprs.map(rewrite(_, childReplacements, useInputBufferField))
   }
 
   private def rewrite(
-      expr: Expression,
-      childReplacements: Map[Expression, Expression],
-      useInputBufferField: Boolean): Expression = {
+    expr: Expression,
+    childReplacements: Map[Expression, Expression],
+    useInputBufferField: Boolean): Expression = {
     val innerToWrappedBuffer = innerAgg.aggBufferAttributes.zip(aggBufferAttributes)
     val innerToInputBuffer = innerAgg.inputAggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>
         if (useInputBufferField) {
-          val field = if (useStructPayload) {
-            GetStructField(outputBufferExpr, index, Some(attr.name))
-          } else {
-            if (index != 0) {
-              throw new IllegalStateException(
-                s"Non-struct payload expects only one buffer field, got index $index")
-            }
-            outputBufferExpr
-          }
-          attr -> field
+          attr -> GetStructField(outputBufferExpr, index, Some(attr.name))
         } else {
           attr -> inputAggBufferAttributes(index)
         }
