@@ -249,9 +249,17 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
         sidePartials.collectFirst {
           case SidePartialRef(sideSpec, partialAttr)
               if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
-            StarSchemaAggregateWrapper
+            val wrappedFinal = StarSchemaAggregateWrapper
               .wrapperFinal(spec.aggregate, partialAttr, spec.wrapperKey)
               .toAggregateExpression()
+            if (expr.semanticEquals(spec.originalExpr)) {
+              wrappedFinal
+            } else {
+              expr.transformUp {
+                case ae: AggregateExpression if ae.semanticEquals(spec.originalExpr) =>
+                  wrappedFinal
+              }
+            }
         }
     }
   }
@@ -274,15 +282,21 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
   }
 
   private def pushableSpec(expr: Expression): Option[SidePartialSpec] = {
-    expr match {
+    val candidates = expr.collect {
       case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
         ae.aggregateFunction match {
           case da: DeclarativeAggregate if !da.isInstanceOf[StarSchemaAggregateWrapper] =>
-            val stableExprSql = expr.canonicalized.sql
-            Some(SidePartialSpec(expr, da, Integer.toUnsignedString(stableExprSql.hashCode)))
+            Some((ae, da))
           case _ => None
         }
-      case _ => None
+    }.flatten
+
+    if (candidates.size == 1) {
+      val (targetAe, da) = candidates.head
+      val stableExprSql = targetAe.canonicalized.sql
+      Some(SidePartialSpec(targetAe, da, Integer.toUnsignedString(stableExprSql.hashCode)))
+    } else {
+      None
     }
   }
 
