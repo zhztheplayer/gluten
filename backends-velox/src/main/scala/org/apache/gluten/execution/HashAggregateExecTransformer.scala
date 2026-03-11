@@ -508,7 +508,9 @@ abstract class HashAggregateExecTransformer(
           .getOrElse {
             throw new GlutenNotSupportException(
               s"Cannot resolve agg buffer input ${attr.name}#${attr.exprId.id} " +
-                s"from ${originalInputAttributes.map(a => s"${a.name}#${a.exprId.id}").mkString("[", ", ", "]")}")
+                s"from ${originalInputAttributes
+                    .map(a => s"${a.name}#${a.exprId.id}")
+                    .mkString("[", ", ", "]")}")
           }
     }
   }
