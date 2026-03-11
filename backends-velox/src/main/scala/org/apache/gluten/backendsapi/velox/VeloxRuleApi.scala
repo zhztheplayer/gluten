@@ -30,7 +30,7 @@ import org.apache.gluten.extension.columnar.transition.{InsertTransitions, Remov
 import org.apache.gluten.extension.columnar.validator.{Validator, Validators}
 import org.apache.gluten.extension.injector.{Injector, SparkInjector}
 import org.apache.gluten.extension.injector.GlutenInjector.{LegacyInjector, RasInjector}
-import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushJoinAggregatePreAggregationBatch}
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushJoinAggregateBatch}
 import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -66,7 +66,7 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(CollapseGetJsonObjectExpressionRule.apply)
     injector.injectOptimizerRule(RewriteCastFromArray.apply)
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
-    injector.injectOptimizerRule(PushJoinAggregatePreAggregationBatch.apply)
+    injector.injectOptimizerRule(PushJoinAggregateBatch.apply)
     injector.injectPlannerStrategy(ImplementJoinAggregate.apply)
 
     if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {

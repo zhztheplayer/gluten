@@ -25,7 +25,7 @@ import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 
-case class PushJoinAggregatePreAggregation(spark: SparkSession)
+case class PushJoinAggregate(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
   private case class SidePartialSpec(
@@ -376,9 +376,9 @@ case class PushJoinAggregatePreAggregation(spark: SparkSession)
   }
 }
 
-case class PushJoinAggregatePreAggregationBatch(spark: SparkSession) extends Rule[LogicalPlan] {
+case class PushJoinAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan] {
   private val decimalAvgRule = DecimalAggregates
-  private val pushRule = PushJoinAggregatePreAggregation(spark)
+  private val pushRule = PushJoinAggregate(spark)
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     if (!isEnabled) {

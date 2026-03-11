@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.PushJoinAggregatePreAggregation
+import org.apache.gluten.extension.joinagg.PushJoinAggregate
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
@@ -28,8 +28,8 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
 
-class PushJoinAggregatePreAggregationSuite extends PlanTest with SharedSparkSession {
-  private val joinAggregateRule = PushJoinAggregatePreAggregation(spark)
+class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
+  private val joinAggregateRule = PushJoinAggregate(spark)
   private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
