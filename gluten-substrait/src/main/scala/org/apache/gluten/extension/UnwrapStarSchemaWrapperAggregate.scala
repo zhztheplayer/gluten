@@ -46,7 +46,7 @@ case class UnwrapStarSchemaWrapperAggregate(session: SparkSession) extends Rule[
   }
 
   private def isEnabled: Boolean = {
-    new GlutenConfig(SQLConf.get).enableStarSchemaJoinAggregateRules
+    GlutenConfig.get.enableStarSchemaJoinAggregateRules
   }
 
   private def hasWrapper(agg: HashAggregateExec): Boolean = {

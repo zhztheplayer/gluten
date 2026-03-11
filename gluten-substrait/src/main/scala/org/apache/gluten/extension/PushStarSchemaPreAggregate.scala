@@ -85,7 +85,7 @@ case class PushStarSchemaPreAggregate(spark: SparkSession)
   }
 
   private def isEnabled: Boolean = {
-    new GlutenConfig(SQLConf.get).enableStarSchemaJoinAggregateRules
+    GlutenConfig.get.enableStarSchemaJoinAggregateRules
   }
 
   private def containsWrapperAggregate(plan: LogicalPlan): Boolean = {
