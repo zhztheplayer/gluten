@@ -78,7 +78,7 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     }
 
     val hashAgg = HashAggregateExec(
-      requiredChildDistributionExpressions = Some(grouping.map(_.toAttribute)),
+      requiredChildDistributionExpressions = None,
       isStreaming = false,
       numShufflePartitions = None,
       groupingExpressions = grouping,
