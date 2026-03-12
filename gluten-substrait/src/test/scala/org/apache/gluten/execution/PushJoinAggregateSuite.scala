@@ -80,7 +80,7 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
 
   private def runCase(testCase: PushdownCase): Unit = {
     withSQLConf(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key -> "true") {
-      val (withoutRulePlan, withoutRulePhysicalPlan, withoutRuleRows) =
+      val (withoutRuleLogicalPlan, withoutRulePhysicalPlan, withoutRuleRows) =
         withExtraPlanning(Nil, Nil) {
         val df = spark.sql(testCase.inputSql)
         (
@@ -89,11 +89,12 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
           df.collect().toSeq.sortBy(_.toString()))
       }
 
-      val (withRulePlan, withRuleRows) =
+      val (withRuleLogicalPlan, withRulePhysicalPlan, withRuleRows) =
         withExtraPlanning(Seq(joinAggregateRule), Nil) {
           joinAggregateRule.resetSuccessfulPushCount()
           val df = spark.sql(testCase.inputSql)
           val withRulePlan = df.queryExecution.optimizedPlan
+          val withRulePhysicalPlan = df.queryExecution.executedPlan
           val withRuleRows = df.collect().toSeq.sortBy(_.toString())
           val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
           val nodesWithMissingInput = withRulePlan.collect {
@@ -111,14 +112,15 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
                 .mkString("\n---\n")}")
           assert(joinAggregateRule.getSuccessfulPushCount == testCase.expectedPushCount)
           assert(aggregateNodeCount == testCase.expectedAggCount)
-          (withRulePlan, withRuleRows)
+          (withRulePlan, withRulePhysicalPlan, withRuleRows)
         }
 
-      val (withRuleAndStrategyPhysicalPlan, withRuleAndStrategyRows) =
+      val (withRuleAndStrategyLogicalPlan, withRuleAndStrategyPhysicalPlan, withRuleAndStrategyRows) =
         withExtraPlanning(Seq(joinAggregateRule), Seq(ImplementJoinAggregate(spark))) {
           joinAggregateRule.resetSuccessfulPushCount()
           val df = spark.sql(testCase.inputSql)
           (
+            df.queryExecution.optimizedPlan,
             df.queryExecution.executedPlan,
             df.collect().toSeq.sortBy(_.toString()))
         }
@@ -126,11 +128,15 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
       if (debugMode) {
         // scalastyle:off println
         println("=== Optimized Plan Before (without PushJoinAggregatePreAggregation) ===")
-        println(withoutRulePlan.treeString)
+        println(withoutRuleLogicalPlan.treeString)
         println("=== Optimized Plan After (with PushJoinAggregatePreAggregation) ===")
-        println(withRulePlan.treeString)
+        println(withRuleLogicalPlan.treeString)
+        println("=== Optimized Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
+        println(withRuleAndStrategyLogicalPlan.treeString)
         println("=== Physical Plan Before (without PushJoinAggregatePreAggregation) ===")
         println(withoutRulePhysicalPlan.treeString)
+        println("=== Physical Plan After (with PushJoinAggregatePreAggregation only) ===")
+        println(withRulePhysicalPlan.treeString)
         println("=== Physical Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
         println(withRuleAndStrategyPhysicalPlan.treeString)
         println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
