@@ -68,28 +68,30 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |       CAST(d_date AS DATE) AS d_date,
                 |       CAST(d_year AS INT) AS d_year,
                 |       CAST(d_week_seq AS INT) AS d_week_seq,
+                |       CAST(d_quarter_name AS STRING) AS d_quarter_name,
                 |       CAST(d_day_name AS STRING) AS d_day_name
                 |FROM VALUES
-                |  (1, DATE'1998-08-05', 1998, 10, 'Wednesday'),
-                |  (2, DATE'1998-08-06', 1998, 10, 'Thursday'),
-                |  (3, DATE'1998-08-07', 1998, 10, 'Friday'),
-                |  (10, DATE'1999-02-10', 1999, 40, 'Wednesday'),
-                |  (11, DATE'1999-03-01', 1999, 43, 'Monday'),
-                |  (1001, DATE'2001-01-07', 2001, 1, 'Sunday'),
-                |  (1002, DATE'2001-01-08', 2001, 1, 'Monday'),
-                |  (1054, DATE'2002-01-13', 2002, 54, 'Sunday'),
-                |  (1055, DATE'2002-01-14', 2002, 54, 'Monday')
-                |AS t(d_date_sk, d_date, d_year, d_week_seq, d_day_name)
+                |  (1, DATE'1998-08-05', 1998, 10, '1998Q1', 'Wednesday'),
+                |  (2, DATE'1998-08-06', 1998, 10, '1998Q1', 'Thursday'),
+                |  (3, DATE'1998-08-07', 1998, 10, '1998Q1', 'Friday'),
+                |  (10, DATE'1999-02-10', 1999, 40, '1999Q1', 'Wednesday'),
+                |  (11, DATE'1999-03-01', 1999, 43, '1999Q1', 'Monday'),
+                |  (1001, DATE'2001-01-07', 2001, 1, '2001Q1', 'Sunday'),
+                |  (1002, DATE'2001-01-08', 2001, 1, '2001Q1', 'Monday'),
+                |  (1054, DATE'2002-01-13', 2002, 54, '2002Q1', 'Sunday'),
+                |  (1055, DATE'2002-01-14', 2002, 54, '2002Q1', 'Monday')
+                |AS t(d_date_sk, d_date, d_year, d_week_seq, d_quarter_name, d_day_name)
                 |""".stripMargin)
 
     spark.sql("""
                 |CREATE OR REPLACE TEMP VIEW store AS
                 |SELECT CAST(s_store_sk AS BIGINT) AS s_store_sk,
-                |       CAST(s_store_id AS STRING) AS s_store_id
+                |       CAST(s_store_id AS STRING) AS s_store_id,
+                |       CAST(s_state AS STRING) AS s_state
                 |FROM VALUES
-                |  (10, 'S10'),
-                |  (20, 'S20')
-                |AS t(s_store_sk, s_store_id)
+                |  (10, 'S10', 'CA'),
+                |  (20, 'S20', 'WA')
+                |AS t(s_store_sk, s_store_id, s_state)
                 |""".stripMargin)
 
     spark.sql("""
@@ -119,6 +121,8 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |       CAST(ss_ext_sales_price AS DECIMAL(7,2)) AS ss_ext_sales_price,
                 |       CAST(ss_net_profit AS DECIMAL(7,2)) AS ss_net_profit,
                 |       CAST(ss_item_sk AS BIGINT) AS ss_item_sk,
+                |       CAST(ss_customer_sk AS BIGINT) AS ss_customer_sk,
+                |       CAST(ss_ticket_number AS BIGINT) AS ss_ticket_number,
                 |       CAST(ss_cdemo_sk AS BIGINT) AS ss_cdemo_sk,
                 |       CAST(ss_promo_sk AS BIGINT) AS ss_promo_sk,
                 |       CAST(ss_quantity AS DECIMAL(7,2)) AS ss_quantity,
@@ -126,23 +130,24 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |       CAST(ss_coupon_amt AS DECIMAL(7,2)) AS ss_coupon_amt,
                 |       CAST(ss_sales_price AS DECIMAL(7,2)) AS ss_sales_price
                 |FROM VALUES
-                |  (10, 1, 11.00, 3.00, 1001, 2001, 3001, 1.00, 10.00, 0.50, 9.50),
-                |  (20, 2, 12.00, 4.00, 1002, 2002, 3002, 2.00, 20.00, 1.00, 19.00),
-                |  (10, 3, 13.00, 5.00, 1001, 2001, 3001, 3.00, 30.00, 1.50, 28.50)
+                |  (10, 1, 11.00, 3.00, 1001, 5001, 7001, 2001, 3001, 1.00, 10.00, 0.50, 9.50),
+                |  (20, 2, 12.00, 4.00, 1002, 5002, 7002, 2002, 3002, 2.00, 20.00, 1.00, 19.00),
+                |  (10, 3, 13.00, 5.00, 1001, 5001, 7003, 2001, 3001, 3.00, 30.00, 1.50, 28.50)
                 |AS t(
                 |  ss_store_sk, ss_sold_date_sk, ss_ext_sales_price, ss_net_profit,
-                |  ss_item_sk, ss_cdemo_sk, ss_promo_sk,
+                |  ss_item_sk, ss_customer_sk, ss_ticket_number, ss_cdemo_sk, ss_promo_sk,
                 |  ss_quantity, ss_list_price, ss_coupon_amt, ss_sales_price)
                 |""".stripMargin)
 
     spark.sql("""
                 |CREATE OR REPLACE TEMP VIEW item AS
                 |SELECT CAST(i_item_sk AS BIGINT) AS i_item_sk,
-                |       CAST(i_item_id AS STRING) AS i_item_id
+                |       CAST(i_item_id AS STRING) AS i_item_id,
+                |       CAST(i_item_desc AS STRING) AS i_item_desc
                 |FROM VALUES
-                |  (1001, 'I1001'),
-                |  (1002, 'I1002')
-                |AS t(i_item_sk, i_item_id)
+                |  (1001, 'I1001', 'Item 1001 desc'),
+                |  (1002, 'I1002', 'Item 1002 desc')
+                |AS t(i_item_sk, i_item_id, i_item_desc)
                 |""".stripMargin)
 
     spark.sql("""
@@ -172,12 +177,19 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |CREATE OR REPLACE TEMP VIEW store_returns AS
                 |SELECT CAST(sr_store_sk AS BIGINT) AS sr_store_sk,
                 |       CAST(sr_returned_date_sk AS BIGINT) AS sr_returned_date_sk,
+                |       CAST(sr_customer_sk AS BIGINT) AS sr_customer_sk,
+                |       CAST(sr_item_sk AS BIGINT) AS sr_item_sk,
+                |       CAST(sr_ticket_number AS BIGINT) AS sr_ticket_number,
+                |       CAST(sr_return_quantity AS DECIMAL(7,2)) AS sr_return_quantity,
                 |       CAST(sr_return_amt AS DECIMAL(7,2)) AS sr_return_amt,
                 |       CAST(sr_net_loss AS DECIMAL(7,2)) AS sr_net_loss
                 |FROM VALUES
-                |  (10, 1, 1.00, 0.50),
-                |  (20, 2, 2.00, 0.25)
-                |AS t(sr_store_sk, sr_returned_date_sk, sr_return_amt, sr_net_loss)
+                |  (10, 1, 5001, 1001, 7001, 1.00, 1.00, 0.50),
+                |  (20, 2, 5002, 1002, 7002, 1.00, 2.00, 0.25),
+                |  (10, 3, 5001, 1001, 7003, 2.00, 0.50, 0.10)
+                |AS t(
+                |  sr_store_sk, sr_returned_date_sk, sr_customer_sk, sr_item_sk, sr_ticket_number,
+                |  sr_return_quantity, sr_return_amt, sr_net_loss)
                 |""".stripMargin)
 
     spark.sql("""
@@ -187,23 +199,26 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |       CAST(cs_ext_sales_price AS DECIMAL(7,2)) AS cs_ext_sales_price,
                 |       CAST(cs_net_profit AS DECIMAL(7,2)) AS cs_net_profit,
                 |       CAST(cs_order_number AS BIGINT) AS cs_order_number,
+                |       CAST(cs_bill_customer_sk AS BIGINT) AS cs_bill_customer_sk,
+                |       CAST(cs_item_sk AS BIGINT) AS cs_item_sk,
+                |       CAST(cs_quantity AS DECIMAL(7,2)) AS cs_quantity,
                 |       CAST(cs_ext_ship_cost AS DECIMAL(7,2)) AS cs_ext_ship_cost,
                 |       CAST(cs_ship_date_sk AS BIGINT) AS cs_ship_date_sk,
                 |       CAST(cs_ship_addr_sk AS BIGINT) AS cs_ship_addr_sk,
                 |       CAST(cs_call_center_sk AS BIGINT) AS cs_call_center_sk,
                 |       CAST(cs_warehouse_sk AS BIGINT) AS cs_warehouse_sk
                 |FROM VALUES
-                |  (100, 1, 21.00, 5.00, 4001, 2.00, 1, 9001, 7001, 1),
-                |  (200, 2, 22.00, 6.00, 4002, 3.00, 2, 9002, 7002, 1),
-                |  (100, 10, 30.00, 2.00, 5001, 5.00, 10, 9001, 7001, 1),
-                |  (200, 10, 35.00, 1.50, 5001, 3.00, 10, 9001, 7001, 2),
-                |  (100, 10, 40.00, 1.00, 5002, 4.00, 10, 9001, 7001, 1),
-                |  (100, 1001, 50.00, 3.00, 6001, 2.00, 1001, 9001, 7001, 1),
-                |  (100, 1054, 70.00, 4.00, 6002, 2.00, 1054, 9001, 7001, 1)
+                |  (100, 1, 21.00, 5.00, 4001, 5001, 1001, 2.00, 2.00, 1, 9001, 7001, 1),
+                |  (200, 2, 22.00, 6.00, 4002, 5002, 1002, 1.00, 3.00, 2, 9002, 7002, 1),
+                |  (100, 10, 30.00, 2.00, 5001, 5001, 1001, 1.00, 5.00, 10, 9001, 7001, 1),
+                |  (200, 10, 35.00, 1.50, 5001, 5001, 1001, 1.00, 3.00, 10, 9001, 7001, 2),
+                |  (100, 10, 40.00, 1.00, 5002, 5002, 1002, 2.00, 4.00, 10, 9001, 7001, 1),
+                |  (100, 1001, 50.00, 3.00, 6001, 5001, 1001, 3.00, 2.00, 1001, 9001, 7001, 1),
+                |  (100, 1054, 70.00, 4.00, 6002, 5001, 1001, 4.00, 2.00, 1054, 9001, 7001, 1)
                 |AS t(
                 |  cs_catalog_page_sk, cs_sold_date_sk, cs_ext_sales_price, cs_net_profit,
-                |  cs_order_number, cs_ext_ship_cost, cs_ship_date_sk, cs_ship_addr_sk,
-                |  cs_call_center_sk, cs_warehouse_sk)
+                |  cs_order_number, cs_bill_customer_sk, cs_item_sk, cs_quantity, cs_ext_ship_cost,
+                |  cs_ship_date_sk, cs_ship_addr_sk, cs_call_center_sk, cs_warehouse_sk)
                 |""".stripMargin)
 
     spark.sql("""
@@ -701,6 +716,60 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       df =>
         // Mixed distinct + non-distinct aggregate shape is currently not pushed by the
         // Join-aggregate pre-aggregate rule.
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+  test("Support simplified TPC-DS q17 shape") {
+    val query =
+      """
+        |select  i_item_id
+        |       ,i_item_desc
+        |       ,s_state
+        |       ,count(ss_quantity) as store_sales_quantitycount
+        |       ,avg(ss_quantity) as store_sales_quantityave
+        |       ,stddev_samp(ss_quantity) as store_sales_quantitystdev
+        |       ,stddev_samp(ss_quantity)/avg(ss_quantity) as store_sales_quantitycov
+        |       ,count(sr_return_quantity) as store_returns_quantitycount
+        |       ,avg(sr_return_quantity) as store_returns_quantityave
+        |       ,stddev_samp(sr_return_quantity) as store_returns_quantitystdev
+        |       ,stddev_samp(sr_return_quantity)/avg(sr_return_quantity) as store_returns_quantitycov
+        |       ,count(cs_quantity) as catalog_sales_quantitycount
+        |       ,avg(cs_quantity) as catalog_sales_quantityave
+        |       ,stddev_samp(cs_quantity) as catalog_sales_quantitystdev
+        |       ,stddev_samp(cs_quantity)/avg(cs_quantity) as catalog_sales_quantitycov
+        |from store_sales
+        |    ,store_returns
+        |    ,catalog_sales
+        |    ,date_dim d1
+        |    ,date_dim d2
+        |    ,date_dim d3
+        |    ,store
+        |    ,item
+        |where d1.d_quarter_name = '1998Q1'
+        |  and d1.d_date_sk = ss_sold_date_sk
+        |  and i_item_sk = ss_item_sk
+        |  and s_store_sk = ss_store_sk
+        |  and ss_customer_sk = sr_customer_sk
+        |  and ss_item_sk = sr_item_sk
+        |  and ss_ticket_number = sr_ticket_number
+        |  and sr_returned_date_sk = d2.d_date_sk
+        |  and d2.d_quarter_name in ('1998Q1','1998Q2','1998Q3')
+        |  and sr_customer_sk = cs_bill_customer_sk
+        |  and sr_item_sk = cs_item_sk
+        |  and cs_sold_date_sk = d3.d_date_sk
+        |  and d3.d_quarter_name in ('1998Q1','1998Q2','1998Q3')
+        |group by i_item_id
+        |        ,i_item_desc
+        |        ,s_state
+        |order by i_item_id
+        |        ,i_item_desc
+        |        ,s_state
+        |limit 100
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
         checkGlutenPlan[HashAggregateExecTransformer](df)
     }
   }
