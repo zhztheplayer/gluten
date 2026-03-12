@@ -58,11 +58,19 @@ class VanillaStarSchemaJoinAggregateSuite extends StarSchemaJoinAggregateSuite {
   override protected def checkDf(df: DataFrame): Unit = {}
 }
 
+class StarSchemaJoinAggregateSingleDepthSuite extends StarSchemaJoinAggregateSuite {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, "1")
+  }
+}
+
 class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSparkPlanHelper {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key, "true")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, s"${Int.MaxValue}")
       .set("spark.sql.adaptive.enabled", "false")
   }
 

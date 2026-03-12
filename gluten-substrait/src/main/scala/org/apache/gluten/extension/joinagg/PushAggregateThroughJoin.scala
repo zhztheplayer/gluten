@@ -51,22 +51,39 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
 
     // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
-    val split = splitAggregateWithJoin(plan)
-    // 2) Exhaustively push PartialWrapperAgg through join edges.
-    val pushed = pushPartialWrapperAggregate(split)
-    // 3) Return rewritten plan with pushed partial wrapper aggregates.
-    pushed
+    val maybeSplit = splitAggregateWithJoin(plan)
+    maybeSplit match {
+      case Some(split) =>
+        // 2) Exhaustively push PartialWrapperAgg through join edges.
+        val pushed = pushPartialWrapperAggregate(split)
+        // 3) Return rewritten plan with pushed partial wrapper aggregates.
+        pushed
+      case None => plan
+    }
   }
 
   private def isEnabled: Boolean = GlutenConfig.get.pushAggregateThroughJoinEnabled
 
-  private def splitAggregateWithJoin(plan: LogicalPlan): LogicalPlan = {
-    plan.transformUp {
+  private def maxDepth: Int = GlutenConfig.get.pushAggregateThroughJoinMaxDepth
+
+  private def splitAggregateWithJoin(plan: LogicalPlan): Option[LogicalPlan] = {
+    var splitCount = 0
+    val split = plan.transformUp {
       case agg @ Aggregate(_, aggExprs, _)
           if !containsWrapperAggregateInOutput(aggExprs) &&
             hasPushableAggExpr(aggExprs) &&
             !hasDistinctAggExpr(aggExprs) =>
-        splitAggregate(agg).getOrElse(agg)
+        splitAggregate(agg) match {
+          case Some(newAgg) =>
+            splitCount += 1
+            newAgg
+          case None => agg
+        }
+    }
+    if (splitCount > 0) {
+      Some(split)
+    } else {
+      None
     }
   }
 
@@ -142,14 +159,15 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def pushPartialWrapperAggregate(plan: LogicalPlan): LogicalPlan = {
     var current = plan
     var changed = true
-    while (changed) {
+    var pushCount = 0
+    while (changed && pushCount < maxDepth) {
       changed = false
       current = current.transformUp {
         case partialAgg @ Aggregate(groupingExprs, aggExprs, child)
             if isPurePartialWrapperAggregate(partialAgg) =>
           pushOnce(partialAgg, groupingExprs, aggExprs, child) match {
             case Some(newPlan) =>
-              successfulPushCount += 1
+              pushCount += 1
               changed = true
               newPlan
             case None =>
@@ -157,6 +175,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
           }
       }
     }
+    successfulPushCount += pushCount
     current
   }
 

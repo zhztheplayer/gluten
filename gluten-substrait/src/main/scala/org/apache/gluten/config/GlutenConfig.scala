@@ -154,6 +154,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def pushAggregateThroughJoinEnabled: Boolean =
     getConf(PUSH_AGGREGATE_THROUGH_JOIN_ENABLED)
 
+  def pushAggregateThroughJoinMaxDepth: Int =
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH)
+
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
 
@@ -722,10 +725,22 @@ object GlutenConfig extends ConfigRegistry {
   val PUSH_AGGREGATE_THROUGH_JOIN_ENABLED =
     buildConf("spark.gluten.sql.pushAggregateThroughJoin.enabled")
       .doc(
-        "Whether to enable join aggregate optimization rules " +
-          "(logical push + physical unwrap).")
+        "Enables the push-aggregate-through-join optimization in Gluten. " +
+          "When enabled, aggregate operators may be pushed below joins during logical optimization " +
+          "and corresponding physical plans may be rewritten to execute the aggregation earlier."
+      )
       .booleanConf
       .createWithDefault(false)
+
+  val PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH =
+    buildConf("spark.gluten.sql.pushAggregateThroughJoin.maxDepth")
+      .doc(
+        "Maximum join traversal depth when applying the push-aggregate-through-join optimization. " +
+          "A value of 1 allows pushing an aggregate through a single join; larger values allow the rule " +
+          "to traverse and push through multiple consecutive joins."
+      )
+      .intConf
+      .createWithDefault(1)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")
