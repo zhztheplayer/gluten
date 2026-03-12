@@ -81,22 +81,23 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
 
   private def runCase(testCase: PushdownCase): Unit = {
     withSQLConf(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key -> "true") {
-      val (withoutRuleLogicalPlan, withoutRulePhysicalPlan, withoutRuleRows) =
+      val (withoutRuleRows, withoutRuleLogicalPlan, withoutRulePhysicalPlan) =
         withExtraPlanning(Nil, Nil) {
         val df = spark.sql(testCase.inputSql)
         (
+          df.collect().toSeq.sortBy(_.toString()),
           df.queryExecution.optimizedPlan,
-          finalExecutedPlan(df.queryExecution.executedPlan),
-          df.collect().toSeq.sortBy(_.toString()))
+          finalExecutedPlan(df.queryExecution.executedPlan)
+        )
       }
 
-      val (withRuleLogicalPlan, withRulePhysicalPlan, withRuleRows) =
+      val (withRuleRows, withRuleLogicalPlan, withRulePhysicalPlan) =
         withExtraPlanning(Seq(joinAggregateRule), Nil) {
           joinAggregateRule.resetSuccessfulPushCount()
           val df = spark.sql(testCase.inputSql)
+          val withRuleRows = df.collect().toSeq.sortBy(_.toString())
           val withRulePlan = df.queryExecution.optimizedPlan
           val withRulePhysicalPlan = finalExecutedPlan(df.queryExecution.executedPlan)
-          val withRuleRows = df.collect().toSeq.sortBy(_.toString())
           val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
           val nodesWithMissingInput = withRulePlan.collect {
             case p if p.missingInput.nonEmpty => p
@@ -113,17 +114,18 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
                 .mkString("\n---\n")}")
           assert(joinAggregateRule.getSuccessfulPushCount == testCase.expectedPushCount)
           assert(aggregateNodeCount == testCase.expectedAggCount)
-          (withRulePlan, withRulePhysicalPlan, withRuleRows)
+          (withRuleRows, withRulePlan, withRulePhysicalPlan)
         }
 
-      val (withRuleAndStrategyLogicalPlan, withRuleAndStrategyPhysicalPlan, withRuleAndStrategyRows) =
+      val (withRuleAndStrategyRows, withRuleAndStrategyLogicalPlan, withRuleAndStrategyPhysicalPlan) =
         withExtraPlanning(Seq(joinAggregateRule), Seq(ImplementJoinAggregate(spark))) {
           joinAggregateRule.resetSuccessfulPushCount()
           val df = spark.sql(testCase.inputSql)
           (
+            df.collect().toSeq.sortBy(_.toString()),
             df.queryExecution.optimizedPlan,
-            finalExecutedPlan(df.queryExecution.executedPlan),
-            df.collect().toSeq.sortBy(_.toString()))
+            finalExecutedPlan(df.queryExecution.executedPlan)
+          )
         }
 
       if (debugMode) {
