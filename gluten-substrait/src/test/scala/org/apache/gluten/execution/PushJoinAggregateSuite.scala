@@ -33,7 +33,7 @@ import java.sql.Date
 
 class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
   private val joinAggregateRule = PushJoinAggregate(spark)
-  private val debugMode: Boolean = false
+  private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
 
