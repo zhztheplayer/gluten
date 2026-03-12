@@ -25,7 +25,8 @@ import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.SparkStrategy
+import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
+import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
@@ -85,7 +86,7 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
         val df = spark.sql(testCase.inputSql)
         (
           df.queryExecution.optimizedPlan,
-          df.queryExecution.executedPlan,
+          finalExecutedPlan(df.queryExecution.executedPlan),
           df.collect().toSeq.sortBy(_.toString()))
       }
 
@@ -94,7 +95,7 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
           joinAggregateRule.resetSuccessfulPushCount()
           val df = spark.sql(testCase.inputSql)
           val withRulePlan = df.queryExecution.optimizedPlan
-          val withRulePhysicalPlan = df.queryExecution.executedPlan
+          val withRulePhysicalPlan = finalExecutedPlan(df.queryExecution.executedPlan)
           val withRuleRows = df.collect().toSeq.sortBy(_.toString())
           val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
           val nodesWithMissingInput = withRulePlan.collect {
@@ -121,7 +122,7 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
           val df = spark.sql(testCase.inputSql)
           (
             df.queryExecution.optimizedPlan,
-            df.queryExecution.executedPlan,
+            finalExecutedPlan(df.queryExecution.executedPlan),
             df.collect().toSeq.sortBy(_.toString()))
         }
 
@@ -155,6 +156,13 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
 
   private def assertRowsEqual(left: Seq[Row], right: Seq[Row]): Unit = {
     assert(left == right, s"Result mismatch:\nleft=$left\nright=$right")
+  }
+
+  private def finalExecutedPlan(plan: SparkPlan): SparkPlan = plan match {
+    case adaptive: AdaptiveSparkPlanExec if adaptive.isFinalPlan =>
+      adaptive.executedPlan
+    case other =>
+      other
   }
 
   private def withExtraPlanning[T](
