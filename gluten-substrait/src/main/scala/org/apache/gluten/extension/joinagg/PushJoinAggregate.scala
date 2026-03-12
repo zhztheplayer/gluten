@@ -166,7 +166,7 @@ case class PushJoinAggregate(spark: SparkSession)
       aggExprs: Seq[NamedExpression],
       child: LogicalPlan): Option[LogicalPlan] = {
     extractJoin(child).flatMap {
-      case (join, _, rebuild) =>
+      case (join, wrapperRequiredAttrs, rebuild) =>
         Seq(JoinLeft, JoinRight).iterator.flatMap {
           side =>
             pushPartialAggToJoinSide(
@@ -174,6 +174,7 @@ case class PushJoinAggregate(spark: SparkSession)
               join,
               groupingExprs,
               aggExprs,
+              wrapperRequiredAttrs,
               rebuild,
               side)
         }.toSeq.headOption
@@ -185,6 +186,7 @@ case class PushJoinAggregate(spark: SparkSession)
       join: Join,
       groupingExprs: Seq[Expression],
       aggExprs: Seq[NamedExpression],
+      wrapperRequiredAttrs: Seq[Attribute],
       rebuild: (Join, Seq[Attribute]) => LogicalPlan,
       side: JoinSide): Option[LogicalPlan] = {
     val wrapperAliases = collectPartialWrapperAliases(aggExprs)
@@ -226,11 +228,21 @@ case class PushJoinAggregate(spark: SparkSession)
         }
       case _ => Nil
     })
+    val sideWrapperRequiredAttrs = dedupeAttrs(wrapperRequiredAttrs.collect {
+      case a: Attribute if sideOutputSet.contains(a) => a
+    })
     // Do not use project/filter propagated attrs to build pushed grouping keys.
     // They can include measure-only attrs (e.g. ss_sales_price) and over-constrain
-    // pre-aggregation. Group only by keys required to preserve join/final semantics.
+    // pre-aggregation. However, extracted project dependencies are still required here to
+    // preserve grouping semantics for derived grouping expressions such as
+    // `substr(w_warehouse_name, 1, 20)`.
     val pushedGrouping =
-      dedupeAttrs(sideGroupingAttrs ++ sideJoinKeys ++ sideJoinCondAttrs ++ sideNonPushableAggAttrs)
+      dedupeAttrs(
+        sideGroupingAttrs ++
+          sideJoinKeys ++
+          sideJoinCondAttrs ++
+          sideNonPushableAggAttrs ++
+          sideWrapperRequiredAttrs)
     if (pushedGrouping.isEmpty) {
       return None
     }
