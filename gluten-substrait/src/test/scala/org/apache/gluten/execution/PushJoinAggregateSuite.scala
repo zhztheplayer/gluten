@@ -323,4 +323,38 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
     )
     runCase(pushdownCase)
   }
+
+  test("pre-aggregate store_sales by i_item_desc") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  i_item_desc AS item_desc,
+                   |  avg(ss_sales_price) AS avg_sales_price
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY item_desc
+                   |""".stripMargin,
+      expectedPushCount = 1,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
+
+  test("pre-aggregate store_sales by substr(i_item_desc, 3), 3 ways") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  d_date AS sold_date,
+                   |  substr(i_item_desc, 3) AS item_desc,
+                   |  avg(ss_sales_price) AS avg_sales_price
+                   |FROM store_sales
+                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |GROUP BY d_date, item_desc
+                   |""".stripMargin,
+      expectedPushCount = 2,
+      expectedAggCount = 2
+    )
+    runCase(pushdownCase)
+  }
 }

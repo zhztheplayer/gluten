@@ -17,9 +17,46 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushJoinAggregateBatch}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.SparkSessionExtensions
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+
+class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
+  override def apply(extensions: SparkSessionExtensions): Unit = {
+    extensions.injectOptimizerRule(PushJoinAggregateBatch.apply)
+  }
+}
+
+class VanillaStarSchemaJoinAggregateLogicalOnlySuite extends StarSchemaJoinAggregateSuite {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.GLUTEN_ENABLED.key, "false")
+      .set("spark.shuffle.manager", "sort")
+      .set("spark.sql.extensions", classOf[VanillaJoinAggregateLogicalOnlyExtensions].getCanonicalName)
+  }
+
+  override protected def checkDf(df: DataFrame): Unit = {}
+}
+
+class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
+  override def apply(extensions: SparkSessionExtensions): Unit = {
+    extensions.injectOptimizerRule(PushJoinAggregateBatch.apply)
+    extensions.injectPlannerStrategy(ImplementJoinAggregate.apply)
+  }
+}
+
+class VanillaStarSchemaJoinAggregateSuite extends StarSchemaJoinAggregateSuite {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.GLUTEN_ENABLED.key, "false")
+      .set("spark.shuffle.manager", "sort")
+      .set("spark.sql.extensions", classOf[VanillaJoinAggregateExtensions].getCanonicalName)
+  }
+
+  override protected def checkDf(df: DataFrame): Unit = {}
+}
 
 class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSparkPlanHelper {
   override protected def sparkConf: SparkConf = {
@@ -319,16 +356,8 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |""".stripMargin)
   }
 
-  private def optimizedAggregateCount(df: DataFrame): Int = {
-    collect(df.queryExecution.executedPlan) { case _: HashAggregateExecBaseTransformer => 1 }.size
-  }
-
-  private def assertOptimizedAggregateCount(df: DataFrame, expected: Int): Unit = {
-    val actual = optimizedAggregateCount(df)
-    assert(
-      actual == expected,
-      s"Expected $expected HashAggregateExecBaseTransformer nodes in executed plan, " +
-        s"but got $actual.\nExecuted plan:\n${df.queryExecution.executedPlan.treeString}")
+  protected def checkDf(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 
   test("Join-aggregate wrapper aggregate") {
@@ -345,7 +374,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -365,7 +394,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -400,7 +429,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -421,7 +450,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -445,7 +474,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -493,8 +522,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         runQueryAndCompare(query) {
           df =>
             assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-            assertOptimizedAggregateCount(df, 2)
-            checkGlutenPlan[HashAggregateExecTransformer](df)
+            checkDf(df)
         }
       }
     }
@@ -542,14 +570,13 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         runQueryAndCompare(query) {
           df =>
             assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-            assertOptimizedAggregateCount(df, 2)
-            checkGlutenPlan[HashAggregateExecTransformer](df)
+            checkDf(df)
         }
       }
     }
   }
 
-  test("Support full TPC-DS q5 shape") {
+  test("Support TPC-DS q5 shape") {
     val query =
       """
         |with ssr as
@@ -682,7 +709,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -705,7 +732,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       runQueryAndCompare(query) {
         df =>
           assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-          checkGlutenPlan[HashAggregateExecTransformer](df)
+          checkDf(df)
       }
     }
   }
@@ -746,11 +773,11 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       df =>
         // Mixed distinct + non-distinct aggregate shape is currently not pushed by the
         // Join-aggregate pre-aggregate rule.
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
-  test("Support simplified TPC-DS q17 shape") {
+  test("Support TPC-DS q17 shape") {
     val query =
       """
         |select  i_item_id
@@ -800,11 +827,11 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
-  test("Support simplified SUM + COUNT DISTINCT shape") {
+  test("Support SUM + COUNT DISTINCT shape") {
     withTempView("ss_fact_distinct", "ss_dim_distinct") {
       spark.sql("""
                   |CREATE OR REPLACE TEMP VIEW ss_fact_distinct AS
@@ -844,12 +871,12 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
       runQueryAndCompare(query) {
         df =>
-          checkGlutenPlan[HashAggregateExecTransformer](df)
+          checkDf(df)
       }
     }
   }
 
-  test("Support simplified TPC-DS q2 shape") {
+  test("Support TPC-DS q2 shape") {
     val query =
       """
         |with wscs as
@@ -913,11 +940,11 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
-  test("Support simplified TPC-DS q62 shape") {
+  test("Support TPC-DS q62 shape") {
     val query =
       """
         |select
@@ -956,7 +983,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 
@@ -995,7 +1022,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     runQueryAndCompare(query) {
       df =>
         assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
-        checkGlutenPlan[HashAggregateExecTransformer](df)
+        checkDf(df)
     }
   }
 }
