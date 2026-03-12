@@ -26,6 +26,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
       .set(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key, "true")
+      .set("spark.sql.adaptive.enabled", "false")
   }
 
   private val q5TempTables = Seq(
