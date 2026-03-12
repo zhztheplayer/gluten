@@ -53,7 +53,9 @@ case class PushJoinAggregate(spark: SparkSession)
     // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
     val split = splitAggregateWithJoin(plan)
     // 2) Exhaustively push PartialWrapperAgg through join edges.
-    pushPartialWrapperAggregate(split)
+    val pushed = pushPartialWrapperAggregate(split)
+    // 3) Return rewritten plan with pushed partial wrapper aggregates.
+    pushed
   }
 
   private def isEnabled: Boolean = GlutenConfig.get.enableJoinAggregateRules
@@ -100,7 +102,7 @@ case class PushJoinAggregate(spark: SparkSession)
                   JoinAggregateFunctionWrapper
                     .wrapperPartial(spec.aggregate, spec.wrapperKey)
                     .toAggregateExpression(),
-                  s"partial_wrapper_$idx"
+                  s"pushed_agg_func_$idx"
                 )()
             }
 
