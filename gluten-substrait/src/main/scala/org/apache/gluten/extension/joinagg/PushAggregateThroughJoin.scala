@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 
-case class PushJoinAggregate(spark: SparkSession)
+case class PushAggregateThroughJoin(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
 
@@ -58,7 +58,7 @@ case class PushJoinAggregate(spark: SparkSession)
     pushed
   }
 
-  private def isEnabled: Boolean = GlutenConfig.get.enableJoinAggregateRules
+  private def isEnabled: Boolean = GlutenConfig.get.pushAggregateThroughJoinEnabled
 
   private def splitAggregateWithJoin(plan: LogicalPlan): LogicalPlan = {
     plan.transformUp {
@@ -508,9 +508,9 @@ case class PushJoinAggregate(spark: SparkSession)
   }
 }
 
-case class PushJoinAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan] {
+case class PushAggregateThroughJoinBatch(spark: SparkSession) extends Rule[LogicalPlan] {
   private val decimalAvgRule = DecimalAggregates
-  private val pushRule = PushJoinAggregate(spark)
+  private val pushRule = PushAggregateThroughJoin(spark)
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     if (!isEnabled) {
@@ -521,6 +521,6 @@ case class PushJoinAggregateBatch(spark: SparkSession) extends Rule[LogicalPlan]
   }
 
   private def isEnabled: Boolean = {
-    GlutenConfig.get.enableJoinAggregateRules
+    GlutenConfig.get.pushAggregateThroughJoinEnabled
   }
 }

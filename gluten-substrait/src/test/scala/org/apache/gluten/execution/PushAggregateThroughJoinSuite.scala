@@ -18,7 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.joinagg.ImplementJoinAggregate
-import org.apache.gluten.extension.joinagg.PushJoinAggregate
+import org.apache.gluten.extension.joinagg.PushAggregateThroughJoin
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
@@ -31,8 +31,8 @@ import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
 
-class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
-  private val joinAggregateRule = PushJoinAggregate(spark)
+class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
+  private val joinAggregateRule = PushAggregateThroughJoin(spark)
   private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
@@ -80,7 +80,7 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
   }
 
   private def runCase(testCase: PushdownCase): Unit = {
-    withSQLConf(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key -> "true") {
+    withSQLConf(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true") {
       val (withoutRuleRows, withoutRuleLogicalPlan, withoutRulePhysicalPlan) =
         withExtraPlanning(Nil, Nil) {
         val df = spark.sql(testCase.inputSql)

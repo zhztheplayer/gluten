@@ -29,7 +29,7 @@ import scala.collection.mutable.ArrayBuffer
 
 case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
   override def apply(plan: LogicalPlan): Seq[SparkPlan] = {
-    if (!GlutenConfig.get.enableJoinAggregateRules) {
+    if (!GlutenConfig.get.pushAggregateThroughJoinEnabled) {
       return Nil
     }
 
