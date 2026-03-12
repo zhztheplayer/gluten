@@ -17,6 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
+import org.apache.gluten.extension.joinagg.ImplementJoinAggregate
 import org.apache.gluten.extension.joinagg.PushJoinAggregate
 
 import org.apache.spark.sql.Row
@@ -24,6 +25,7 @@ import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.SparkStrategy
 import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
@@ -78,46 +80,70 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
 
   private def runCase(testCase: PushdownCase): Unit = {
     withSQLConf(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key -> "true") {
-      val (withoutRulePlan, withoutRuleRows) = withExtraOptimizations(Nil) {
+      val (withoutRulePlan, withoutRulePhysicalPlan, withoutRuleRows) =
+        withExtraPlanning(Nil, Nil) {
         val df = spark.sql(testCase.inputSql)
-        (df.queryExecution.optimizedPlan, df.collect().toSeq.sortBy(_.toString()))
+        (
+          df.queryExecution.optimizedPlan,
+          df.queryExecution.executedPlan,
+          df.collect().toSeq.sortBy(_.toString()))
       }
-      val (withRulePlan, withRuleRows) = withExtraOptimizations(Seq(joinAggregateRule)) {
-        joinAggregateRule.resetSuccessfulPushCount()
-        val df = spark.sql(testCase.inputSql)
-        val withRulePlan = df.queryExecution.optimizedPlan
-        val withRuleRows = df.collect().toSeq.sortBy(_.toString())
-        val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
-        val nodesWithMissingInput = withRulePlan.collect {
-          case p if p.missingInput.nonEmpty => p
+
+      val (withRulePlan, withRuleRows) =
+        withExtraPlanning(Seq(joinAggregateRule), Nil) {
+          joinAggregateRule.resetSuccessfulPushCount()
+          val df = spark.sql(testCase.inputSql)
+          val withRulePlan = df.queryExecution.optimizedPlan
+          val withRuleRows = df.collect().toSeq.sortBy(_.toString())
+          val aggregateNodeCount = withRulePlan.collect { case _: Aggregate => 1 }.size
+          val nodesWithMissingInput = withRulePlan.collect {
+            case p if p.missingInput.nonEmpty => p
+          }
+
+          assert(
+            withRulePlan.resolved,
+            s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
+              s"MissingInput=${withRulePlan.missingInput}")
+          assert(
+            nodesWithMissingInput.isEmpty,
+            s"Plan has missing input:\n${nodesWithMissingInput
+                .map(_.treeString)
+                .mkString("\n---\n")}")
+          assert(joinAggregateRule.getSuccessfulPushCount == testCase.expectedPushCount)
+          assert(aggregateNodeCount == testCase.expectedAggCount)
+          (withRulePlan, withRuleRows)
         }
 
-        assert(
-          withRulePlan.resolved,
-          s"Optimized plan unresolved:\n${withRulePlan.treeString}\n" +
-            s"MissingInput=${withRulePlan.missingInput}")
-        assert(
-          nodesWithMissingInput.isEmpty,
-          s"Plan has missing input:\n${nodesWithMissingInput
-              .map(_.treeString)
-              .mkString("\n---\n")}")
-        assert(joinAggregateRule.getSuccessfulPushCount == testCase.expectedPushCount)
-        assert(aggregateNodeCount == testCase.expectedAggCount)
-        if (debugMode) {
-          // scalastyle:off println
-          println("=== Plan Before (without PushJoinAggregatePreAggregation) ===")
-          println(withoutRulePlan.treeString)
-          println("=== Plan After (with PushJoinAggregatePreAggregation) ===")
-          println(withRulePlan.treeString)
-          println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
-          println(withoutRuleRows.mkString("\n"))
-          println("=== Result After (with PushJoinAggregatePreAggregation) ===")
-          println(withRuleRows.mkString("\n"))
-          // scalastyle:on println
+      val (withRuleAndStrategyPhysicalPlan, withRuleAndStrategyRows) =
+        withExtraPlanning(Seq(joinAggregateRule), Seq(ImplementJoinAggregate(spark))) {
+          joinAggregateRule.resetSuccessfulPushCount()
+          val df = spark.sql(testCase.inputSql)
+          (
+            df.queryExecution.executedPlan,
+            df.collect().toSeq.sortBy(_.toString()))
         }
-        (withRulePlan, withRuleRows)
+
+      if (debugMode) {
+        // scalastyle:off println
+        println("=== Optimized Plan Before (without PushJoinAggregatePreAggregation) ===")
+        println(withoutRulePlan.treeString)
+        println("=== Optimized Plan After (with PushJoinAggregatePreAggregation) ===")
+        println(withRulePlan.treeString)
+        println("=== Physical Plan Before (without PushJoinAggregatePreAggregation) ===")
+        println(withoutRulePhysicalPlan.treeString)
+        println("=== Physical Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
+        println(withRuleAndStrategyPhysicalPlan.treeString)
+        println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
+        println(withoutRuleRows.mkString("\n"))
+        println("=== Result After (with PushJoinAggregatePreAggregation only) ===")
+        println(withRuleRows.mkString("\n"))
+        println("=== Result After (with PushJoinAggregatePreAggregation and strategy) ===")
+        println(withRuleAndStrategyRows.mkString("\n"))
+        // scalastyle:on println
       }
+
       assertRowsEqual(withRuleRows, withoutRuleRows)
+      assertRowsEqual(withRuleAndStrategyRows, withoutRuleRows)
     }
   }
 
@@ -125,13 +151,19 @@ class PushJoinAggregateSuite extends PlanTest with SharedSparkSession {
     assert(left == right, s"Result mismatch:\nleft=$left\nright=$right")
   }
 
-  private def withExtraOptimizations[T](rules: Seq[Rule[LogicalPlan]])(f: => T): T = {
-    val previous = spark.experimental.extraOptimizations
+  private def withExtraPlanning[T](
+      rules: Seq[Rule[LogicalPlan]],
+      strategies: Seq[SparkStrategy])(
+      f: => T): T = {
+    val previousOptimizations = spark.experimental.extraOptimizations
+    val previousStrategies = spark.experimental.extraStrategies
     try {
       spark.experimental.extraOptimizations = rules
+      spark.experimental.extraStrategies = strategies
       f
     } finally {
-      spark.experimental.extraOptimizations = previous
+      spark.experimental.extraOptimizations = previousOptimizations
+      spark.experimental.extraStrategies = previousStrategies
     }
   }
 
