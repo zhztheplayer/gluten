@@ -18,7 +18,6 @@
 package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
-
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.expressions.{Alias, CreateStruct, GetStructField, NamedExpression}
@@ -135,10 +134,7 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
             // in the temporary unpack projection to prevent nested-field style mis-binding.
             val safeName = s"_joinagg_buf_${bufferAttr.exprId.id}_$idx"
             unpackAliases += Alias(
-              // Keep extraction positional to avoid mismatches between Spark buffer names
-              // (e.g. "sum") and wrapper struct field names
-              // (e.g. "ss_wrapper_buf_partial_xxx_0").
-              GetStructField(bufferExpr, idx, None),
+              GetStructField(bufferExpr, idx, Some(bufferAttr.name)),
               safeName
             )(exprId = bufferAttr.exprId, qualifier = bufferAttr.qualifier)
           case _ =>

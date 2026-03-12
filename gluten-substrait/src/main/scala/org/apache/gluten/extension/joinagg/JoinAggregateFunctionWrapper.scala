@@ -88,7 +88,7 @@ case class JoinAggregateFunctionWrapper(
     innerAgg.aggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>
         AttributeReference(
-          s"ss_wrapper_buf_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}_${wrapperKey}_$index",
+          attr.name,
           attr.dataType,
           attr.nullable)()
     }
