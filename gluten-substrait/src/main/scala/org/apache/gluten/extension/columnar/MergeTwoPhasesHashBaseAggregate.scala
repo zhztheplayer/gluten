@@ -20,7 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateMode, Complete, Final, Partial, PartialMerge}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{Complete, Final, Partial}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
@@ -44,51 +44,13 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
   val replaceSortAggWithHashAgg: Boolean = GlutenConfig.get.forceToUseHashAgg
   val mergeTwoPhasesAggEnabled: Boolean = GlutenConfig.get.mergeTwoPhasesAggEnabled
 
-  private def mergedMode(childMode: AggregateMode, parentMode: AggregateMode): Option[AggregateMode] = {
-    (childMode, parentMode) match {
-      // Existing merge: regular Spark 2-stage aggregate.
-      case (Partial, Final) => Some(Complete)
-      // Join-aggregate unwrap path:
-      // A(Partial) + B(PartialMerge) can be fused into one Partial aggregate.
-      // This preserves semantics and avoids keeping an extra aggregate stage.
-      case (Partial, PartialMerge) => Some(Partial)
-      // Join-aggregate unwrap path:
-      // C(PartialMerge) + D(Final) can be fused into one Final aggregate.
-      case (PartialMerge, Final) => Some(Final)
-      case _ => None
-    }
-  }
-
-  private def mergeModes(
-      childAgg: BaseAggregateExec,
-      parentAgg: BaseAggregateExec): Option[Seq[AggregateMode]] = {
-    // Both phases must represent the same aggregate-expression vector.
-    // If sizes differ (e.g. DISTINCT de-dup stage has 0 aggs under a non-empty parent),
-    // they are not mergeable.
+  private def isPartialAgg(partialAgg: BaseAggregateExec, finalAgg: BaseAggregateExec): Boolean = {
+    // TODO: now it can not support to merge agg which there are the filters in the aggregate exprs.
     if (
-      childAgg.aggregateExpressions.isEmpty ||
-      childAgg.aggregateExpressions.size != parentAgg.aggregateExpressions.size) {
-      return None
-    }
-
-    val zipped = childAgg.aggregateExpressions.zip(parentAgg.aggregateExpressions)
-    val merged = zipped.map {
-      case (childExpr, parentExpr) => mergedMode(childExpr.mode, parentExpr.mode)
-    }
-    if (merged.forall(_.isDefined)) Some(merged.flatten) else None
-  }
-
-  private def canMergeTwoPhases(childAgg: BaseAggregateExec, parentAgg: BaseAggregateExec): Boolean = {
-    // Keep this conservative:
-    // - no aggregate FILTER clauses
-    // - every aggregate-expression pair must have a valid mode mapping
-    // - logicalLink must match to guarantee same logical aggregate origin
-    if (
-      childAgg.aggregateExpressions.forall(_.filter.isEmpty) &&
-      parentAgg.aggregateExpressions.forall(_.filter.isEmpty) &&
-      mergeModes(childAgg, parentAgg).isDefined
+      partialAgg.aggregateExpressions.forall(x => x.mode == Partial && x.filter.isEmpty) &&
+      finalAgg.aggregateExpressions.forall(x => x.mode == Final && x.filter.isEmpty)
     ) {
-      (parentAgg.logicalLink, childAgg.logicalLink) match {
+      (finalAgg.logicalLink, partialAgg.logicalLink) match {
         case (Some(agg1), Some(agg2)) => agg1.sameResult(agg2)
         case _ => false
       }
@@ -111,15 +73,12 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
               aggregateAttributes,
               _,
               resultExpressions,
-              child: HashAggregateExec) if !isStreaming && canMergeTwoPhases(child, hashAgg) =>
-          val mergedModes = mergeModes(child, hashAgg).get
-          val mergedAggregateExpressions =
-            aggregateExpressions.zip(mergedModes).map {
-              case (ae, mode) => ae.copy(mode = mode)
-            }
+              child: HashAggregateExec) if !isStreaming && isPartialAgg(child, hashAgg) =>
+          // convert to complete mode aggregate expressions
+          val completeAggregateExpressions = aggregateExpressions.map(_.copy(mode = Complete))
           hashAgg.copy(
             groupingExpressions = child.groupingExpressions,
-            aggregateExpressions = mergedAggregateExpressions,
+            aggregateExpressions = completeAggregateExpressions,
             initialInputBufferOffset = 0,
             child = child.child
           )
@@ -133,16 +92,13 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
               _,
               resultExpressions,
               child: ObjectHashAggregateExec)
-            if !isStreaming && canMergeTwoPhases(child, objectHashAgg) =>
-          val mergedModes = mergeModes(child, objectHashAgg).get
-          val mergedAggregateExpressions =
-            aggregateExpressions.zip(mergedModes).map {
-              case (ae, mode) => ae.copy(mode = mode)
-            }
+            if !isStreaming && isPartialAgg(child, objectHashAgg) =>
+          // convert to complete mode aggregate expressions
+          val completeAggregateExpressions = aggregateExpressions.map(_.copy(mode = Complete))
           objectHashAgg.copy(
             requiredChildDistributionExpressions = None,
             groupingExpressions = child.groupingExpressions,
-            aggregateExpressions = mergedAggregateExpressions,
+            aggregateExpressions = completeAggregateExpressions,
             initialInputBufferOffset = 0,
             child = child.child
           )
@@ -156,16 +112,13 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
               _,
               resultExpressions,
               child: SortAggregateExec)
-            if replaceSortAggWithHashAgg && !isStreaming && canMergeTwoPhases(child, sortAgg) =>
-          val mergedModes = mergeModes(child, sortAgg).get
-          val mergedAggregateExpressions =
-            aggregateExpressions.zip(mergedModes).map {
-              case (ae, mode) => ae.copy(mode = mode)
-            }
+            if replaceSortAggWithHashAgg && !isStreaming && isPartialAgg(child, sortAgg) =>
+          // convert to complete mode aggregate expressions
+          val completeAggregateExpressions = aggregateExpressions.map(_.copy(mode = Complete))
           sortAgg.copy(
             requiredChildDistributionExpressions = None,
             groupingExpressions = child.groupingExpressions,
-            aggregateExpressions = mergedAggregateExpressions,
+            aggregateExpressions = completeAggregateExpressions,
             initialInputBufferOffset = 0,
             child = child.child
           )
@@ -173,5 +126,4 @@ case class MergeTwoPhasesHashBaseAggregate(session: SparkSession)
       }
     }
   }
-
 }

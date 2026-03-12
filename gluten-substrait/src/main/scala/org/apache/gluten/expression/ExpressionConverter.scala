@@ -963,20 +963,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         }
       })
     if (newOrdinal == -1) {
-      // Some rewritten plans preserve field order but not field names (e.g. wrapper/buffer
-      // schemas). In that case, use ordinal as a robust fallback to avoid false bind failures.
-      if (
-        structField.child.dataType.isInstanceOf[StructType] &&
-        structField.ordinal >= 0 &&
-        structField.ordinal < structField.child.dataType
-          .asInstanceOf[StructType]
-          .fields
-          .length) {
-        BoundReference(structField.ordinal, structField.dataType, structField.nullable)
-      } else {
-        throw new IllegalStateException(
-          s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")
-      }
+      throw new IllegalStateException(
+        s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")
     } else {
       BoundReference(newOrdinal, structField.dataType, structField.nullable)
     }
