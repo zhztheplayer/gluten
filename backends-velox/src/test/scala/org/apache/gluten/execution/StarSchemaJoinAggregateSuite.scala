@@ -66,7 +66,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       .set("spark.sql.adaptive.enabled", "false")
   }
 
-  private val q5TempTables = Seq(
+  private val tpcdsTempTables = Seq(
     "store_sales",
     "store_returns",
     "catalog_sales",
@@ -88,11 +88,11 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    createQ5MiniTables()
+    createTPCDSMiniTables()
   }
 
   override def afterAll(): Unit = {
-    q5TempTables.foreach {
+    tpcdsTempTables.foreach {
       t =>
         if (spark.catalog.tableExists(t)) {
           spark.catalog.dropTempView(t)
@@ -101,7 +101,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     super.afterAll()
   }
 
-  private def createQ5MiniTables(): Unit = {
+  private def createTPCDSMiniTables(): Unit = {
     spark.sql("""
                 |CREATE OR REPLACE TEMP VIEW date_dim AS
                 |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk,
