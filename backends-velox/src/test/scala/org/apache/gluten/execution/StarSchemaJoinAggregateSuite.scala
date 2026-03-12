@@ -41,6 +41,8 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     "customer_address",
     "call_center",
     "web_site",
+    "warehouse",
+    "ship_mode",
     "item",
     "promotion",
     "customer_demographics"
@@ -67,20 +69,23 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk,
                 |       CAST(d_date AS DATE) AS d_date,
                 |       CAST(d_year AS INT) AS d_year,
+                |       CAST(d_month_seq AS INT) AS d_month_seq,
                 |       CAST(d_week_seq AS INT) AS d_week_seq,
                 |       CAST(d_quarter_name AS STRING) AS d_quarter_name,
                 |       CAST(d_day_name AS STRING) AS d_day_name
                 |FROM VALUES
-                |  (1, DATE'1998-08-05', 1998, 10, '1998Q1', 'Wednesday'),
-                |  (2, DATE'1998-08-06', 1998, 10, '1998Q1', 'Thursday'),
-                |  (3, DATE'1998-08-07', 1998, 10, '1998Q1', 'Friday'),
-                |  (10, DATE'1999-02-10', 1999, 40, '1999Q1', 'Wednesday'),
-                |  (11, DATE'1999-03-01', 1999, 43, '1999Q1', 'Monday'),
-                |  (1001, DATE'2001-01-07', 2001, 1, '2001Q1', 'Sunday'),
-                |  (1002, DATE'2001-01-08', 2001, 1, '2001Q1', 'Monday'),
-                |  (1054, DATE'2002-01-13', 2002, 54, '2002Q1', 'Sunday'),
-                |  (1055, DATE'2002-01-14', 2002, 54, '2002Q1', 'Monday')
-                |AS t(d_date_sk, d_date, d_year, d_week_seq, d_quarter_name, d_day_name)
+                |  (1, DATE'1998-08-05', 1998, 1100, 10, '1998Q1', 'Wednesday'),
+                |  (2, DATE'1998-08-06', 1998, 1100, 10, '1998Q1', 'Thursday'),
+                |  (3, DATE'1998-08-07', 1998, 1100, 10, '1998Q1', 'Friday'),
+                |  (10, DATE'1999-02-10', 1999, 1212, 40, '1999Q1', 'Wednesday'),
+                |  (11, DATE'1999-03-01', 1999, 1213, 43, '1999Q1', 'Monday'),
+                |  (12, DATE'1999-04-01', 1999, 1214, 48, '1999Q2', 'Thursday'),
+                |  (13, DATE'1999-07-01', 1999, 1217, 61, '1999Q3', 'Thursday'),
+                |  (1001, DATE'2001-01-07', 2001, 1452, 1, '2001Q1', 'Sunday'),
+                |  (1002, DATE'2001-01-08', 2001, 1452, 1, '2001Q1', 'Monday'),
+                |  (1054, DATE'2002-01-13', 2002, 1464, 54, '2002Q1', 'Sunday'),
+                |  (1055, DATE'2002-01-14', 2002, 1464, 54, '2002Q1', 'Monday')
+                |AS t(d_date_sk, d_date, d_year, d_month_seq, d_week_seq, d_quarter_name, d_day_name)
                 |""".stripMargin)
 
     spark.sql("""
@@ -107,11 +112,32 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
     spark.sql("""
                 |CREATE OR REPLACE TEMP VIEW web_site AS
                 |SELECT CAST(web_site_sk AS BIGINT) AS web_site_sk,
-                |       CAST(web_site_id AS STRING) AS web_site_id
+                |       CAST(web_site_id AS STRING) AS web_site_id,
+                |       CAST(web_name AS STRING) AS web_name
                 |FROM VALUES
-                |  (1000, 'W1000'),
-                |  (2000, 'W2000')
-                |AS t(web_site_sk, web_site_id)
+                |  (1000, 'W1000', 'Web 1000'),
+                |  (2000, 'W2000', 'Web 2000')
+                |AS t(web_site_sk, web_site_id, web_name)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW warehouse AS
+                |SELECT CAST(w_warehouse_sk AS BIGINT) AS w_warehouse_sk,
+                |       CAST(w_warehouse_name AS STRING) AS w_warehouse_name
+                |FROM VALUES
+                |  (1, 'Warehouse 1'),
+                |  (2, 'Warehouse 2')
+                |AS t(w_warehouse_sk, w_warehouse_name)
+                |""".stripMargin)
+
+    spark.sql("""
+                |CREATE OR REPLACE TEMP VIEW ship_mode AS
+                |SELECT CAST(sm_ship_mode_sk AS BIGINT) AS sm_ship_mode_sk,
+                |       CAST(sm_type AS STRING) AS sm_type
+                |FROM VALUES
+                |  (11, 'AIR'),
+                |  (22, 'GROUND')
+                |AS t(sm_ship_mode_sk, sm_type)
                 |""".stripMargin)
 
     spark.sql("""
@@ -261,18 +287,21 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |CREATE OR REPLACE TEMP VIEW web_sales AS
                 |SELECT CAST(ws_web_site_sk AS BIGINT) AS ws_web_site_sk,
                 |       CAST(ws_sold_date_sk AS BIGINT) AS ws_sold_date_sk,
+                |       CAST(ws_ship_date_sk AS BIGINT) AS ws_ship_date_sk,
+                |       CAST(ws_warehouse_sk AS BIGINT) AS ws_warehouse_sk,
+                |       CAST(ws_ship_mode_sk AS BIGINT) AS ws_ship_mode_sk,
                 |       CAST(ws_ext_sales_price AS DECIMAL(7,2)) AS ws_ext_sales_price,
                 |       CAST(ws_net_profit AS DECIMAL(7,2)) AS ws_net_profit,
                 |       CAST(ws_item_sk AS BIGINT) AS ws_item_sk,
                 |       CAST(ws_order_number AS BIGINT) AS ws_order_number
                 |FROM VALUES
-                |  (1000, 1, 31.00, 7.00, 500, 9000),
-                |  (2000, 2, 32.00, 8.00, 600, 9001),
-                |  (1000, 1002, 40.00, 5.00, 700, 9100),
-                |  (1000, 1055, 80.00, 6.00, 701, 9101)
+                |  (1000, 1, 10, 1, 11, 31.00, 7.00, 500, 9000),
+                |  (2000, 2, 11, 2, 22, 32.00, 8.00, 600, 9001),
+                |  (1000, 1002, 1054, 1, 11, 40.00, 5.00, 700, 9100),
+                |  (1000, 1055, 1055, 1, 22, 80.00, 6.00, 701, 9101)
                 |AS t(
-                |  ws_web_site_sk, ws_sold_date_sk, ws_ext_sales_price,
-                |  ws_net_profit, ws_item_sk, ws_order_number)
+                |  ws_web_site_sk, ws_sold_date_sk, ws_ship_date_sk, ws_warehouse_sk,
+                |  ws_ship_mode_sk, ws_ext_sales_price, ws_net_profit, ws_item_sk, ws_order_number)
                 |""".stripMargin)
 
     spark.sql("""
@@ -879,6 +908,49 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         |        d_year = 2001+1) z
         | where d_week_seq1=d_week_seq2-53
         | order by d_week_seq1
+        |""".stripMargin
+
+    runQueryAndCompare(query) {
+      df =>
+        checkGlutenPlan[HashAggregateExecTransformer](df)
+    }
+  }
+
+  test("Support simplified TPC-DS q62 shape") {
+    val query =
+      """
+        |select
+        |   substr(w_warehouse_name,1,20)
+        |  ,sm_type
+        |  ,web_name
+        |  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk <= 30 ) then 1 else 0 end) as `30 days`
+        |  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 30) and
+        |                 (ws_ship_date_sk - ws_sold_date_sk <= 60) then 1 else 0 end) as `31-60 days`
+        |  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 60) and
+        |                 (ws_ship_date_sk - ws_sold_date_sk <= 90) then 1 else 0 end) as `61-90 days`
+        |  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 90) and
+        |                 (ws_ship_date_sk - ws_sold_date_sk <= 120) then 1 else 0 end) as `91-120 days`
+        |  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 120) then 1 else 0 end) as `>120 days`
+        |from
+        |   web_sales
+        |  ,warehouse
+        |  ,ship_mode
+        |  ,web_site
+        |  ,date_dim
+        |where
+        |    d_month_seq between 1212 and 1212 + 11
+        |and ws_ship_date_sk   = d_date_sk
+        |and ws_warehouse_sk   = w_warehouse_sk
+        |and ws_ship_mode_sk   = sm_ship_mode_sk
+        |and ws_web_site_sk    = web_site_sk
+        |group by
+        |   substr(w_warehouse_name,1,20)
+        |  ,sm_type
+        |  ,web_name
+        |order by substr(w_warehouse_name,1,20)
+        |        ,sm_type
+        |        ,web_name
+        |limit 100
         |""".stripMargin
 
     runQueryAndCompare(query) {
