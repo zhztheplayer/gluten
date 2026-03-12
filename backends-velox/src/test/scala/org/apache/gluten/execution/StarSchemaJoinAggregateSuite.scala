@@ -17,7 +17,7 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushJoinAggregateBatch}
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregateThroughJoinBatch}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.SparkSessionExtensions
@@ -25,7 +25,7 @@ import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 
 class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectOptimizerRule(PushJoinAggregateBatch.apply)
+    extensions.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
   }
 }
 
@@ -42,7 +42,7 @@ class VanillaStarSchemaJoinAggregateLogicalOnlySuite extends StarSchemaJoinAggre
 
 class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectOptimizerRule(PushJoinAggregateBatch.apply)
+    extensions.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
     extensions.injectPlannerStrategy(ImplementJoinAggregate.apply)
   }
 }
@@ -62,7 +62,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
-      .set(GlutenConfig.ENABLE_JOIN_AGGREGATE_RULES.key, "true")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key, "true")
       .set("spark.sql.adaptive.enabled", "false")
   }
 
