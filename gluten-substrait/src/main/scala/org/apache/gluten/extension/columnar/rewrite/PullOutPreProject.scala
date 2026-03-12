@@ -21,7 +21,13 @@ import org.apache.gluten.sql.shims.SparkShimLoader
 import org.apache.gluten.utils.PullOutProjectHelper
 
 import org.apache.spark.sql.catalyst.expressions._
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Partial}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{
+  AggregateExpression,
+  Complete,
+  Final,
+  Partial,
+  PartialMerge
+}
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.aggregate.{BaseAggregateExec, TypedAggregateExpression}
 import org.apache.spark.sql.execution.python.ArrowEvalPythonExec
@@ -37,6 +43,19 @@ import scala.collection.mutable
  * execution by the native engine.
  */
 object PullOutPreProject extends RewriteSingleNode with PullOutProjectHelper {
+  private def preserveAggBufferInputs(
+      aggregateExpressions: Seq[AggregateExpression]): Seq[AttributeReference] = {
+    aggregateExpressions.flatMap {
+      case AggregateExpression(aggFunc, PartialMerge | Final, _, _, _) =>
+        // Keep merge/final buffer attrs visible when the same aggregate also needs pulled
+        // pre-project expressions. This avoids dropping intermediate aggregate buffers from the
+        // child schema before validation / native planning.
+        aggFunc.inputAggBufferAttributes
+      case _ =>
+        Seq.empty
+    }.distinct
+  }
+
   private def preserveChildOutputForAggPreProject(
       childOutput: Seq[Attribute],
       appendNamedExprs: Seq[NamedExpression]): Seq[NamedExpression] = {
@@ -188,12 +207,15 @@ object PullOutPreProject extends RewriteSingleNode with PullOutProjectHelper {
       // Handle aggregateExpressions.
       val newAggregateExpressions =
         agg.aggregateExpressions.toIndexedSeq.map(rewriteAggregateExpression(_, expressionMap))
+      val preservedAggBufferInputs = preserveAggBufferInputs(newAggregateExpressions)
 
       val newAgg = copyBaseAggregateExec(agg)(
         newGroupingExpressions = newGroupingExpressions,
         newAggregateExpressions = newAggregateExpressions)
       val preProject = ProjectExec(
-        preserveChildOutputForAggPreProject(agg.child.output, expressionMap.values.toSeq),
+        preserveChildOutputForAggPreProject(
+          agg.child.output,
+          preservedAggBufferInputs ++ expressionMap.values.toSeq),
         agg.child)
       agg.child.logicalLink.foreach(preProject.setLogicalLink)
       newAgg.withNewChildren(Seq(preProject))
