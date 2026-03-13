@@ -29,6 +29,29 @@ import org.apache.spark.sql.catalyst.rules.Rule
 case class PushAggregateThroughJoin(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
+  /*
+   * This rule rewrites:
+   *
+   *   Aggregate(..., Join(...))
+   *
+   * into a pair of wrapper aggregates:
+   *
+   *   FinalWrapperAggregate(..., PushedWrapperAggregate(..., Join(...)))
+   *
+   * and then repeatedly pushes the wrapper aggregate through inner equi-joins. The pushed
+   * aggregate always represents the "pre-join" aggregation work, while the final wrapper above
+   * the join preserves the original query semantics.
+   *
+   * The key invariants are:
+   *   1. Only declarative, non-distinct aggregates are rewritten.
+   *   2. Pushed grouping keys must preserve the semantics of all expressions that still remain
+   *      above the pushed aggregate, including derived grouping expressions coming from extracted
+   *      Project / Filter nodes.
+   *   3. Aggregate measure inputs needed to evaluate the pushed aggregate must be preserved in the
+   *      rebuilt subtree, but they must not be promoted into grouping keys.
+   *   4. The rule intentionally pushes one join edge at a time; repeated application performs
+   *      deep pushdown for multi-join shapes.
+   */
 
   private case class SidePartialSpec(
       originalExpr: Expression,
@@ -88,6 +111,10 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   }
 
   private def splitAggregate(agg: Aggregate): Option[LogicalPlan] = {
+    // Split happens only when the aggregate child can be peeled into an inner equi-join plus
+    // optional extracted Project / Filter nodes. `extractJoin` returns both the join and the
+    // attribute dependencies that those wrapper nodes need to keep alive when the subtree is
+    // rebuilt after pushdown.
     extractJoin(agg.child).flatMap {
       case (join, wrapperRequiredAttrs, rebuild) =>
         val pushableSpecs = collectPushableSpecs(agg.aggregateExpressions)
@@ -157,6 +184,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   }
 
   private def pushPartialWrapperAggregate(plan: LogicalPlan): LogicalPlan = {
+    // Push one join edge per iteration. This keeps the rewrite local and lets `maxDepth` bound
+    // how far a pushed aggregate is allowed to travel through a multi-join subtree.
     var current = plan
     var changed = true
     var pushCount = 0
@@ -208,6 +237,16 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       wrapperRequiredAttrs: Seq[Attribute],
       rebuild: (Join, Seq[Attribute]) => LogicalPlan,
       side: JoinSide): Option[LogicalPlan] = {
+    // A pushed wrapper aggregate may move to a join side only when all of its aggregate inputs
+    // come from that side. The pushed grouping then has to include:
+    //   - grouping attrs already present on this side
+    //   - join keys / join-condition attrs required to preserve join semantics
+    //   - attrs referenced by non-pushable expressions still above the pushed aggregate
+    //   - attrs propagated from extracted Project / Filter nodes when those attrs are required to
+    //     preserve derived grouping expressions
+    //
+    // The pushed grouping must *not* include pure measure inputs of the pushed aggregate such as
+    // `ss_net_profit`, otherwise the pre-aggregation becomes over-constrained and ineffective.
     val wrapperAliases = collectPartialWrapperAliases(aggExprs)
     if (wrapperAliases.isEmpty) {
       return None
@@ -320,6 +359,9 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       child: LogicalPlan): Option[(Join, Seq[Attribute], (Join, Seq[Attribute]) => LogicalPlan)] =
     child match {
       case project @ Project(_, projectChild) =>
+        // Preserve dependencies introduced by extracted Project nodes. When pushdown rebuilds the
+        // join subtree, these attrs tell us which project outputs (and therefore which child
+        // inputs) must remain available above the pushed aggregate.
         extractJoin(projectChild).map {
           case (join, wrapperRequiredAttrs, rebuild) =>
             val projectRequiredAttrs =
@@ -354,6 +396,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       case join: Join if isInnerEquiJoin(join) =>
         Some((join, Nil, (j: Join, _: Seq[Attribute]) => j))
       case filter @ Filter(_, join: Join) if isInnerEquiJoin(join) =>
+        // Filter predicates above the join become additional required attrs for rebuild, because
+        // those predicates still execute above the pushed aggregate after rewrite.
         Some(
           (
             join,
@@ -448,6 +492,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def rewriteAggregateExpressions(
       aggExprs: Seq[NamedExpression],
       sidePartials: Seq[SidePartialRef]): Option[Seq[NamedExpression]] = {
+    // Replace each pushed aggregate occurrence with a final wrapper that consumes the pushed
+    // wrapper output. Non-pushable expressions are left unchanged.
     var rewrittenAny = false
 
     val rewrittenAggExprs = aggExprs.map {

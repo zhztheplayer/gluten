@@ -24,6 +24,9 @@ import java.util.Locale
 import scala.collection.mutable
 
 object JoinAggregateFunctionWrapper {
+  // The wrapper is used in exactly two logical phases:
+  //   - PartialPhase: a pushed aggregate below / through joins
+  //   - FinalPhase: the aggregate above the join that restores the original query semantics
   sealed trait TargetPhase {
     def sqlName: String
   }
@@ -57,7 +60,10 @@ object JoinAggregateFunctionWrapper {
       wrapperKey = wrapperKey)
   }
 
-  // Translate Spark physical aggregate mode + wrapper semantic phase into wrapper semantic mode.
+  // Translate Spark's physical aggregate mode together with the wrapper semantic phase into the
+  // actual Spark aggregate mode that should be used for the wrapped aggregate. For example, a
+  // FinalPhase wrapper running in Spark's Partial mode is really doing a partial merge of the
+  // pushed aggregate buffers.
   def semanticMode(actualMode: AggregateMode, targetPhase: TargetPhase): AggregateMode = {
     (actualMode, targetPhase) match {
       case (Partial, PartialPhase) => Partial
@@ -82,6 +88,23 @@ case class JoinAggregateFunctionWrapper(
     inputBuffer: Option[Expression],
     wrapperKey: String = "0")
   extends DeclarativeAggregate {
+  /*
+   * Logical wrapper around a Spark declarative aggregate used by the join-aggregate rewrite.
+   *
+   * Why the wrapper exists:
+   *   - Below the join, we want to aggregate early and carry the aggregate buffer through the
+   *     join as a single value.
+   *   - Above the join, we want to merge / evaluate that buffer and recover the original
+   *     aggregate result.
+   *
+   * The wrapper therefore changes only the *logical contract* across the join:
+   *   - PartialPhase exposes the wrapped aggregate buffer as a single struct-valued output.
+   *   - FinalPhase consumes that struct-valued buffer and delegates merge / evaluate semantics
+   *     back to the wrapped Spark aggregate.
+   *
+   * `ImplementJoinAggregate` later lowers this wrapper back into normal Spark physical aggregates
+   * by packing / unpacking the struct around the aggregate buffers.
+   */
   import JoinAggregateFunctionWrapper._
 
   private val wrappedBufferAttrs: Seq[AttributeReference] =
@@ -100,6 +123,8 @@ case class JoinAggregateFunctionWrapper(
 
   override lazy val dataType: DataType = targetPhase match {
     case PartialPhase =>
+      // The pushed phase carries the aggregate buffer through the plan as a single struct-valued
+      // payload so the join sees one logical column per pushed aggregate.
       CreateStruct(wrappedBufferAttrs).dataType
     case FinalPhase =>
       innerAgg.dataType
@@ -118,12 +143,14 @@ case class JoinAggregateFunctionWrapper(
 
   override lazy val updateExpressions: Seq[Expression] = targetPhase match {
     case PartialPhase =>
+      // Update the wrapped aggregate buffer from the original aggregate children.
       rewrite(
         innerAgg.updateExpressions,
         childReplacements = innerAgg.children.zip(children).toMap,
         useInputBufferField = false
       )
     case FinalPhase =>
+      // Merge expressions read from the struct-valued input buffer produced by the pushed phase.
       rewrite(innerAgg.mergeExpressions, childReplacements = Map.empty, useInputBufferField = true)
   }
 
@@ -133,6 +160,7 @@ case class JoinAggregateFunctionWrapper(
 
   override lazy val evaluateExpression: Expression = targetPhase match {
     case PartialPhase =>
+      // The pushed phase returns the entire aggregate buffer, not the final aggregate value.
       CreateStruct(aggBufferAttributes)
     case FinalPhase =>
       rewrite(
@@ -183,6 +211,11 @@ case class JoinAggregateFunctionWrapper(
       expr: Expression,
       childReplacements: Map[Expression, Expression],
       useInputBufferField: Boolean): Expression = {
+    // Rebind every attribute reference in the wrapped aggregate expression tree to the
+    // corresponding wrapper-side attribute:
+    //   - wrapped buffer attrs when we are updating / evaluating the wrapper buffer
+    //   - struct-field reads when FinalPhase is consuming the pushed buffer payload
+    //   - original aggregate children when PartialPhase still reads the raw input rows
     val innerToWrappedBuffer = innerAgg.aggBufferAttributes.zip(aggBufferAttributes)
     val innerToInputBuffer = innerAgg.inputAggBufferAttributes.zipWithIndex.map {
       case (attr, index) =>

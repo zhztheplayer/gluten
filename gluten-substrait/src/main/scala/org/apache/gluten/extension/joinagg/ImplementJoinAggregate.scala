@@ -28,6 +28,28 @@ import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import scala.collection.mutable.ArrayBuffer
 
 case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
+  /*
+   * This strategy lowers the logical join-aggregate wrapper shape produced by
+   * `PushAggregateThroughJoin` into ordinary Spark physical hash aggregates.
+   *
+   * The optimizer builds two wrapper phases:
+   *   - pushed phase: wrapper partial below / through joins
+   *   - final phase: wrapper final above the pushed phase
+   *
+   * Spark's physical aggregate operators still expect normal aggregate functions and normal input
+   * / buffer attributes. This strategy therefore:
+   *   1. rewrites wrapper aggregates back to the wrapped Spark aggregate with the correct physical
+   *      aggregate mode;
+   *   2. inserts a post-project for the pushed phase to pack Spark aggregate buffers into a
+   *      struct, matching the wrapper's logical output type;
+   *   3. inserts a pre-project for the final phase to unpack that struct back into the buffer
+   *      attributes expected by the wrapped Spark aggregate.
+   *
+   * In short: the wrapper exists only at the logical boundary; this strategy makes the plan look
+   * like an ordinary Spark aggregate plan again while preserving the wrapper data contract across
+   * the join.
+   */
+
   override def apply(plan: LogicalPlan): Seq[SparkPlan] = {
     if (!GlutenConfig.get.pushAggregateThroughJoinEnabled) {
       return Nil
@@ -42,6 +64,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
   }
 
   private def planJoinAggregate(agg: Aggregate): Option[SparkPlan] = {
+    // A single logical aggregate must lower either entirely as pushed-phase wrappers or entirely
+    // as final-phase wrappers. Mixed-phase aggregates are rejected here.
     val grouping = agg.groupingExpressions.collect { case ne: NamedExpression => ne }
     if (grouping.size != agg.groupingExpressions.size) {
       return None
@@ -71,6 +95,9 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       agg: Aggregate,
       grouping: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
+    // Lower the pushed wrapper phase as a normal Spark aggregate. Its physical output is the
+    // wrapped aggregate buffer attributes, which are then packed into a struct so the downstream
+    // final wrapper still sees the wrapper's logical row shape.
     val rewrittenOutput = rewriteAggregateOutput(agg.aggregateExpressions)
     val rewrittenAggExprs = collectAggregateExpressions(rewrittenOutput)
     if (rewrittenAggExprs.isEmpty) {
@@ -115,6 +142,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       agg: Aggregate,
       grouping: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
+    // Lower the final wrapper phase by first unpacking the wrapper struct into the wrapped
+    // aggregate's input buffer attributes, then running a normal Spark final / merge aggregate.
     val rewrittenOutput = rewriteAggregateOutput(agg.aggregateExpressions)
     val wrapperWithRewritten = collectWrapperAggregateExpressions(agg.aggregateExpressions).map {
       case (originalAe, wrapper) =>
@@ -178,6 +207,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
 
   private def collectWrapperAggregateExpressions(
       output: Seq[NamedExpression]): Seq[(AggregateExpression, JoinAggregateFunctionWrapper)] = {
+    // Deduplicate by AggregateExpression result id so the same wrapper expression referenced
+    // multiple times in the output is lowered once.
     output
       .flatMap {
         _.collect {
@@ -197,6 +228,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
   }
 
   private def rewriteAggregateOutput(output: Seq[NamedExpression]): Seq[NamedExpression] = {
+    // Replace wrapper aggregates with the wrapped Spark aggregate and the physical aggregate mode
+    // implied by the wrapper phase.
     output.map {
       _.transformUp {
         case ae @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
@@ -231,6 +264,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
   private def rewriteResultAsAggregateAttributes(
       rewrittenOutput: Seq[NamedExpression],
       rewrittenAggExprs: Seq[AggregateExpression]): Seq[NamedExpression] = {
+    // After the HashAggregateExec is built, rewrite the original output tree so every aggregate
+    // expression points at the corresponding physical aggregate result attribute.
     rewrittenOutput.map {
       _.transformUp {
         case ae: AggregateExpression =>
