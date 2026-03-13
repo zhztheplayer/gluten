@@ -172,7 +172,7 @@ case class JoinAggregateFunctionWrapper(
   override def nodeName: String = "JoinAggregateWrapper"
 
   override def prettyName: String =
-    s"_join_agg_wrapper_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}"
+    s"join_agg_wrapper_${targetPhase.sqlName.toLowerCase(Locale.ROOT)}"
 
   override def sql: String = {
     s"$prettyName(${innerAgg.sql(false)})"

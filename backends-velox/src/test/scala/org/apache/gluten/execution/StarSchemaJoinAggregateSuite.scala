@@ -376,12 +376,12 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
   }
 
   private def checkDf(df: DataFrame): Unit = {
-    assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
+    assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
     checkPlan(df)
   }
 
   private def checkDfNoPush(df: DataFrame): Unit = {
-    assert(!df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
+    assert(!df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
     checkPlan(df)
   }
 
