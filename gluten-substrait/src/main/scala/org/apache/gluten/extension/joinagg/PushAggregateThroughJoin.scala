@@ -439,14 +439,11 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   }
 
   private def hasPushableAggExpr(aggExprs: Seq[Expression]): Boolean = {
-    aggExprs.exists {
-      case Alias(expr, _) => isPushableExpr(expr)
-      case expr => isPushableExpr(expr)
-    }
+    aggExprs.exists(expr => collectPushableSpecs(expr).nonEmpty)
   }
 
   private def isPushableExpr(expr: Expression): Boolean = {
-    pushableSpec(expr).isDefined
+    collectPushableSpecs(expr).nonEmpty
   }
 
   private def hasDistinctAggExpr(aggExprs: Seq[NamedExpression]): Boolean = {
@@ -458,30 +455,33 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
   }
 
-  private def pushableSpec(expr: Expression): Option[SidePartialSpec] = {
-    val candidates = expr.collect {
-      case ae: AggregateExpression if !ae.isDistinct && ae.filter.isEmpty =>
-        ae.aggregateFunction match {
-          case da: DeclarativeAggregate if !da.isInstanceOf[JoinAggregateFunctionWrapper] =>
-            Some((ae, da))
-          case _ => None
-        }
-    }.flatten
-
-    if (candidates.size == 1) {
-      val (targetAe, da) = candidates.head
-      val stableExprSql = targetAe.canonicalized.sql
-      Some(SidePartialSpec(targetAe, da, Integer.toUnsignedString(stableExprSql.hashCode)))
+  private def pushableSpec(ae: AggregateExpression): Option[SidePartialSpec] = {
+    if (!ae.isDistinct && ae.filter.isEmpty) {
+      ae.aggregateFunction match {
+        case da: DeclarativeAggregate if !da.isInstanceOf[JoinAggregateFunctionWrapper] =>
+          val stableExprSql = ae.canonicalized.sql
+          Some(SidePartialSpec(ae, da, Integer.toUnsignedString(stableExprSql.hashCode)))
+        case _ => None
+      }
     } else {
       None
     }
   }
 
+  private def collectPushableSpecs(expr: Expression): Seq[SidePartialSpec] = {
+    expr.collect { case ae: AggregateExpression => ae }
+      .flatMap(pushableSpec)
+      .foldLeft(Seq.empty[SidePartialSpec]) {
+        case (acc, spec) if acc.exists(_.originalExpr.semanticEquals(spec.originalExpr)) => acc
+        case (acc, spec) => acc :+ spec
+      }
+  }
+
   private def collectPushableSpecs(aggExprs: Seq[NamedExpression]): Seq[SidePartialSpec] = {
     aggExprs
       .flatMap {
-        case Alias(expr, _) => pushableSpec(expr).toSeq
-        case expr => pushableSpec(expr).toSeq
+        case Alias(expr, _) => collectPushableSpecs(expr)
+        case expr => collectPushableSpecs(expr)
       }
       .foldLeft(Seq.empty[SidePartialSpec]) {
         case (acc, spec) if acc.exists(_.originalExpr.semanticEquals(spec.originalExpr)) => acc
@@ -492,33 +492,33 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def rewriteAggregateExpressions(
       aggExprs: Seq[NamedExpression],
       sidePartials: Seq[SidePartialRef]): Option[Seq[NamedExpression]] = {
-    // Replace each pushed aggregate occurrence with a final wrapper that consumes the pushed
-    // wrapper output. Non-pushable expressions are left unchanged.
+    // Replace every pushed aggregate subexpression with a final wrapper that consumes the pushed
+    // wrapper output. This allows expressions like `sum(a) - sum(b)` to be split and pushed even
+    // though the top-level result expression contains multiple aggregate functions.
     var rewrittenAny = false
 
     val rewrittenAggExprs = aggExprs.map {
-      case alias @ Alias(expr, _) if isPushableExpr(expr) =>
-        rewriteAggregateExpr(expr, sidePartials) match {
-          case Some(rewrittenExpr) =>
-            rewrittenAny = true
-            Alias(rewrittenExpr, alias.name)(
-              exprId = alias.exprId,
-              qualifier = alias.qualifier,
-              explicitMetadata = alias.explicitMetadata,
-              nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
-            )
-          case None =>
-            return None
+      case alias @ Alias(expr, _) =>
+        val rewrittenExpr = rewriteAggregateExpr(expr, sidePartials)
+        if (!rewrittenExpr.fastEquals(expr)) {
+          rewrittenAny = true
+          Alias(rewrittenExpr, alias.name)(
+            exprId = alias.exprId,
+            qualifier = alias.qualifier,
+            explicitMetadata = alias.explicitMetadata,
+            nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
+          )
+        } else {
+          alias
         }
-
-      case alias @ Alias(_, _) =>
-        alias
-
-      case other if isPushableExpr(other) =>
-        return None
-
       case other =>
-        other
+        val rewrittenExpr = rewriteAggregateExpr(other, sidePartials)
+        if (!rewrittenExpr.fastEquals(other)) {
+          rewrittenAny = true
+          rewrittenExpr.asInstanceOf[NamedExpression]
+        } else {
+          other
+        }
     }
 
     if (rewrittenAny) Some(rewrittenAggExprs) else None
@@ -526,24 +526,18 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private def rewriteAggregateExpr(
       expr: Expression,
-      sidePartials: Seq[SidePartialRef]): Option[Expression] = {
-    pushableSpec(expr).flatMap {
-      spec =>
-        sidePartials.collectFirst {
-          case SidePartialRef(sideSpec, partialAttr)
-              if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
-            val wrappedFinal = JoinAggregateFunctionWrapper
-              .wrapperFinal(spec.aggregate, partialAttr, spec.wrapperKey)
-              .toAggregateExpression()
-            if (expr.semanticEquals(spec.originalExpr)) {
-              wrappedFinal
-            } else {
-              expr.transformUp {
-                case ae: AggregateExpression if ae.semanticEquals(spec.originalExpr) =>
-                  wrappedFinal
-              }
-            }
-        }
+      sidePartials: Seq[SidePartialRef]): Expression = {
+    expr.transformUp {
+      case ae: AggregateExpression =>
+        pushableSpec(ae).flatMap { spec =>
+          sidePartials.collectFirst {
+            case SidePartialRef(sideSpec, partialAttr)
+                if sideSpec.originalExpr.semanticEquals(spec.originalExpr) =>
+              JoinAggregateFunctionWrapper
+                .wrapperFinal(spec.aggregate, partialAttr, spec.wrapperKey)
+                .toAggregateExpression()
+          }
+        }.getOrElse(ae)
     }
   }
 
