@@ -37,7 +37,7 @@ class VanillaStarSchemaJoinAggregateLogicalOnlySuite extends StarSchemaJoinAggre
       .set("spark.sql.extensions", classOf[VanillaJoinAggregateLogicalOnlyExtensions].getCanonicalName)
   }
 
-  override protected def checkDf(df: DataFrame): Unit = {}
+  override protected def checkPlan(df: DataFrame): Unit = {}
 }
 
 class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
@@ -55,7 +55,7 @@ class VanillaStarSchemaJoinAggregateSuite extends StarSchemaJoinAggregateSuite {
       .set("spark.sql.extensions", classOf[VanillaJoinAggregateExtensions].getCanonicalName)
   }
 
-  override protected def checkDf(df: DataFrame): Unit = {}
+  override protected def checkPlan(df: DataFrame): Unit = {}
 }
 
 class StarSchemaJoinAggregateSingleDepthSuite extends StarSchemaJoinAggregateSuite {
@@ -375,8 +375,17 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |""".stripMargin)
   }
 
-  protected def checkDf(df: DataFrame): Unit = {
+  private def checkDf(df: DataFrame): Unit = {
     assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
+    checkPlan(df)
+  }
+
+  private def checkDfNoPush(df: DataFrame): Unit = {
+    assert(!df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
+    checkPlan(df)
+  }
+
+  protected def checkPlan(df: DataFrame): Unit = {
     checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 
@@ -784,7 +793,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       df =>
         // Mixed distinct + non-distinct aggregate shape is currently not pushed by the
         // Join-aggregate pre-aggregate rule.
-        checkDf(df)
+        checkDfNoPush(df)
     }
   }
 
@@ -882,7 +891,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
       runQueryAndCompare(query) {
         df =>
-          checkDf(df)
+          checkDfNoPush(df)
       }
     }
   }
