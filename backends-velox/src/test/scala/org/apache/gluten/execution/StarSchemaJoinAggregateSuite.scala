@@ -376,6 +376,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
   }
 
   protected def checkDf(df: DataFrame): Unit = {
+    assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
     checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 
@@ -392,7 +393,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -412,7 +412,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -447,7 +446,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -468,7 +466,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -492,7 +489,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -540,7 +536,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
         runQueryAndCompare(query) {
           df =>
-            assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
             checkDf(df)
         }
       }
@@ -588,7 +583,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
         runQueryAndCompare(query) {
           df =>
-            assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
             checkDf(df)
         }
       }
@@ -727,7 +721,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -750,7 +743,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
       runQueryAndCompare(query) {
         df =>
-          assert(df.queryExecution.optimizedPlan.toString().contains("_join_agg_wrapper_"))
           checkDf(df)
       }
     }
