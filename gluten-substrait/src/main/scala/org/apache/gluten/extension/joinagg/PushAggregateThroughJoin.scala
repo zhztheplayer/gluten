@@ -119,7 +119,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
                   JoinAggregateFunctionWrapper
                     .wrapperPartial(spec.aggregate, spec.wrapperKey)
                     .toAggregateExpression(),
-                  s"pushed_agg_func_$idx"
+                  s"pushed_${spec.aggregate.prettyName}_buffer_$idx"
                 )()
             }
 

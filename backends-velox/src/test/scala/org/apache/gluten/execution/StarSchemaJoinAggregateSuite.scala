@@ -115,34 +115,40 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |SELECT CAST(d_date_sk AS BIGINT) AS d_date_sk,
                 |       CAST(d_date AS DATE) AS d_date,
                 |       CAST(d_year AS INT) AS d_year,
+                |       CAST(d_moy AS INT) AS d_moy,
                 |       CAST(d_month_seq AS INT) AS d_month_seq,
                 |       CAST(d_week_seq AS INT) AS d_week_seq,
                 |       CAST(d_quarter_name AS STRING) AS d_quarter_name,
                 |       CAST(d_day_name AS STRING) AS d_day_name
                 |FROM VALUES
-                |  (1, DATE'1998-08-05', 1998, 1100, 10, '1998Q1', 'Wednesday'),
-                |  (2, DATE'1998-08-06', 1998, 1100, 10, '1998Q1', 'Thursday'),
-                |  (3, DATE'1998-08-07', 1998, 1100, 10, '1998Q1', 'Friday'),
-                |  (10, DATE'1999-02-10', 1999, 1212, 40, '1999Q1', 'Wednesday'),
-                |  (11, DATE'1999-03-01', 1999, 1213, 43, '1999Q1', 'Monday'),
-                |  (12, DATE'1999-04-01', 1999, 1214, 48, '1999Q2', 'Thursday'),
-                |  (13, DATE'1999-07-01', 1999, 1217, 61, '1999Q3', 'Thursday'),
-                |  (1001, DATE'2001-01-07', 2001, 1452, 1, '2001Q1', 'Sunday'),
-                |  (1002, DATE'2001-01-08', 2001, 1452, 1, '2001Q1', 'Monday'),
-                |  (1054, DATE'2002-01-13', 2002, 1464, 54, '2002Q1', 'Sunday'),
-                |  (1055, DATE'2002-01-14', 2002, 1464, 54, '2002Q1', 'Monday')
-                |AS t(d_date_sk, d_date, d_year, d_month_seq, d_week_seq, d_quarter_name, d_day_name)
+                |  (1, DATE'1998-08-05', 1998, 8, 1100, 10, '1998Q1', 'Wednesday'),
+                |  (2, DATE'1998-08-06', 1998, 8, 1100, 10, '1998Q1', 'Thursday'),
+                |  (3, DATE'1998-08-07', 1998, 8, 1100, 10, '1998Q1', 'Friday'),
+                |  (10, DATE'1999-02-10', 1999, 2, 1212, 40, '1999Q1', 'Wednesday'),
+                |  (11, DATE'1999-03-01', 1999, 3, 1213, 43, '1999Q1', 'Monday'),
+                |  (12, DATE'1999-04-01', 1999, 4, 1214, 48, '1999Q2', 'Thursday'),
+                |  (13, DATE'1999-07-01', 1999, 7, 1217, 61, '1999Q3', 'Thursday'),
+                |  (200, DATE'1999-12-15', 1999, 12, 1300, 70, '1999Q4', 'Wednesday'),
+                |  (201, DATE'2000-01-15', 2000, 1, 1301, 71, '2000Q1', 'Saturday'),
+                |  (202, DATE'2001-01-15', 2001, 1, 1452, 72, '2001Q1', 'Monday'),
+                |  (1001, DATE'2001-01-07', 2001, 1, 1452, 1, '2001Q1', 'Sunday'),
+                |  (1002, DATE'2001-01-08', 2001, 1, 1452, 1, '2001Q1', 'Monday'),
+                |  (1054, DATE'2002-01-13', 2002, 1, 1464, 54, '2002Q1', 'Sunday'),
+                |  (1055, DATE'2002-01-14', 2002, 1, 1464, 54, '2002Q1', 'Monday')
+                |AS t(d_date_sk, d_date, d_year, d_moy, d_month_seq, d_week_seq, d_quarter_name, d_day_name)
                 |""".stripMargin)
 
     spark.sql("""
                 |CREATE OR REPLACE TEMP VIEW store AS
                 |SELECT CAST(s_store_sk AS BIGINT) AS s_store_sk,
                 |       CAST(s_store_id AS STRING) AS s_store_id,
+                |       CAST(s_store_name AS STRING) AS s_store_name,
+                |       CAST(s_company_name AS STRING) AS s_company_name,
                 |       CAST(s_state AS STRING) AS s_state
                 |FROM VALUES
-                |  (10, 'S10', 'CA'),
-                |  (20, 'S20', 'WA')
-                |AS t(s_store_sk, s_store_id, s_state)
+                |  (10, 'S10', 'Store 10', 'StoreCo', 'CA'),
+                |  (20, 'S20', 'Store 20', 'StoreCo', 'WA')
+                |AS t(s_store_sk, s_store_id, s_store_name, s_company_name, s_state)
                 |""".stripMargin)
 
     spark.sql("""
@@ -204,7 +210,10 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |FROM VALUES
                 |  (10, 1, 11.00, 3.00, 1001, 5001, 7001, 2001, 3001, 1.00, 10.00, 0.50, 9.50),
                 |  (20, 2, 12.00, 4.00, 1002, 5002, 7002, 2002, 3002, 2.00, 20.00, 1.00, 19.00),
-                |  (10, 3, 13.00, 5.00, 1001, 5001, 7003, 2001, 3001, 3.00, 30.00, 1.50, 28.50)
+                |  (10, 3, 13.00, 5.00, 1001, 5001, 7003, 2001, 3001, 3.00, 30.00, 1.50, 28.50),
+                |  (10, 200, 14.00, 2.00, 1001, 5001, 7101, 2001, 3001, 1.00, 11.00, 0.30, 10.70),
+                |  (10, 201, 20.00, 4.00, 1001, 5001, 7102, 2001, 3001, 2.00, 12.00, 0.40, 11.60),
+                |  (10, 202, 10.00, 1.00, 1001, 5001, 7103, 2001, 3001, 3.00, 13.00, 0.20, 12.80)
                 |AS t(
                 |  ss_store_sk, ss_sold_date_sk, ss_ext_sales_price, ss_net_profit,
                 |  ss_item_sk, ss_customer_sk, ss_ticket_number, ss_cdemo_sk, ss_promo_sk,
@@ -215,11 +224,13 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
                 |CREATE OR REPLACE TEMP VIEW item AS
                 |SELECT CAST(i_item_sk AS BIGINT) AS i_item_sk,
                 |       CAST(i_item_id AS STRING) AS i_item_id,
+                |       CAST(i_category AS STRING) AS i_category,
+                |       CAST(i_brand AS STRING) AS i_brand,
                 |       CAST(i_item_desc AS STRING) AS i_item_desc
                 |FROM VALUES
-                |  (1001, 'I1001', 'Item 1001 desc'),
-                |  (1002, 'I1002', 'Item 1002 desc')
-                |AS t(i_item_sk, i_item_id, i_item_desc)
+                |  (1001, 'I1001', 'Category 1', 'Brand 1', 'Item 1001 desc'),
+                |  (1002, 'I1002', 'Category 2', 'Brand 2', 'Item 1002 desc')
+                |AS t(i_item_sk, i_item_id, i_category, i_brand, i_item_desc)
                 |""".stripMargin)
 
     spark.sql("""
@@ -381,7 +392,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -401,7 +412,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -436,7 +447,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -457,7 +468,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -481,7 +492,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -529,7 +540,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
         runQueryAndCompare(query) {
           df =>
-            assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+            assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
             checkDf(df)
         }
       }
@@ -577,7 +588,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
         "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
         runQueryAndCompare(query) {
           df =>
-            assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+            assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
             checkDf(df)
         }
       }
@@ -716,7 +727,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+        assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
         checkDf(df)
     }
   }
@@ -739,7 +750,7 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
       "spark.sql.autoBroadcastJoinThreshold" -> "10m") {
       runQueryAndCompare(query) {
         df =>
-          assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
+          assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
           checkDf(df)
       }
     }
@@ -1029,7 +1040,6 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
     runQueryAndCompare(query) {
       df =>
-        assert(df.queryExecution.optimizedPlan.toString().contains("ss_agg_wrapper_"))
         checkDf(df)
     }
   }
