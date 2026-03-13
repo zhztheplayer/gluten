@@ -19,8 +19,9 @@ package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.expressions.{Alias, CreateStruct, GetStructField, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateFunction}
+import org.apache.spark.sql.catalyst.expressions.{Alias, GetStructField, NamedExpression}
+import org.apache.spark.sql.catalyst.planning.PhysicalAggregation
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.execution.{ProjectExec, SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
@@ -63,43 +64,51 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     }
   }
 
-  private def planJoinAggregate(agg: Aggregate): Option[SparkPlan] = {
-    // A single logical aggregate must lower either entirely as pushed-phase wrappers or entirely
-    // as final-phase wrappers. Mixed-phase aggregates are rejected here.
-    val grouping = agg.groupingExpressions.collect { case ne: NamedExpression => ne }
-    if (grouping.size != agg.groupingExpressions.size) {
-      return None
-    }
+  private def planJoinAggregate(agg: Aggregate): Option[SparkPlan] = agg match {
+    case PhysicalAggregation(groupingExpressions, aggExpressions, resultExpressions, child) =>
+      // A single logical aggregate must lower either entirely as pushed-phase wrappers or entirely
+      // as final-phase wrappers. Mixed-phase aggregates are rejected here.
+      val grouping = groupingExpressions.collect { case ne: NamedExpression => ne }
+      if (grouping.size != groupingExpressions.size) {
+        return None
+      }
 
-    val wrappers = collectWrapperAggregateExpressions(agg.aggregateExpressions)
-    if (wrappers.isEmpty) {
-      return None
-    }
+      val wrappers = aggExpressions.flatMap {
+        case ae @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
+          Some((ae, wrapper))
+        case _ =>
+          None
+      }
+      if (wrappers.isEmpty) {
+        return None
+      }
 
-    val phases = wrappers.map(_._2.targetPhase).distinct
-    if (phases.size != 1) {
-      return None
-    }
-    val phase = phases.head
+      val phases = wrappers.map(_._2.targetPhase).distinct
+      if (phases.size != 1) {
+        return None
+      }
+      val phase = phases.head
 
-    val childPlan = planLater(agg.child)
-    phase match {
-      case JoinAggregateFunctionWrapper.PartialPhase =>
-        planPartialPhase(agg, grouping, childPlan)
-      case JoinAggregateFunctionWrapper.FinalPhase =>
-        planFinalPhase(agg, grouping, childPlan)
-    }
+      val childPlan = planLater(child)
+      phase match {
+        case JoinAggregateFunctionWrapper.PartialPhase =>
+          planPartialPhase(grouping, aggExpressions, resultExpressions, childPlan)
+        case JoinAggregateFunctionWrapper.FinalPhase =>
+          planFinalPhase(grouping, aggExpressions, resultExpressions, childPlan)
+      }
   }
 
   private def planPartialPhase(
-      agg: Aggregate,
       grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
-    // Lower the pushed wrapper phase as a normal Spark aggregate. Its physical output is the
-    // wrapped aggregate buffer attributes, which are then packed into a struct so the downstream
-    // final wrapper still sees the wrapper's logical row shape.
-    val rewrittenOutput = rewriteAggregateOutput(agg.aggregateExpressions)
-    val rewrittenAggExprs = collectAggregateExpressions(rewrittenOutput)
+    val rewrittenAggExprs = aggregateExpressions.map {
+      case ae @ AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) =>
+        rewriteSingleAggregateExpression(ae)
+      case ae =>
+        ae
+    }
     if (rewrittenAggExprs.isEmpty) {
       return None
     }
@@ -116,41 +125,108 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         _.aggregateFunction.aggBufferAttributes),
       child = childPlan)
 
-    val postProjectList = agg.aggregateExpressions.map {
-      case alias @ Alias(ae: AggregateExpression, _) =>
-        ae.aggregateFunction match {
-          case _: JoinAggregateFunctionWrapper =>
-            val rewrittenAe = findRewrittenAggregateExpr(ae, rewrittenAggExprs)
-            val packed = CreateStruct(rewrittenAe.aggregateFunction.aggBufferAttributes)
-            Alias(packed, alias.name)(
-              exprId = alias.exprId,
-              qualifier = alias.qualifier,
-              explicitMetadata = alias.explicitMetadata,
-              nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
-            )
-          case _ =>
-            alias
-        }
-      case other =>
-        other
+    val rewrittenByOriginalResultId = rewrittenAggExprs.map(ae => ae.resultId -> ae).toMap
+
+    def bufferAliases(
+        originalAe: AggregateExpression,
+        originalAggFunc: AggregateFunction,
+        rewrittenAe: AggregateExpression): Seq[Alias] = {
+      originalAggFunc.aggBufferAttributes.zip(rewrittenAe.aggregateFunction.aggBufferAttributes).map {
+        case (originalBuf, rewrittenBuf) =>
+          Alias(rewrittenBuf, originalBuf.name)(
+            exprId = originalBuf.exprId,
+            qualifier = originalBuf.qualifier
+          )
+      }
     }
+
+    val remappedBufferAliases = aggregateExpressions.flatMap {
+      case originalAe @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
+        val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
+          originalAe.resultId,
+          throw new IllegalStateException(
+            s"Cannot find rewritten pushed aggregate for ${originalAe.sql}"))
+        bufferAliases(originalAe, wrapper, rewrittenAe)
+      case originalAe =>
+        val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
+          originalAe.resultId,
+          throw new IllegalStateException(
+            s"Cannot find rewritten pushed aggregate for ${originalAe.sql}"))
+        bufferAliases(originalAe, originalAe.aggregateFunction, rewrittenAe)
+    }
+
+    val packedByOriginalResultId = aggregateExpressions.map { originalAe =>
+      val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
+        originalAe.resultId,
+        throw new IllegalStateException(
+          s"Cannot resolve pushed aggregate output for ${originalAe.sql}"))
+      originalAe.resultId -> org.apache.spark.sql.catalyst.expressions.CreateStruct(
+        rewrittenAe.aggregateFunction.aggBufferAttributes)
+    }.toMap
+
+    def packedResultForAttr(attr: org.apache.spark.sql.catalyst.expressions.AttributeReference)
+        : Option[NamedExpression] = {
+      aggregateExpressions
+        .find(_.resultAttribute.exprId == attr.exprId)
+        .flatMap(ae => packedByOriginalResultId.get(ae.resultId))
+        .map { packed =>
+          Alias(packed, attr.name)(exprId = attr.exprId, qualifier = attr.qualifier)
+        }
+    }
+
+    val rewrittenResultExpressions = resultExpressions.map {
+      case attr: org.apache.spark.sql.catalyst.expressions.AttributeReference =>
+        packedResultForAttr(attr).getOrElse(attr)
+      case alias: Alias =>
+        alias.transformUp {
+          case ae: AggregateExpression =>
+            packedByOriginalResultId.getOrElse(
+              ae.resultId,
+              throw new IllegalStateException(
+                s"Cannot resolve pushed aggregate output for ${ae.sql}"))
+          case attr: org.apache.spark.sql.catalyst.expressions.AttributeReference =>
+            aggregateExpressions
+              .find(_.resultAttribute.exprId == attr.exprId)
+              .flatMap(ae => packedByOriginalResultId.get(ae.resultId))
+              .getOrElse(attr)
+        }.asInstanceOf[NamedExpression]
+      case other =>
+        other.transformUp {
+          case ae: AggregateExpression =>
+            packedByOriginalResultId.getOrElse(
+              ae.resultId,
+              throw new IllegalStateException(
+                s"Cannot resolve pushed aggregate output for ${ae.sql}"))
+        }.asInstanceOf[NamedExpression]
+    }
+
+    val resultExprIds = rewrittenResultExpressions.map(_.exprId).toSet
+    val postProjectList =
+      rewrittenResultExpressions ++
+        remappedBufferAliases.filterNot(ne => resultExprIds.contains(ne.exprId))
 
     Some(ProjectExec(postProjectList, hashAgg))
   }
 
   private def planFinalPhase(
-      agg: Aggregate,
       grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
     // Lower the final wrapper phase by first unpacking the wrapper struct into the wrapped
     // aggregate's input buffer attributes, then running a normal Spark final / merge aggregate.
-    val rewrittenOutput = rewriteAggregateOutput(agg.aggregateExpressions)
-    val wrapperWithRewritten = collectWrapperAggregateExpressions(agg.aggregateExpressions).map {
-      case (originalAe, wrapper) =>
-        val rewrittenAe =
-          findRewrittenAggregateExpr(originalAe, collectAggregateExpressions(rewrittenOutput))
-        (wrapper, rewrittenAe)
-    }
+    val wrapperWithRewritten: Seq[(JoinAggregateFunctionWrapper, AggregateExpression)] =
+      aggregateExpressions.flatMap {
+        case originalAe @ AggregateExpression(
+              wrapper: JoinAggregateFunctionWrapper,
+              _,
+              _,
+              _,
+              _) =>
+          Some((wrapper, rewriteSingleAggregateExpression(originalAe)))
+        case _ =>
+          None
+      }
 
     val unpackAliases = ArrayBuffer.empty[Alias]
     val seenExprIds = scala.collection.mutable.HashSet.empty[Long]
@@ -176,12 +252,18 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       childPlan
     }
 
-    val rewrittenAggExprs = collectAggregateExpressions(rewrittenOutput)
+    val rewrittenAggExprs = aggregateExpressions.map {
+      case ae @ AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) =>
+        rewriteSingleAggregateExpression(ae)
+      case ae =>
+        ae
+    }
     if (rewrittenAggExprs.isEmpty) {
       return None
     }
     val aggregateAttrs = rewrittenAggExprs.map(_.resultAttribute)
-    val hashAggResultExprs = rewriteResultAsAggregateAttributes(rewrittenOutput, rewrittenAggExprs)
+    val rewrittenResultExpressions =
+      rewriteResultAsAggregateAttributes(resultExpressions, rewrittenAggExprs)
 
     Some(
       HashAggregateExec(
@@ -192,7 +274,7 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         aggregateExpressions = rewrittenAggExprs,
         aggregateAttributes = aggregateAttrs,
         initialInputBufferOffset = 0,
-        resultExpressions = hashAggResultExprs,
+        resultExpressions = rewrittenResultExpressions,
         child = childWithUnpacked))
   }
 
@@ -205,60 +287,13 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     }
   }
 
-  private def collectWrapperAggregateExpressions(
-      output: Seq[NamedExpression]): Seq[(AggregateExpression, JoinAggregateFunctionWrapper)] = {
-    // Deduplicate by AggregateExpression result id so the same wrapper expression referenced
-    // multiple times in the output is lowered once.
-    output
-      .flatMap {
-        _.collect {
-          case ae @ AggregateExpression(
-                wrapper: JoinAggregateFunctionWrapper,
-                _,
-                _,
-                _,
-                _) =>
-            (ae, wrapper)
-        }
-      }
-      .foldLeft(Seq.empty[(AggregateExpression, JoinAggregateFunctionWrapper)]) {
-        case (acc, cur @ (ae, _)) if acc.exists(_._1.resultId == ae.resultId) => acc
-        case (acc, cur) => acc :+ cur
-      }
-  }
-
-  private def rewriteAggregateOutput(output: Seq[NamedExpression]): Seq[NamedExpression] = {
-    // Replace wrapper aggregates with the wrapped Spark aggregate and the physical aggregate mode
-    // implied by the wrapper phase.
-    output.map {
-      _.transformUp {
-        case ae @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
-          val mode = JoinAggregateFunctionWrapper.semanticMode(ae.mode, wrapper.targetPhase)
-          ae.copy(aggregateFunction = wrapper.innerAgg, mode = mode)
-      }.asInstanceOf[NamedExpression]
-    }
-  }
-
-  private def collectAggregateExpressions(output: Seq[NamedExpression]): Seq[AggregateExpression] = {
-    output
-      .flatMap {
-        _.collect {
-          case ae: AggregateExpression => ae
-        }
-      }
-      .foldLeft(Seq.empty[AggregateExpression]) {
-        case (acc, ae) if acc.exists(_.resultId == ae.resultId) => acc
-        case (acc, ae) => acc :+ ae
-      }
-  }
-
-  private def findRewrittenAggregateExpr(
-      original: AggregateExpression,
-      rewritten: Seq[AggregateExpression]): AggregateExpression = {
-    rewritten.find(_.resultId == original.resultId).getOrElse {
-      throw new IllegalStateException(
-        s"Cannot find rewritten aggregate expression for ${original.sql}")
-    }
+  private def rewriteSingleAggregateExpression(
+      original: AggregateExpression): AggregateExpression = {
+    original.transformUp {
+      case ae @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
+        val mode = JoinAggregateFunctionWrapper.semanticMode(ae.mode, wrapper.targetPhase)
+        ae.copy(aggregateFunction = wrapper.innerAgg, mode = mode)
+    }.asInstanceOf[AggregateExpression]
   }
 
   private def rewriteResultAsAggregateAttributes(
