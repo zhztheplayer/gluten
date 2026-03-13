@@ -74,8 +74,8 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     ).toDF("d_date_sk", "d_year", "d_date")
       .createOrReplaceTempView("date_dim")
 
-    Seq((1, "item-one"), (1, "item-one"), (2, "item-two"))
-      .toDF("i_item_sk", "i_item_desc")
+    Seq((1, "item-one", 1), (1, "item-one", 1), (2, "item-two", 6))
+      .toDF("i_item_sk", "i_item_desc", "i_category_id")
       .createOrReplaceTempView("item")
   }
 
@@ -358,7 +358,21 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       expectedAggCount = 2
     )
     runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+  }
 
+  test("pre-aggregate store_sales for count with item filter") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  count(*) AS cnt
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |WHERE i_category_id IN (1, 2, 3, 4, 5)
+                   |""".stripMargin,
+      expectedPushCount = 1,
+      expectedAggCount = 2
+    )
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
   }
 
   test("pre-aggregate store_sales for sum on three-way join with maxDepth=0") {
