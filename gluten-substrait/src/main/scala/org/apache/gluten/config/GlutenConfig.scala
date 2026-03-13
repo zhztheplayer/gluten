@@ -740,7 +740,7 @@ object GlutenConfig extends ConfigRegistry {
           "to traverse and push through multiple consecutive joins."
       )
       .intConf
-      .createWithDefault(1)
+      .createWithDefault(Int.MaxValue)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")
