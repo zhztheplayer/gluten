@@ -103,6 +103,10 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       aggregateExpressions: Seq[AggregateExpression],
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
+    // The pushed logical aggregate exposes one wrapper-typed output per pushed aggregate. Spark
+    // physically computes ordinary aggregate buffers, so this phase runs a normal HashAggregateExec
+    // first and then repacks those buffers into the struct-valued wrapper outputs expected by the
+    // logical plan above.
     val rewrittenAggExprs = aggregateExpressions.map {
       case ae @ AggregateExpression(_: JoinAggregateFunctionWrapper, _, _, _, _) =>
         rewriteSingleAggregateExpression(ae)
@@ -128,6 +132,9 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     val rewrittenByOriginalResultId = rewrittenAggExprs.map(ae => ae.resultId -> ae).toMap
 
     val packedByOriginalResultId = aggregateExpressions.map { originalAe =>
+      // Each pushed wrapper output corresponds to one rewritten Spark aggregate. Repack the
+      // physical buffer attrs into a struct so the parent plan still sees the wrapper contract
+      // created by PushAggregateThroughJoin.
       val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
         originalAe.resultId,
         throw new IllegalStateException(
@@ -202,8 +209,9 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         val bufferExpr = wrapper.children.head
         rewrittenAe.aggregateFunction.inputAggBufferAttributes.zipWithIndex.foreach {
           case (bufferAttr, idx) if seenExprIds.add(bufferAttr.exprId.id) =>
-            // Keep exprId for binding correctness, but avoid dotted names (e.g. a.b)
-            // in the temporary unpack projection to prevent nested-field style mis-binding.
+            // Keep exprId for binding correctness, but avoid dotted names (e.g. a.b) in the
+            // temporary unpack projection. This projection only recreates the physical buffer attrs
+            // that Spark's final / merge aggregate expects to read from the wrapper struct.
             val safeName = s"_joinagg_buf_${bufferAttr.exprId.id}_$idx"
             unpackAliases += Alias(
               GetStructField(bufferExpr, idx, Some(bufferAttr.name)),
@@ -258,6 +266,9 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       original: AggregateExpression): AggregateExpression = {
     original.transformUp {
       case ae @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
+        // The wrapper carries the logical phase; `semanticMode` turns that phase together with the
+        // current Spark aggregate mode into the actual wrapped aggregate mode required by this
+        // physical aggregate node.
         val mode = JoinAggregateFunctionWrapper.semanticMode(ae.mode, wrapper.targetPhase)
         ae.copy(aggregateFunction = wrapper.innerAgg, mode = mode)
     }.asInstanceOf[AggregateExpression]

@@ -65,6 +65,9 @@ object JoinAggregateFunctionWrapper {
   // FinalPhase wrapper running in Spark's Partial mode is really doing a partial merge of the
   // pushed aggregate buffers.
   def semanticMode(actualMode: AggregateMode, targetPhase: TargetPhase): AggregateMode = {
+    // The wrapper phase says what the logical plan wants to do with the aggregate state across
+    // the join. `actualMode` says which physical aggregate stage Spark is currently building.
+    // The combination determines the real wrapped aggregate mode that should run physically.
     (actualMode, targetPhase) match {
       case (Partial, PartialPhase) => Partial
       case (PartialMerge, PartialPhase) => PartialMerge
@@ -230,6 +233,13 @@ case class JoinAggregateFunctionWrapper(
     attrRewriteMap ++= innerToInputBuffer
     val childRewriteSeq = childReplacements.toSeq
 
+    // Rewrite in two passes:
+    //   1. swap original aggregate child expressions when PartialPhase still reads raw input rows;
+    //   2. rebind buffer/input attributes to wrapper-side attrs or struct-field reads.
+    //
+    // Using semantic equality here is important because the wrapped aggregate expression tree is
+    // copied and re-bound several times while the rule and strategy move between logical and
+    // physical representations.
     childRewriteSeq
       .foldLeft(expr) {
         case (curExpr, (from, to)) =>

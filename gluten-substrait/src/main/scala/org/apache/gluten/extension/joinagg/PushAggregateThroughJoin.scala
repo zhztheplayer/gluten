@@ -44,12 +44,16 @@ case class PushAggregateThroughJoin(spark: SparkSession)
    *
    * The key invariants are:
    *   1. Only declarative, non-distinct aggregates are rewritten.
-   *   2. Pushed grouping keys must preserve the semantics of all expressions that still remain
+   *   2. Pushability is decided per aggregate subexpression, not per whole result expression.
+   *      This is what lets expressions such as `sum(a) - sum(b)` push both aggregate terms while
+   *      keeping the arithmetic shape above the join unchanged.
+   *   3. Pushed grouping keys must preserve the semantics of all expressions that still remain
    *      above the pushed aggregate, including derived grouping expressions coming from extracted
    *      Project / Filter nodes.
-   *   3. Aggregate measure inputs needed to evaluate the pushed aggregate must be preserved in the
-   *      rebuilt subtree, but they must not be promoted into grouping keys.
-   *   4. The rule intentionally pushes one join edge at a time; repeated application performs
+   *   4. Aggregate measure inputs needed to evaluate the pushed aggregate must be preserved in the
+   *      rebuilt subtree, but they must not be promoted into grouping keys. Promoting those
+   *      inputs would change the pre-aggregation grain and make the rewrite semantically wrong.
+   *   5. The rule intentionally pushes one join edge at a time; repeated application performs
    *      deep pushdown for multi-join shapes.
    */
 
@@ -123,6 +127,10 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         } else {
           val groupingRefAttrs = dedupeAttrs(agg.groupingExpressions.flatMap(referencedAttrsInOrder))
           val joinRefAttrs = dedupeAttrs(join.condition.toSeq.flatMap(referencedAttrsInOrder))
+          // Aggregate subexpressions that are not rewritten remain above the pushed aggregate.
+          // Their inputs still have to be available after pushdown, but those attrs are only
+          // carried requirements. They are not evidence that the pushed aggregate should group by
+          // those measure columns.
           val nonPushableAggAttrs = dedupeAttrs(agg.aggregateExpressions.flatMap {
             case Alias(expr, _) if !isPushableExpr(expr) => referencedAttrsInOrder(expr)
             case expr if !isPushableExpr(expr) => referencedAttrsInOrder(expr)
@@ -153,6 +161,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
             // Keep wrapper-input dependencies (e.g. CASE operands from dimension columns) when
             // rebuilding extracted Project/Filter nodes. These inputs must be preserved for
             // aggregate pre-project generation, but they must not be promoted into grouping keys.
+            // The pushed aggregate should only group by grain-preserving keys, not by raw measure
+            // inputs such as `profit` or `net_loss`.
             val partialInputAttrs = dedupeAttrs(pushableSpecs.flatMap {
               spec => spec.aggregate.children.flatMap(referencedAttrsInOrder)
             })
@@ -275,6 +285,9 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       .flatMap(referencedAttrsInOrder)
       .collect { case a: Attribute if sideOutputSet.contains(a) => a }
 
+    // These attrs belong to aggregate subexpressions that stay above the pushed aggregate. They
+    // must survive subtree rebuild, but they are not themselves proof that the pushed aggregate
+    // needs to group by those measures.
     val sideNonPushableAggAttrs = dedupeAttrs(aggExprs.flatMap {
       case Alias(expr, _) if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
         referencedAttrsInOrder(expr).collect {
@@ -527,6 +540,9 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def rewriteAggregateExpr(
       expr: Expression,
       sidePartials: Seq[SidePartialRef]): Expression = {
+    // Rewrite only the aggregate nodes chosen for pushdown. Everything around them stays in its
+    // original logical shape, so expressions such as `sum(a) - sum(b)` still look the same above
+    // the join after each aggregate term is swapped to a final-phase wrapper.
     expr.transformUp {
       case ae: AggregateExpression =>
         pushableSpec(ae).flatMap { spec =>
