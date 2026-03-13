@@ -19,7 +19,7 @@ package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, AggregateFunction}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.expressions.{Alias, GetStructField, NamedExpression}
 import org.apache.spark.sql.catalyst.planning.PhysicalAggregation
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
@@ -126,20 +126,6 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       child = childPlan)
 
     val rewrittenByOriginalResultId = rewrittenAggExprs.map(ae => ae.resultId -> ae).toMap
-
-    def bufferAliases(
-        originalAe: AggregateExpression,
-        originalAggFunc: AggregateFunction,
-        rewrittenAe: AggregateExpression): Seq[Alias] = {
-      originalAggFunc.aggBufferAttributes.zip(rewrittenAe.aggregateFunction.aggBufferAttributes).map {
-        case (originalBuf, rewrittenBuf) =>
-          Alias(rewrittenBuf, originalBuf.name)(
-            exprId = originalBuf.exprId,
-            qualifier = originalBuf.qualifier
-          )
-      }
-    }
-
 
     val packedByOriginalResultId = aggregateExpressions.map { originalAe =>
       val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
