@@ -21,6 +21,8 @@ import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregat
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.SparkSessionExtensions
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
+import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 
 class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
@@ -66,6 +68,25 @@ class StarSchemaJoinAggregateSingleDepthSuite extends StarSchemaJoinAggregateSui
 }
 
 class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSparkPlanHelper {
+  private val factMeasureColumnNames = Set(
+    "sales_price",
+    "return_amt",
+    "profit",
+    "net_loss",
+    "ss_sales_price",
+    "ss_net_profit",
+    "sr_return_amt",
+    "sr_net_loss",
+    "cs_ext_sales_price",
+    "cs_net_profit",
+    "cr_return_amount",
+    "cr_net_loss",
+    "ws_ext_sales_price",
+    "ws_net_profit",
+    "wr_return_amt",
+    "wr_net_loss"
+  )
+
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key, "true")
@@ -377,6 +398,32 @@ class StarSchemaJoinAggregateSuite extends VeloxTPCHTableSupport with AdaptiveSp
 
   private def checkDf(df: DataFrame): Unit = {
     assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
+    val invalidPushedAggregates = df.queryExecution.optimizedPlan.collect {
+      case agg: Aggregate
+          if agg.aggregateExpressions.exists(
+            _.exists {
+              case AggregateExpression(_, _, _, _, _) => true
+              case _ => false
+            }) &&
+            agg.aggregateExpressions.exists(_.toString.contains("join_agg_wrapper_partial")) =>
+        val offendingGroupingExprs = agg.groupingExpressions.filter { groupingExpr =>
+          groupingExpr.references.exists(attr => factMeasureColumnNames.contains(attr.name))
+        }
+        if (offendingGroupingExprs.nonEmpty) {
+          Some((agg, offendingGroupingExprs))
+        } else {
+          None
+        }
+    }.flatten
+    assert(
+      invalidPushedAggregates.isEmpty,
+      invalidPushedAggregates
+        .map {
+          case (agg, offendingGroupingExprs) =>
+            s"Unexpected fact measure in pushed aggregate grouping: " +
+              s"${offendingGroupingExprs.mkString(", ")}\n${agg.treeString}"
+        }
+        .mkString("\n---\n"))
     checkPlan(df)
   }
 
