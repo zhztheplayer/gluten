@@ -56,14 +56,14 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     import testImplicits._
 
     Seq(
-      (1, 100, 10.0, 1.0),
-      (1, 100, 12.5, 2.0),
-      (1, 100, 7.5, 3.0),
-      (1, 101, 9.0, 2.0),
-      (2, 100, 3.5, 1.0),
-      (2, 100, 4.5, 2.0),
-      (2, 103, 8.0, 4.0)
-    ).toDF("ss_item_sk", "ss_sold_date_sk", "ss_sales_price", "ss_quantity")
+      (1, 100, 10.0, 1.0, 2.0),
+      (1, 100, 12.5, 2.0, 3.0),
+      (1, 100, 7.5, 3.0, 1.5),
+      (1, 101, 9.0, 2.0, 2.5),
+      (2, 100, 3.5, 1.0, 0.5),
+      (2, 100, 4.5, 2.0, 1.0),
+      (2, 103, 8.0, 4.0, 4.0)
+    ).toDF("ss_item_sk", "ss_sold_date_sk", "ss_sales_price", "ss_quantity", "ss_net_profit")
       .createOrReplaceTempView("store_sales")
 
     Seq(
@@ -360,11 +360,11 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
   }
 
-  test("pre-aggregate store_sales for count with item filter") {
+  test("pre-aggregate store_sales for sum with item filter") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT
-                   |  count(*) AS cnt
+                   |  sum(ss_net_profit) AS profit
                    |FROM store_sales
                    |JOIN item ON ss_item_sk = i_item_sk
                    |WHERE i_category_id IN (1, 2, 3, 4, 5)
