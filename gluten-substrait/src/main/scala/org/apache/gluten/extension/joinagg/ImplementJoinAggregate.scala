@@ -140,20 +140,6 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       }
     }
 
-    val remappedBufferAliases = aggregateExpressions.flatMap {
-      case originalAe @ AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
-        val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
-          originalAe.resultId,
-          throw new IllegalStateException(
-            s"Cannot find rewritten pushed aggregate for ${originalAe.sql}"))
-        bufferAliases(originalAe, wrapper, rewrittenAe)
-      case originalAe =>
-        val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
-          originalAe.resultId,
-          throw new IllegalStateException(
-            s"Cannot find rewritten pushed aggregate for ${originalAe.sql}"))
-        bufferAliases(originalAe, originalAe.aggregateFunction, rewrittenAe)
-    }
 
     val packedByOriginalResultId = aggregateExpressions.map { originalAe =>
       val rewrittenAe = rewrittenByOriginalResultId.getOrElse(
@@ -200,12 +186,7 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         }.asInstanceOf[NamedExpression]
     }
 
-    val resultExprIds = rewrittenResultExpressions.map(_.exprId).toSet
-    val postProjectList =
-      rewrittenResultExpressions ++
-        remappedBufferAliases.filterNot(ne => resultExprIds.contains(ne.exprId))
-
-    Some(ProjectExec(postProjectList, hashAgg))
+    Some(ProjectExec(rewrittenResultExpressions, hashAgg))
   }
 
   private def planFinalPhase(
