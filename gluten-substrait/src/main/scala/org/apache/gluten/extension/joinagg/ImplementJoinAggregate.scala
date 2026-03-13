@@ -268,15 +268,20 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       rewrittenAggExprs: Seq[AggregateExpression]): Seq[NamedExpression] = {
     // After the HashAggregateExec is built, rewrite the original output tree so every aggregate
     // expression points at the corresponding physical aggregate result attribute.
+    // Some results already reference the wrapper aggregate's resultAttribute directly instead of
+    // carrying the AggregateExpression node, so rewrite those attributes as well to avoid leaking
+    // wrapper names into the final physical plan.
+    val rewrittenByResultId = rewrittenAggExprs.map(ae => ae.resultId -> ae.resultAttribute).toMap
     rewrittenOutput.map {
       _.transformUp {
         case ae: AggregateExpression =>
-          rewrittenAggExprs
-            .find(_.resultId == ae.resultId)
-            .map(_.resultAttribute)
+          rewrittenByResultId
+            .get(ae.resultId)
             .getOrElse(
               throw new IllegalStateException(
                 s"Cannot resolve aggregate attribute for ${ae.sql}"))
+        case attr: org.apache.spark.sql.catalyst.expressions.AttributeReference =>
+          rewrittenByResultId.getOrElse(attr.exprId, attr)
       }.asInstanceOf[NamedExpression]
     }
   }
