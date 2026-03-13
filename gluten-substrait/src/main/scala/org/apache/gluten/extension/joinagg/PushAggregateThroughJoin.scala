@@ -247,14 +247,22 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         }
       case _ => Nil
     })
+    val sidePushableAggInputAttrs = dedupeAttrs(wrapperAliases.flatMap {
+      case (_, wrapper) =>
+        wrapper.innerAgg.children.flatMap(referencedAttrsInOrder).collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
+        }
+    })
     val sideWrapperRequiredAttrs = dedupeAttrs(wrapperRequiredAttrs.collect {
       case a: Attribute if sideOutputSet.contains(a) => a
+    }.filterNot { attr =>
+      sidePushableAggInputAttrs.exists(_.semanticEquals(attr))
     })
-    // Do not use project/filter propagated attrs to build pushed grouping keys.
-    // They can include measure-only attrs (e.g. ss_sales_price) and over-constrain
-    // pre-aggregation. However, extracted project dependencies are still required here to
-    // preserve grouping semantics for derived grouping expressions such as
-    // `substr(w_warehouse_name, 1, 20)`.
+    // `wrapperRequiredAttrs` carries dependencies from extracted Project/Filter nodes above the
+    // join. Those dependencies are needed to preserve grouping semantics for derived grouping
+    // expressions such as `substr(w_warehouse_name, 1, 20)`. However, pushed aggregate inputs
+    // like `ss_net_profit` must stay as child inputs only; promoting them into grouping keys
+    // would over-constrain the pushed pre-aggregation.
     val pushedGrouping =
       dedupeAttrs(
         sideGroupingAttrs ++
