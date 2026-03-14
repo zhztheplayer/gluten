@@ -153,7 +153,7 @@ object SparkQueryRunner {
         p.metrics.map {
           case keyValue @ (k, m) =>
             val tags = mapper.map(p, k, m)
-            PlanMetric(queryPath, p, k, m, tags.toSet)
+            PlanMetric(queryPath, p.id, p.nodeName, k, m, tags.toSet)
         }
     }
     all.toSeq
