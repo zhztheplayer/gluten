@@ -64,11 +64,18 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private case class SidePartialRef(spec: SidePartialSpec, attr: AttributeReference)
 
+  private var successfulSplitCount: Int = 0
   private var successfulPushCount: Int = 0
+
+  def resetSuccessfulSplitCount(): Unit = {
+    successfulSplitCount = 0
+  }
 
   def resetSuccessfulPushCount(): Unit = {
     successfulPushCount = 0
   }
+
+  def getSuccessfulSplitCount: Int = successfulSplitCount
 
   def getSuccessfulPushCount: Int = successfulPushCount
 
@@ -76,16 +83,29 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     if (!isEnabled) {
       return plan
     }
-
-    // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
-    val maybeSplit = splitAggregateWithJoin(plan)
-    maybeSplit match {
-      case Some(split) =>
-        // 2) Exhaustively push PartialWrapperAgg through join edges.
-        val pushed = pushPartialWrapperAggregate(split)
-        // 3) Return rewritten plan with pushed partial wrapper aggregates.
-        pushed
-      case None => plan
+    var splitCount = 0
+    val newPlan = plan.transformUp {
+      case agg @ Aggregate(_, aggExprs, _)
+        if !containsWrapperAggregateInOutput(aggExprs) &&
+          hasPushableAggExpr(aggExprs) &&
+          !hasDistinctAggExpr(aggExprs) =>
+          // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
+          splitAggregate(agg) match {
+              case Some(newAgg) =>
+                splitCount += 1
+                // 2) Exhaustively push PartialWrapperAgg through join edges.
+                val pushed = pushPartialWrapperAggregate(newAgg)
+                // 3) Return rewritten plan with pushed partial wrapper aggregates.
+                pushed
+              case None => agg
+          }
+    }
+    if (splitCount > 0) {
+      successfulSplitCount += splitCount
+      newPlan
+    } else {
+      assert(newPlan eq plan)
+      plan
     }
   }
 
@@ -93,28 +113,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private def maxDepth: Int = GlutenConfig.get.pushAggregateThroughJoinMaxDepth
 
-  private def splitAggregateWithJoin(plan: LogicalPlan): Option[LogicalPlan] = {
-    var splitCount = 0
-    val split = plan.transformUp {
-      case agg @ Aggregate(_, aggExprs, _)
-          if !containsWrapperAggregateInOutput(aggExprs) &&
-            hasPushableAggExpr(aggExprs) &&
-            !hasDistinctAggExpr(aggExprs) =>
-        splitAggregate(agg) match {
-          case Some(newAgg) =>
-            splitCount += 1
-            newAgg
-          case None => agg
-        }
-    }
-    if (splitCount > 0) {
-      Some(split)
-    } else {
-      None
-    }
-  }
-
-  private def splitAggregate(agg: Aggregate): Option[LogicalPlan] = {
+  private def splitAggregate(agg: Aggregate): Option[Aggregate] = {
     // Split happens only when the aggregate child can be peeled into an inner equi-join plus
     // optional extracted Project / Filter nodes. `extractJoin` returns both the join and the
     // attribute dependencies that those wrapper nodes need to keep alive when the subtree is
@@ -193,10 +192,10 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
   }
 
-  private def pushPartialWrapperAggregate(plan: LogicalPlan): LogicalPlan = {
+  private def pushPartialWrapperAggregate(agg: Aggregate): LogicalPlan = {
     // Push one join edge per iteration. This keeps the rewrite local and lets `maxDepth` bound
     // how far a pushed aggregate is allowed to travel through a multi-join subtree.
-    var current = plan
+    var current: LogicalPlan = agg
     var changed = true
     var pushCount = 0
     while (changed && pushCount < maxDepth) {
