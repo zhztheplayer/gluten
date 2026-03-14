@@ -35,7 +35,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
   private val joinAggregateRule = PushAggregateThroughJoin(spark)
   private val debugMode: Boolean = true
 
-  private case class PushdownCase(inputSql: String, expectedPushCount: Int, expectedAggCount: Int)
+  private case class PushdownCase(inputSql: String, expectedAggCount: Int)
 
   override def beforeAll(): Unit = {
     super.beforeAll()
@@ -79,7 +79,10 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       .createOrReplaceTempView("item")
   }
 
-  private def runCaseWithMaxDepth(testCase: PushdownCase, maxDepth: Int): Unit = {
+  private def runCaseWithMaxDepth(
+      testCase: PushdownCase,
+      maxDepth: Int,
+      expectedPushCount: Int): Unit = {
     withSQLConf(
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> maxDepth.toString) {
@@ -114,7 +117,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
             s"Plan has missing input:\n${nodesWithMissingInput
                 .map(_.treeString)
                 .mkString("\n---\n")}")
-          assert(joinAggregateRule.getSuccessfulPushCount == testCase.expectedPushCount)
+          assert(joinAggregateRule.getSuccessfulPushCount == expectedPushCount)
           assert(aggregateNodeCount == testCase.expectedAggCount)
           (withRuleRows, withRulePlan, withRulePhysicalPlan)
         }
@@ -200,10 +203,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |GROUP BY substring(i_item_desc, 1, 30), i_item_sk, d_date
                    |HAVING count(1) > 4
                    |""".stripMargin,
-      expectedPushCount = 2,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 
   test("pre-aggregate store_sales for sum") {
@@ -216,10 +218,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
   test("pre-aggregate store_sales for avg") {
@@ -232,10 +233,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY i_item_sk
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
   test("pre-aggregate store_sales for sum on fact table") {
@@ -248,10 +248,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY ss_sold_date_sk
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
   test("pre-aggregate store_sales for avg on fact table") {
@@ -264,10 +263,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY ss_sold_date_sk
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
   test("pre-aggregate store_sales for sum on three-way join") {
@@ -282,10 +280,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY item_desc, d_date
                    |""".stripMargin,
-      expectedPushCount = 2,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 
   test("pre-aggregate store_sales for sum and avg on different fact columns on three-way join") {
@@ -301,10 +298,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY item_desc, d_date
                    |""".stripMargin,
-      expectedPushCount = 2,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 
   test("pre-aggregate store_sales for sum and avg on same fact column on three-way join") {
@@ -320,10 +316,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY item_desc, d_date
                    |""".stripMargin,
-      expectedPushCount = 2,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 
   test("pre-aggregate store_sales by i_item_desc") {
@@ -336,10 +331,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY item_desc
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
   test("pre-aggregate store_sales by substr(i_item_desc, 3), 3 ways") {
@@ -354,10 +348,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY d_date, item_desc
                    |""".stripMargin,
-      expectedPushCount = 2,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 
   test("pre-aggregate store_sales for sum with item filter") {
@@ -369,10 +362,9 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |WHERE i_category_id IN (1, 2, 3, 4, 5)
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
   test("pre-aggregate joins independently under union all") {
@@ -397,13 +389,13 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |  GROUP BY cast(d_date_sk AS string)
                    |)
                    |""".stripMargin,
-      expectedPushCount = 2,
       expectedAggCount = 4
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = 1, expectedPushCount = 2)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 
-  test("pre-aggregate store_sales for sum on three-way join with maxDepth=1") {
+  test("pre-aggregate store_sales for sum on three-way join with maxDepth=1 / maxDepth=2") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT
@@ -415,27 +407,10 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                    |JOIN item ON ss_item_sk = i_item_sk
                    |GROUP BY item_desc, d_date
                    |""".stripMargin,
-      expectedPushCount = 1,
       expectedAggCount = 2
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = 1)
-  }
-
-  test("pre-aggregate store_sales for sum on three-way join with maxDepth=2") {
-    val pushdownCase = PushdownCase(
-      inputSql = """
-                   |SELECT
-                   |  i_item_desc AS item_desc,
-                   |  d_date AS sold_date,
-                   |  sum(ss_sales_price) AS total_sales_price
-                   |FROM store_sales
-                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
-                   |JOIN item ON ss_item_sk = i_item_sk
-                   |GROUP BY item_desc, d_date
-                   |""".stripMargin,
-      expectedPushCount = 2,
-      expectedAggCount = 2
-    )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = 2)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = 1, expectedPushCount = 1)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = 2, expectedPushCount = 2)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
 }
