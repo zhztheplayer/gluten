@@ -16,12 +16,13 @@
  */
 package org.apache.gluten.integration.action
 
-import org.apache.gluten.integration.{Query, QueryRunner, Suite, TableCreator}
+import org.apache.gluten.integration.{Query, QueryRunner, Suite}
 import org.apache.gluten.integration.QueryRunner.QueryResult
 import org.apache.gluten.integration.action.Actions.QuerySelector
 import org.apache.gluten.integration.action.TableRender.RowParser.FieldAppender.RowAppender
 import org.apache.gluten.integration.metrics.{MetricMapper, PlanMetric}
 import org.apache.gluten.integration.stat.RamStat
+import org.apache.gluten.integration.table.TableCreator
 
 import org.apache.spark.sql.SparkSession
 

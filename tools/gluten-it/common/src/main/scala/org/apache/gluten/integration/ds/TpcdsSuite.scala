@@ -16,9 +16,10 @@
  */
 package org.apache.gluten.integration.ds
 
-import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableAnalyzer, TableCreator}
+import org.apache.gluten.integration.{DataGen, QuerySet, Suite}
 import org.apache.gluten.integration.action.Action
 import org.apache.gluten.integration.metrics.MetricMapper
+import org.apache.gluten.integration.table.{TableAnalyzer, TableCreator}
 
 import org.apache.spark.SparkConf
 
@@ -77,6 +78,10 @@ class TpcdsSuite(
   ) {
   import TpcdsSuite._
 
+  checkDataGenArgs(dataSource, dataScale, genPartitionedData)
+
+  private val tableLayout = new TpcdsTableLayout(genPartitionedData)
+
   override protected def historyWritePath(): String = HISTORY_WRITE_PATH
 
   override private[integration] def dataWritePath(): String = {
@@ -92,13 +97,12 @@ class TpcdsSuite(
   }
 
   override private[integration] def createDataGen(): DataGen = {
-    checkDataGenArgs(dataSource, dataScale, genPartitionedData)
     new TpcdsDataGen(
+      dataSource,
+      tableLayout,
       dataScale,
       shufflePartitions,
-      dataSource,
       dataWritePath(),
-      genPartitionedData,
       dataGenFeatures,
       typeModifiers())
   }
@@ -109,7 +113,7 @@ class TpcdsSuite(
 
   override private[integration] def desc(): String = "TPC-DS"
 
-  override def tableCreator(): TableCreator = TableCreator.discoverFromFiles()
+  override def tableCreator(): TableCreator = TableCreator.createFromLayout(tableLayout)
 
   override def tableAnalyzer0(): TableAnalyzer = TableAnalyzer.analyzeAll()
 }

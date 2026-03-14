@@ -16,11 +16,12 @@
  */
 package org.apache.gluten.integration.h
 
-import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableAnalyzer, TableCreator}
+import org.apache.gluten.integration.{DataGen, QuerySet, Suite}
 import org.apache.gluten.integration.action.Action
 import org.apache.gluten.integration.ds.TpcdsSuite.TPCDS_WRITE_RELATIVE_PATH
 import org.apache.gluten.integration.metrics.MetricMapper
 import org.apache.gluten.integration.report.TestReporter
+import org.apache.gluten.integration.table.{TableAnalyzer, TableCreator}
 
 import org.apache.spark.SparkConf
 
