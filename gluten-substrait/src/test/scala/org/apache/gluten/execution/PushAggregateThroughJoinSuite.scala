@@ -367,32 +367,45 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
-  test("pre-aggregate joins independently under union all") {
+  test("pre-aggregate three-way joins independently under union all") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT key, total_sales_price
                    |FROM (
                    |  SELECT
-                   |    cast(i_item_sk AS string) AS key,
+                   |    concat('item-', cast(i_item_sk AS string), '-', cast(d_date_sk AS string)) AS key,
                    |    sum(ss_sales_price) AS total_sales_price
                    |  FROM store_sales
+                   |  JOIN date_dim ON ss_sold_date_sk = d_date_sk
                    |  JOIN item ON ss_item_sk = i_item_sk
-                   |  GROUP BY cast(i_item_sk AS string)
+                   |  GROUP BY concat('item-', cast(i_item_sk AS string), '-', cast(d_date_sk AS string))
                    |
                    |  UNION ALL
                    |
                    |  SELECT
-                   |    cast(d_date_sk AS string) AS key,
+                   |    concat('desc-', i_item_desc, '-', cast(d_date_sk AS string)) AS key,
                    |    sum(ss_sales_price) AS total_sales_price
                    |  FROM store_sales
                    |  JOIN date_dim ON ss_sold_date_sk = d_date_sk
-                   |  GROUP BY cast(d_date_sk AS string)
+                   |  JOIN item ON ss_item_sk = i_item_sk
+                   |  GROUP BY concat('desc-', i_item_desc, '-', cast(d_date_sk AS string))
+                   |
+                   |  UNION ALL
+                   |
+                   |  SELECT
+                   |    concat('year-', cast(d_year AS string), '-', cast(i_item_sk AS string)) AS key,
+                   |    sum(ss_sales_price) AS total_sales_price
+                   |  FROM store_sales
+                   |  JOIN date_dim ON ss_sold_date_sk = d_date_sk
+                   |  JOIN item ON ss_item_sk = i_item_sk
+                   |  GROUP BY concat('year-', cast(d_year AS string), '-', cast(i_item_sk AS string))
                    |)
                    |""".stripMargin,
-      expectedAggCount = 4
+      expectedAggCount = 6
     )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = 1, expectedPushCount = 2)
-    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = 1, expectedPushCount = 3)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = 2, expectedPushCount = 6)
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 6)
   }
 
   test("pre-aggregate store_sales for sum on three-way join with maxDepth=1 / maxDepth=2") {
