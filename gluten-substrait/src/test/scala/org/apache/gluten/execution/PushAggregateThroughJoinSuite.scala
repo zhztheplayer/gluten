@@ -403,24 +403,6 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue)
   }
 
-  test("pre-aggregate store_sales for sum on three-way join with maxDepth=0") {
-    val pushdownCase = PushdownCase(
-      inputSql = """
-                   |SELECT
-                   |  i_item_desc AS item_desc,
-                   |  d_date AS sold_date,
-                   |  sum(ss_sales_price) AS total_sales_price
-                   |FROM store_sales
-                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
-                   |JOIN item ON ss_item_sk = i_item_sk
-                   |GROUP BY item_desc, d_date
-                   |""".stripMargin,
-      expectedPushCount = 0,
-      expectedAggCount = 2
-    )
-    runCaseWithMaxDepth(pushdownCase, maxDepth = 0)
-  }
-
   test("pre-aggregate store_sales for sum on three-way join with maxDepth=1") {
     val pushdownCase = PushdownCase(
       inputSql = """

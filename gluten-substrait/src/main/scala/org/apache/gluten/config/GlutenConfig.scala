@@ -740,6 +740,7 @@ object GlutenConfig extends ConfigRegistry {
           "to traverse and push through multiple consecutive joins."
       )
       .intConf
+      .checkValue(_ >= 1, "must be greater than or equal to 1.")
       .createWithDefault(Int.MaxValue)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
