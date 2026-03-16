@@ -65,7 +65,10 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
   }
 
   private def planJoinAggregate(agg: Aggregate): Option[SparkPlan] = agg match {
-    case PhysicalAggregation(groupingExpressions, aggExpressions, resultExpressions, child) =>
+    case PhysicalAggregation(groupingExpressions, aes, resultExpressions, child) =>
+      // KEEP: For compatibility with Spark version before 3.5, which widens the aggregate expressions
+      // to `Seq[NamedExpression]` instead of `Seq[AggregateExpression]`.
+      val aggExpressions = aes.map(_.asInstanceOf[AggregateExpression])
       // A single logical aggregate must lower either entirely as pushed-phase wrappers or entirely
       // as final-phase wrappers. Mixed-phase aggregates are rejected here.
       val grouping = groupingExpressions.collect { case ne: NamedExpression => ne }

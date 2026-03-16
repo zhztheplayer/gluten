@@ -166,7 +166,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
   }
 
   private def finalExecutedPlan(plan: SparkPlan): SparkPlan = plan match {
-    case adaptive: AdaptiveSparkPlanExec if adaptive.isFinalPlan =>
+    case adaptive: AdaptiveSparkPlanExec =>
       adaptive.executedPlan
     case other =>
       other
