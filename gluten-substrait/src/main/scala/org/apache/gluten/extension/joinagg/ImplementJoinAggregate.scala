@@ -99,6 +99,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
         case JoinAggregateFunctionWrapper.FinalPhase =>
           planFinalPhase(grouping, aggExpressions, resultExpressions, childPlan)
       }
+    case _ =>
+      None
   }
 
   private def planPartialPhase(

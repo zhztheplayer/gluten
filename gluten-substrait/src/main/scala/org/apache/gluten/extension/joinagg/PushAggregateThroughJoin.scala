@@ -85,10 +85,10 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
     var splitCount = 0
     val newPlan = plan.transformUp {
-      case agg @ Aggregate(_, aggExprs, _)
-        if !containsWrapperAggregateInOutput(aggExprs) &&
-          hasPushableAggExpr(aggExprs) &&
-          !hasDistinctAggExpr(aggExprs) =>
+      case agg: Aggregate
+        if !containsWrapperAggregateInOutput(agg.aggregateExpressions) &&
+          hasPushableAggExpr(agg.aggregateExpressions) &&
+          !hasDistinctAggExpr(agg.aggregateExpressions) =>
           // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
           splitAggregate(agg) match {
               case Some(newAgg) =>
@@ -181,9 +181,9 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     while (changed && pushCount < maxDepth) {
       changed = false
       current = current.transformUp {
-        case partialAgg @ Aggregate(groupingExprs, aggExprs, child)
+        case partialAgg: Aggregate
             if isPurePartialWrapperAggregate(partialAgg) =>
-          pushOnce(partialAgg, groupingExprs, aggExprs, child) match {
+          pushOnce(partialAgg, partialAgg.groupingExpressions, partialAgg.aggregateExpressions, partialAgg.child) match {
             case Some(newPlan) =>
               pushCount += 1
               changed = true
