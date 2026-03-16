@@ -426,4 +426,19 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     runCaseWithMaxDepth(pushdownCase, maxDepth = 2, expectedPushCount = 2)
     runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 2)
   }
+
+  test("pre-aggregate with filter inside inner equi-join") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                  |SELECT
+                  |  i_item_sk AS item_sk,
+                  |  sum(ss_sales_price) AS total_sales_price
+                  |FROM store_sales
+                  |JOIN item ON ss_item_sk = i_item_sk AND ss_quantity > 1
+                  |GROUP BY i_item_sk
+                  |""".stripMargin,
+      expectedAggCount = 2
+    )
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
+  }
 }
