@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.integration.table
 
+import org.apache.gluten.integration.{DataGen, TypeModifier}
+
 import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
 
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -23,7 +25,9 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import java.net.URI
 
 import scala.collection.mutable.ArrayBuffer
-class LayoutTableCreator(layout: TableLayout) extends TableCreator {
+
+class LayoutTableCreator(layout: TableLayout, typeModifiers: Seq[TypeModifier])
+  extends TableCreator {
   override def create(spark: SparkSession, source: String, dataPath: String): Unit = {
     val uri = URI.create(dataPath)
     val fs = FileSystem.get(uri, spark.sessionState.newHadoopConf())
@@ -51,14 +55,17 @@ class LayoutTableCreator(layout: TableLayout) extends TableCreator {
           val schema = layout.getSchema(tableName)
           val partitionColumns = layout.getPartitionColumns(tableName)
 
-          val nonPartitionColumns = schema.fields
+          val rowModifier = DataGen.getRowModifier(schema, typeModifiers)
+          val modifiedSchema = DataGen.modifySchema(schema, rowModifier)
+
+          val nonPartitionColumns = modifiedSchema.fields
             .filterNot(f => partitionColumns.contains(f.name))
             .map(f => s"${f.name} ${f.dataType.sql}")
             .mkString(", ")
 
           val partitionDDL =
             if (partitionColumns.nonEmpty)
-              s"PARTITIONED BY (${partitionColumns.map(c => s"$c ${schema(c).dataType.sql}").mkString(", ")})"
+              s"PARTITIONED BY (${partitionColumns.map(c => s"$c ${modifiedSchema(c).dataType.sql}").mkString(", ")})"
             else
               ""
 

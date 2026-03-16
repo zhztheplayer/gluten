@@ -82,17 +82,22 @@ class TpchSuite(
   ) {
   import TpchSuite._
 
+  require(
+    Set("parquet", "delta").contains(dataSource),
+    s"Data source type $dataSource is not supported by TPC-H suite")
+  require(!genPartitionedData, "TPC-H suite doesn't support generating partitioned data")
+
   override protected def historyWritePath(): String = HISTORY_WRITE_PATH
 
   override private[integration] def dataWritePath(): String = {
+    val typeModifierFlags = typeModifiers().map(m => s"-${m.name()}").mkString("-")
     val featureFlags = dataGenFeatures.map(feature => s"-$feature").mkString("")
     val relative =
-      s"$TPCH_WRITE_RELATIVE_PATH-$dataScale-$dataSource$featureFlags"
+      s"$TPCH_WRITE_RELATIVE_PATH-$dataScale-$dataSource$typeModifierFlags$featureFlags"
     new Path(dataDir, relative).toString
   }
 
   override private[integration] def createDataGen(): DataGen = {
-    checkDataGenArgs(dataSource, dataScale, genPartitionedData)
     new TpchDataGen(
       dataScale,
       shufflePartitions,
@@ -139,14 +144,4 @@ object TpchSuite {
     "q21",
     "q22")
   private val HISTORY_WRITE_PATH = "/tmp/tpch-history"
-
-  private def checkDataGenArgs(
-      dataSource: String,
-      scale: Double,
-      genPartitionedData: Boolean): Unit = {
-    require(
-      Set("parquet", "delta").contains(dataSource),
-      s"Data source type $dataSource is not supported by TPC-H suite")
-    require(!genPartitionedData, "TPC-H suite doesn't support generating partitioned data")
-  }
 }
