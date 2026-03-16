@@ -16,10 +16,11 @@
  */
 package org.apache.gluten.integration.clickbench
 
-import org.apache.gluten.integration.{DataGen, QuerySet, Suite, TableAnalyzer, TableCreator}
+import org.apache.gluten.integration.{DataGen, QuerySet, Suite}
 import org.apache.gluten.integration.action.Action
 import org.apache.gluten.integration.metrics.MetricMapper
 import org.apache.gluten.integration.report.TestReporter
+import org.apache.gluten.integration.table.{TableAnalyzer, TableCreator}
 
 import org.apache.spark.SparkConf
 
