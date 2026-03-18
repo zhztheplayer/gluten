@@ -57,6 +57,31 @@ abstract class IcebergSuite extends WholeStageTransformerSuite {
     }
   }
 
+  test("iceberg input_file_name") {
+    withTable("iceberg_input_file_tb") {
+      spark.sql("""
+                  |CREATE TABLE iceberg_input_file_tb (id INT, data STRING)
+                  |USING iceberg
+                  |""".stripMargin)
+      spark.sql("""
+                  |INSERT INTO iceberg_input_file_tb VALUES
+                  |(1, 'a'), (2, 'b'), (3, 'c')
+                  |""".stripMargin)
+
+      val df = runAndCompare("""
+                               |SELECT id, input_file_name() AS name
+                               |FROM iceberg_input_file_tb
+                               |ORDER BY id
+                               |""".stripMargin)
+
+      val rows = df.collect()
+      checkGlutenPlan[IcebergScanTransformer](df)
+      assert(
+        rows.forall(row => !row.isNullAt(1) && row.getString(1).nonEmpty),
+        s"Expected non-empty input_file_name values, got: ${rows.mkString(", ")}")
+    }
+  }
+
   testWithMinSparkVersion("iceberg bucketed join", "3.4") {
     val leftTable = "p_str_tb"
     val rightTable = "p_int_tb"
