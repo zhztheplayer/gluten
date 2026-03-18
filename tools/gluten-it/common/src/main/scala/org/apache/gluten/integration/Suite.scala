@@ -264,7 +264,7 @@ abstract class Suite(
     testMetricMapper
   }
 
-  private[integration] def typeModifiers(): List[TypeModifier] = {
+  private[integration] def typeModifiers(): Seq[TypeModifier] = {
     if (decimalAsDouble) List(TYPE_MODIFIER_DECIMAL_AS_DOUBLE) else List()
   }
 

@@ -78,7 +78,9 @@ class TpcdsSuite(
   ) {
   import TpcdsSuite._
 
-  checkDataGenArgs(dataSource, dataScale, genPartitionedData)
+  require(
+    Set("parquet", "delta").contains(dataSource),
+    s"Data source type $dataSource is not supported by TPC-DS suite")
 
   private val tableLayout = new TpcdsTableLayout(genPartitionedData)
 
@@ -90,9 +92,10 @@ class TpcdsSuite(
     } else {
       "non_partitioned"
     }
-    val featureFlags = dataGenFeatures.map(feature => s"-$feature").mkString("")
+    val typeModifierFlags = typeModifiers().map(m => s"-${m.name()}").sorted.mkString("-")
+    val featureFlags = dataGenFeatures.map(feature => s"-$feature").sorted.mkString("")
     val relative =
-      s"$TPCDS_WRITE_RELATIVE_PATH-$dataScale-$dataSource-$partitionedFlag$featureFlags"
+      s"$TPCDS_WRITE_RELATIVE_PATH-$dataScale-$dataSource-$partitionedFlag$typeModifierFlags$featureFlags"
     new Path(dataDir, relative).toString
   }
 
@@ -113,7 +116,8 @@ class TpcdsSuite(
 
   override private[integration] def desc(): String = "TPC-DS"
 
-  override def tableCreator(): TableCreator = TableCreator.createFromLayout(tableLayout)
+  override def tableCreator(): TableCreator =
+    TableCreator.createFromLayout(tableLayout, typeModifiers())
 
   override def tableAnalyzer0(): TableAnalyzer = TableAnalyzer.analyzeAll()
 }
@@ -226,13 +230,4 @@ object TpcdsSuite {
     "q99"
   )
   private val HISTORY_WRITE_PATH = "/tmp/tpcds-history"
-
-  private def checkDataGenArgs(
-      dataSource: String,
-      scale: Double,
-      genPartitionedData: Boolean): Unit = {
-    require(
-      Set("parquet", "delta").contains(dataSource),
-      s"Data source type $dataSource is not supported by TPC-DS suite")
-  }
 }

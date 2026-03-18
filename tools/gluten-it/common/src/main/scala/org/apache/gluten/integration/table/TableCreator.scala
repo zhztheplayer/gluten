@@ -16,6 +16,8 @@
  */
 package org.apache.gluten.integration.table
 
+import org.apache.gluten.integration.TypeModifier
+
 import org.apache.spark.sql.SparkSession
 
 trait TableCreator {
@@ -27,7 +29,7 @@ object TableCreator {
     AutoTableCreator
   }
 
-  def createFromLayout(layout: TableLayout): TableCreator = {
-    new LayoutTableCreator(layout)
+  def createFromLayout(layout: TableLayout, typeModifiers: Seq[TypeModifier]): TableCreator = {
+    new LayoutTableCreator(layout, typeModifiers)
   }
 }
