@@ -238,6 +238,33 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
   }
 
+  test("pre-aggregate store_sales for global avg") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  avg(ss_sales_price) AS avg_sales_price
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |""".stripMargin,
+      expectedAggCount = 2
+    )
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 1)
+  }
+
+  test("do not pre-aggregate store_sales for count distinct and sum") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT
+                   |  count(DISTINCT ss_sold_date_sk) AS distinct_dates,
+                   |  sum(ss_sales_price) AS total_sales_price
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |""".stripMargin,
+      expectedAggCount = 1
+    )
+    runCaseWithMaxDepth(pushdownCase, maxDepth = Int.MaxValue, expectedPushCount = 0)
+  }
+
   test("pre-aggregate store_sales for sum on fact table") {
     val pushdownCase = PushdownCase(
       inputSql = """
