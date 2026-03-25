@@ -132,6 +132,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("data type casting")
     // Revised by setting timezone through config and commented unsupported cases.
     .exclude("cast string to timestamp")
+    // TODO: fix after https://github.com/facebookincubator/velox/pull/14910
+    .exclude("SPARK-39749: cast Decimal to string")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
@@ -408,11 +410,17 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenV2SessionCatalogNamespaceSuite]
   enableSuite[GlutenV2SessionCatalogTableSuite]
   enableSuite[GlutenCSVv1Suite]
+    // https://github.com/apache/gluten/issues/11825
+    .exclude("corrupted ZSTD compressed csv respects ignoreCorruptFiles")
   enableSuite[GlutenCSVv2Suite]
+    // https://github.com/apache/gluten/issues/11825
+    .exclude("corrupted ZSTD compressed csv respects ignoreCorruptFiles")
   // https://github.com/apache/gluten/issues/11505
   enableSuite[GlutenCSVLegacyTimeParserSuite]
     .exclude("Write timestamps correctly in ISO8601 format by default")
     .exclude("csv with variant")
+    // https://github.com/apache/gluten/issues/11825
+    .exclude("corrupted ZSTD compressed csv respects ignoreCorruptFiles")
   enableSuite[GlutenJsonV1Suite]
     // FIXME: Array direct selection fails
     .exclude("Complex field and type inferring")
