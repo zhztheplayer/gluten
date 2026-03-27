@@ -121,6 +121,19 @@ object MetricsUtil extends Logging {
     var numDynamicFiltersAccepted: Long = 0
     var numReplacedWithDynamicFilterRows: Long = 0
     var numDynamicFilterInputRows: Long = 0
+    var radixBuildEnabled: Long = 0
+    var radixBuildBits: Long = 0
+    var radixEstimatedTableBytes: Long = 0
+    var radixDisabledByMinTableBytes: Long = 0
+    var radixDisabledByMaxTableBytes: Long = 0
+    var radixBuildWallNanos: Long = 0
+    var radixPartitionerEnabled: Long = 0
+    var radixMaxBufferedRowsPerPartition: Long = 0
+    var radixMinOutputBatchRows: Long = 0
+    var radixPrepareInputWallNanos: Long = 0
+    var radixInputRows: Long = 0
+    var radixOutputRows: Long = 0
+    var radixOutputBatches: Long = 0
     var flushRowCount: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
@@ -157,6 +170,19 @@ object MetricsUtil extends Logging {
       numDynamicFiltersAccepted += metrics.numDynamicFiltersAccepted
       numReplacedWithDynamicFilterRows += metrics.numReplacedWithDynamicFilterRows
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
+      radixBuildEnabled += metrics.radixBuildEnabled
+      radixBuildBits += metrics.radixBuildBits
+      radixEstimatedTableBytes += metrics.radixEstimatedTableBytes
+      radixDisabledByMinTableBytes += metrics.radixDisabledByMinTableBytes
+      radixDisabledByMaxTableBytes += metrics.radixDisabledByMaxTableBytes
+      radixBuildWallNanos += metrics.radixBuildWallNanos
+      radixPartitionerEnabled += metrics.radixPartitionerEnabled
+      radixMaxBufferedRowsPerPartition += metrics.radixMaxBufferedRowsPerPartition
+      radixMinOutputBatchRows += metrics.radixMinOutputBatchRows
+      radixPrepareInputWallNanos += metrics.radixPrepareInputWallNanos
+      radixInputRows += metrics.radixInputRows
+      radixOutputRows += metrics.radixOutputRows
+      radixOutputBatches += metrics.radixOutputBatches
       flushRowCount += metrics.flushRowCount
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
@@ -200,6 +226,19 @@ object MetricsUtil extends Logging {
       numDynamicFiltersAccepted,
       numReplacedWithDynamicFilterRows,
       numDynamicFilterInputRows,
+      radixBuildEnabled,
+      radixBuildBits,
+      radixEstimatedTableBytes,
+      radixDisabledByMinTableBytes,
+      radixDisabledByMaxTableBytes,
+      radixBuildWallNanos,
+      radixPartitionerEnabled,
+      radixMaxBufferedRowsPerPartition,
+      radixMinOutputBatchRows,
+      radixPrepareInputWallNanos,
+      radixInputRows,
+      radixOutputRows,
+      radixOutputBatches,
       flushRowCount,
       loadedToValueHook,
       bloomFilterBlocksByteSize,

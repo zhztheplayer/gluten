@@ -501,7 +501,7 @@ object VeloxConfig extends ConfigRegistry {
       .doc("Minimum number of rows to coalesce before emitting one radix-partitioned probe batch. 0 uses the operator output batch size.")
       .intConf
       .checkValue(_ >= 0, "must be a non-negative number")
-      .createWithDefault(0)
+      .createOptional
 
   val RADIX_JOIN_MAX_BUFFERED_ROWS_MULTIPLIER =
     buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.maxBufferedRowsMultiplier")

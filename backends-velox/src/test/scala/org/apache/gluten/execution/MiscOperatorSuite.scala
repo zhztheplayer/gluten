@@ -1455,9 +1455,28 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
         VeloxConfig.RADIX_JOIN_MAX_BUFFERED_ROWS_MULTIPLIER.key -> "10") {
         runQueryAndCompare(
           """
-            |select count(*) from t1 inner join t2 on t1.c1 = t2.c1
+            |select * from t1 inner join t2 on t1.c1 = t2.c1
             |""".stripMargin) {
-          checkGlutenPlan[ShuffledHashJoinExecTransformer]
+          df =>
+            val shj = find(df.queryExecution.executedPlan) {
+              case _: ShuffledHashJoinExecTransformer => true
+              case _ => false
+            }
+            assert(shj.isDefined)
+            val metrics = shj.get.metrics
+            assert(metrics("hashBuildRadixEnabled").value == 1)
+            assert(metrics("hashBuildRadixBits").value == 4)
+            assert(metrics("hashBuildRadixEstimatedTableBytes").value > 0)
+            assert(metrics("hashBuildRadixDisabledByMinTableBytes").value == 0)
+            assert(metrics("hashBuildRadixDisabledByMaxTableBytes").value == 0)
+            assert(metrics("hashBuildRadixWallNanos").value > 0)
+            assert(metrics("hashProbeRadixPartitionerEnabled").value == 1)
+            assert(metrics("hashProbeRadixMaxBufferedRowsPerPartition").value == 32)
+            assert(metrics("hashProbeRadixMinOutputBatchRows").value == 8)
+            assert(metrics("hashProbeRadixPrepareInputWallNanos").value > 0)
+            assert(metrics("hashProbeRadixInputRows").value == 1000)
+            assert(metrics("hashProbeRadixOutputRows").value == 1000)
+            assert(metrics("hashProbeRadixOutputBatches").value > 0)
         }
       }
     }

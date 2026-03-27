@@ -44,6 +44,19 @@ const std::string kDynamicFiltersProduced = "dynamicFiltersProduced";
 const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
 const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
 const std::string kDynamicFilterInputRows = "dynamicFilterInputRows";
+const std::string kRadixBuildEnabled = "radixEnabled";
+const std::string kRadixBuildBits = "radixBits";
+const std::string kRadixEstimatedTableBytes = "radixEstimatedTableBytes";
+const std::string kRadixDisabledByMinTableBytes = "radixDisabledByMinTableBytes";
+const std::string kRadixDisabledByMaxTableBytes = "radixDisabledByMaxTableBytes";
+const std::string kRadixBuildWallNanos = "radixBuildWallNanos";
+const std::string kRadixPartitionerEnabled = "radixPartitionerEnabled";
+const std::string kRadixMaxBufferedRowsPerPartition = "radixMaxBufferedRowsPerPartition";
+const std::string kRadixMinOutputBatchRows = "radixMinOutputBatchRows";
+const std::string kRadixPrepareInputWallNanos = "radixPrepareInputWallNanos";
+const std::string kRadixInputRows = "radixInputRows";
+const std::string kRadixOutputRows = "radixOutputRows";
+const std::string kRadixOutputBatches = "radixOutputBatches";
 const std::string kFlushRowCount = "flushRowCount";
 const std::string kLoadedToValueHook = "loadedToValueHook";
 const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
@@ -493,6 +506,30 @@ void WholeStageResultIterator::collectMetrics() {
           runtimeMetric("sum", second->customStats, kReplacedWithDynamicFilterRows);
       metrics_->get(Metrics::kNumDynamicFilterInputRows)[metricIndex] =
           runtimeMetric("sum", second->customStats, kDynamicFilterInputRows);
+      metrics_->get(Metrics::kRadixBuildEnabled)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixBuildEnabled);
+      metrics_->get(Metrics::kRadixBuildBits)[metricIndex] = runtimeMetric("sum", second->customStats, kRadixBuildBits);
+      metrics_->get(Metrics::kRadixEstimatedTableBytes)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixEstimatedTableBytes);
+      metrics_->get(Metrics::kRadixDisabledByMinTableBytes)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixDisabledByMinTableBytes);
+      metrics_->get(Metrics::kRadixDisabledByMaxTableBytes)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixDisabledByMaxTableBytes);
+      metrics_->get(Metrics::kRadixBuildWallNanos)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixBuildWallNanos);
+      metrics_->get(Metrics::kRadixPartitionerEnabled)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixPartitionerEnabled);
+      metrics_->get(Metrics::kRadixMaxBufferedRowsPerPartition)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixMaxBufferedRowsPerPartition);
+      metrics_->get(Metrics::kRadixMinOutputBatchRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixMinOutputBatchRows);
+      metrics_->get(Metrics::kRadixPrepareInputWallNanos)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixPrepareInputWallNanos);
+      metrics_->get(Metrics::kRadixInputRows)[metricIndex] = runtimeMetric("sum", second->customStats, kRadixInputRows);
+      metrics_->get(Metrics::kRadixOutputRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixOutputRows);
+      metrics_->get(Metrics::kRadixOutputBatches)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixOutputBatches);
       metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
       metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
           runtimeMetric("sum", second->customStats, kLoadedToValueHook);
@@ -662,7 +699,7 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
                 kRadixJoinMaxBufferedRowsPerPartition,
                 std::numeric_limits<uint32_t>::max()));
     configs[velox::core::QueryConfig::kRadixJoinMinOutputBatchRows] =
-        std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMinOutputBatchRows, 0));
+        std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMinOutputBatchRows, veloxCfg_->get<uint32_t>(kSparkBatchSize, 4096)));
     configs[velox::core::QueryConfig::kRadixJoinMaxBufferedRowsMultiplier] =
         std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMaxBufferedRowsMultiplier, 10));
 

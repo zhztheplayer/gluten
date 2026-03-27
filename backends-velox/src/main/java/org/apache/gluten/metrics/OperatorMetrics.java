@@ -39,6 +39,19 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long numDynamicFiltersAccepted;
   public long numReplacedWithDynamicFilterRows;
   public long numDynamicFilterInputRows;
+  public long radixBuildEnabled;
+  public long radixBuildBits;
+  public long radixEstimatedTableBytes;
+  public long radixDisabledByMinTableBytes;
+  public long radixDisabledByMaxTableBytes;
+  public long radixBuildWallNanos;
+  public long radixPartitionerEnabled;
+  public long radixMaxBufferedRowsPerPartition;
+  public long radixMinOutputBatchRows;
+  public long radixPrepareInputWallNanos;
+  public long radixInputRows;
+  public long radixOutputRows;
+  public long radixOutputBatches;
   public long flushRowCount;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
@@ -85,6 +98,19 @@ public class OperatorMetrics implements IOperatorMetrics {
       long numDynamicFiltersAccepted,
       long numReplacedWithDynamicFilterRows,
       long numDynamicFilterInputRows,
+      long radixBuildEnabled,
+      long radixBuildBits,
+      long radixEstimatedTableBytes,
+      long radixDisabledByMinTableBytes,
+      long radixDisabledByMaxTableBytes,
+      long radixBuildWallNanos,
+      long radixPartitionerEnabled,
+      long radixMaxBufferedRowsPerPartition,
+      long radixMinOutputBatchRows,
+      long radixPrepareInputWallNanos,
+      long radixInputRows,
+      long radixOutputRows,
+      long radixOutputBatches,
       long flushRowCount,
       long loadedToValueHook,
       long bloomFilterBlocksByteSize,
@@ -128,6 +154,19 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.numDynamicFiltersAccepted = numDynamicFiltersAccepted;
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
+    this.radixBuildEnabled = radixBuildEnabled;
+    this.radixBuildBits = radixBuildBits;
+    this.radixEstimatedTableBytes = radixEstimatedTableBytes;
+    this.radixDisabledByMinTableBytes = radixDisabledByMinTableBytes;
+    this.radixDisabledByMaxTableBytes = radixDisabledByMaxTableBytes;
+    this.radixBuildWallNanos = radixBuildWallNanos;
+    this.radixPartitionerEnabled = radixPartitionerEnabled;
+    this.radixMaxBufferedRowsPerPartition = radixMaxBufferedRowsPerPartition;
+    this.radixMinOutputBatchRows = radixMinOutputBatchRows;
+    this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
+    this.radixInputRows = radixInputRows;
+    this.radixOutputRows = radixOutputRows;
+    this.radixOutputBatches = radixOutputBatches;
     this.flushRowCount = flushRowCount;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
@@ -149,4 +188,5 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.numWrittenFiles = numWrittenFiles;
     this.loadLazyVectorTime = loadLazyVectorTime;
   }
+
 }

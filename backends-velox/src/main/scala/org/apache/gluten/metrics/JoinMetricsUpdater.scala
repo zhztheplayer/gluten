@@ -76,6 +76,14 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashBuildSpilledRows: SQLMetric = metrics("hashBuildSpilledRows")
   val hashBuildSpilledPartitions: SQLMetric = metrics("hashBuildSpilledPartitions")
   val hashBuildSpilledFiles: SQLMetric = metrics("hashBuildSpilledFiles")
+  val hashBuildRadixEnabled: SQLMetric = metrics("hashBuildRadixEnabled")
+  val hashBuildRadixBits: SQLMetric = metrics("hashBuildRadixBits")
+  val hashBuildRadixEstimatedTableBytes: SQLMetric = metrics("hashBuildRadixEstimatedTableBytes")
+  val hashBuildRadixDisabledByMinTableBytes: SQLMetric =
+    metrics("hashBuildRadixDisabledByMinTableBytes")
+  val hashBuildRadixDisabledByMaxTableBytes: SQLMetric =
+    metrics("hashBuildRadixDisabledByMaxTableBytes")
+  val hashBuildRadixWallNanos: SQLMetric = metrics("hashBuildRadixWallNanos")
 
   val hashProbeInputRows: SQLMetric = metrics("hashProbeInputRows")
   val hashProbeOutputRows: SQLMetric = metrics("hashProbeOutputRows")
@@ -89,6 +97,14 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashProbeSpilledRows: SQLMetric = metrics("hashProbeSpilledRows")
   val hashProbeSpilledPartitions: SQLMetric = metrics("hashProbeSpilledPartitions")
   val hashProbeSpilledFiles: SQLMetric = metrics("hashProbeSpilledFiles")
+  val hashProbeRadixPartitionerEnabled: SQLMetric = metrics("hashProbeRadixPartitionerEnabled")
+  val hashProbeRadixMaxBufferedRowsPerPartition: SQLMetric =
+    metrics("hashProbeRadixMaxBufferedRowsPerPartition")
+  val hashProbeRadixMinOutputBatchRows: SQLMetric = metrics("hashProbeRadixMinOutputBatchRows")
+  val hashProbeRadixPrepareInputWallNanos: SQLMetric = metrics("hashProbeRadixPrepareInputWallNanos")
+  val hashProbeRadixInputRows: SQLMetric = metrics("hashProbeRadixInputRows")
+  val hashProbeRadixOutputRows: SQLMetric = metrics("hashProbeRadixOutputRows")
+  val hashProbeRadixOutputBatches: SQLMetric = metrics("hashProbeRadixOutputBatches")
 
   // The number of rows which were passed through without any processing
   // after filter was pushed down.
@@ -127,6 +143,13 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeSpilledRows += hashProbeMetrics.spilledRows
     hashProbeSpilledPartitions += hashProbeMetrics.spilledPartitions
     hashProbeSpilledFiles += hashProbeMetrics.spilledFiles
+    hashProbeRadixPartitionerEnabled += hashProbeMetrics.radixPartitionerEnabled
+    hashProbeRadixMaxBufferedRowsPerPartition += hashProbeMetrics.radixMaxBufferedRowsPerPartition
+    hashProbeRadixMinOutputBatchRows += hashProbeMetrics.radixMinOutputBatchRows
+    hashProbeRadixPrepareInputWallNanos += hashProbeMetrics.radixPrepareInputWallNanos
+    hashProbeRadixInputRows += hashProbeMetrics.radixInputRows
+    hashProbeRadixOutputRows += hashProbeMetrics.radixOutputRows
+    hashProbeRadixOutputBatches += hashProbeMetrics.radixOutputBatches
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
     hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
     bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize
@@ -146,6 +169,12 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashBuildSpilledRows += hashBuildMetrics.spilledRows
     hashBuildSpilledPartitions += hashBuildMetrics.spilledPartitions
     hashBuildSpilledFiles += hashBuildMetrics.spilledFiles
+    hashBuildRadixEnabled += hashBuildMetrics.radixBuildEnabled
+    hashBuildRadixBits += hashBuildMetrics.radixBuildBits
+    hashBuildRadixEstimatedTableBytes += hashBuildMetrics.radixEstimatedTableBytes
+    hashBuildRadixDisabledByMinTableBytes += hashBuildMetrics.radixDisabledByMinTableBytes
+    hashBuildRadixDisabledByMaxTableBytes += hashBuildMetrics.radixDisabledByMaxTableBytes
+    hashBuildRadixWallNanos += hashBuildMetrics.radixBuildWallNanos
     idx += 1
 
     if (joinParams.buildPreProjectionNeeded) {

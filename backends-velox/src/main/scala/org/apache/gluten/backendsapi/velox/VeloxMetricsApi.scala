@@ -601,6 +601,24 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashBuildSpilledFiles" -> SQLMetrics.createMetric(
         sparkContext,
         "total spilled files of hash build"),
+      "hashBuildRadixEnabled" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash build operators with radix join enabled"),
+      "hashBuildRadixBits" -> SQLMetrics.createMetric(
+        sparkContext,
+        "configured radix bits of hash build"),
+      "hashBuildRadixEstimatedTableBytes" -> SQLMetrics.createSizeMetric(
+        sparkContext,
+        "estimated hash build table bytes for radix join"),
+      "hashBuildRadixDisabledByMinTableBytes" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash build operators disabling radix join due to min table bytes"),
+      "hashBuildRadixDisabledByMaxTableBytes" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash build operators disabling radix join due to max table bytes"),
+      "hashBuildRadixWallNanos" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "time of radix hash build"),
       "hashProbeInputRows" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe input rows"),
@@ -635,6 +653,27 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeSpilledFiles" -> SQLMetrics.createMetric(
         sparkContext,
         "total spilled files of hash probe"),
+      "hashProbeRadixPartitionerEnabled" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash probe operators with radix partitioner enabled"),
+      "hashProbeRadixMaxBufferedRowsPerPartition" -> SQLMetrics.createMetric(
+        sparkContext,
+        "max buffered rows per radix partition in hash probe"),
+      "hashProbeRadixMinOutputBatchRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "minimum radix probe output batch rows"),
+      "hashProbeRadixPrepareInputWallNanos" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "time preparing radix probe input"),
+      "hashProbeRadixInputRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of radix probe input rows"),
+      "hashProbeRadixOutputRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of radix probe output rows"),
+      "hashProbeRadixOutputBatches" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of radix probe output batches"),
       "hashProbeReplacedWithDynamicFilterRows" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe replaced with dynamic filter rows"),
