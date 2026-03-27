@@ -695,9 +695,9 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
                 std::numeric_limits<uint64_t>::max()));
     configs[velox::core::QueryConfig::kRadixJoinMaxBufferedRowsPerPartition] =
         std::to_string(
-            veloxCfg_->get<uint32_t>(
+            veloxCfg_->get<int32_t>(
                 kRadixJoinMaxBufferedRowsPerPartition,
-                std::numeric_limits<uint32_t>::max()));
+                std::numeric_limits<int32_t>::max()));
     configs[velox::core::QueryConfig::kRadixJoinMinOutputBatchRows] =
         std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMinOutputBatchRows, veloxCfg_->get<uint32_t>(kSparkBatchSize, 4096)));
     configs[velox::core::QueryConfig::kRadixJoinMaxBufferedRowsMultiplier] =
