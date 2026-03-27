@@ -80,7 +80,7 @@ struct Metrics {
     kRadixPrepareInputWallNanos,
     kRadixInputRows,
     kRadixOutputRows,
-    kRadixOutputBatches,
+    kRadixOutputVectors,
     kFlushRowCount,
     kLoadedToValueHook,
     kBloomFilterBlocksByteSize,

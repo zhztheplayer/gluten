@@ -56,7 +56,7 @@ const std::string kRadixMinOutputBatchRows = "radixMinOutputBatchRows";
 const std::string kRadixPrepareInputWallNanos = "radixPrepareInputWallNanos";
 const std::string kRadixInputRows = "radixInputRows";
 const std::string kRadixOutputRows = "radixOutputRows";
-const std::string kRadixOutputBatches = "radixOutputBatches";
+const std::string kRadixOutputVectors = "radixOutputVectors";
 const std::string kFlushRowCount = "flushRowCount";
 const std::string kLoadedToValueHook = "loadedToValueHook";
 const std::string kBloomFilterBlocksByteSize = "bloomFilterSize";
@@ -528,8 +528,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kRadixInputRows)[metricIndex] = runtimeMetric("sum", second->customStats, kRadixInputRows);
       metrics_->get(Metrics::kRadixOutputRows)[metricIndex] =
           runtimeMetric("sum", second->customStats, kRadixOutputRows);
-      metrics_->get(Metrics::kRadixOutputBatches)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kRadixOutputBatches);
+      metrics_->get(Metrics::kRadixOutputVectors)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kRadixOutputVectors);
       metrics_->get(Metrics::kFlushRowCount)[metricIndex] = runtimeMetric("sum", second->customStats, kFlushRowCount);
       metrics_->get(Metrics::kLoadedToValueHook)[metricIndex] =
           runtimeMetric("sum", second->customStats, kLoadedToValueHook);

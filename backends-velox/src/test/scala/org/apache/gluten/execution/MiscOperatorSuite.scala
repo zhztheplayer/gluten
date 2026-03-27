@@ -1476,7 +1476,7 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             assert(metrics("hashProbeRadixPrepareInputWallNanos").value > 0)
             assert(metrics("hashProbeRadixInputRows").value == 1000)
             assert(metrics("hashProbeRadixOutputRows").value == 1000)
-            assert(metrics("hashProbeRadixOutputBatches").value > 0)
+            assert(metrics("hashProbeRadixOutputVectors").value > 0)
         }
       }
     }

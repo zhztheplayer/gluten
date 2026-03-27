@@ -671,9 +671,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeRadixOutputRows" -> SQLMetrics.createMetric(
         sparkContext,
         "number of radix probe output rows"),
-      "hashProbeRadixOutputBatches" -> SQLMetrics.createMetric(
+      "hashProbeRadixOutputVectors" -> SQLMetrics.createMetric(
         sparkContext,
-        "number of radix probe output batches"),
+        "number of radix probe output vectors"),
       "hashProbeReplacedWithDynamicFilterRows" -> SQLMetrics.createMetric(
         sparkContext,
         "number of hash probe replaced with dynamic filter rows"),

@@ -53,7 +53,7 @@ public class Metrics implements IMetrics {
   public long[] radixPrepareInputWallNanos;
   public long[] radixInputRows;
   public long[] radixOutputRows;
-  public long[] radixOutputBatches;
+  public long[] radixOutputVectors;
   public long[] flushRowCount;
   public long[] loadedToValueHook;
   public long[] bloomFilterBlocksByteSize;
@@ -117,7 +117,7 @@ public class Metrics implements IMetrics {
       long[] radixPrepareInputWallNanos,
       long[] radixInputRows,
       long[] radixOutputRows,
-      long[] radixOutputBatches,
+      long[] radixOutputVectors,
       long[] flushRowCount,
       long[] loadedToValueHook,
       long[] bloomFilterBlocksByteSize,
@@ -175,7 +175,7 @@ public class Metrics implements IMetrics {
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
     this.radixInputRows = radixInputRows;
     this.radixOutputRows = radixOutputRows;
-    this.radixOutputBatches = radixOutputBatches;
+    this.radixOutputVectors = radixOutputVectors;
     this.flushRowCount = flushRowCount;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
@@ -239,7 +239,7 @@ public class Metrics implements IMetrics {
         radixPrepareInputWallNanos[index],
         radixInputRows[index],
         radixOutputRows[index],
-        radixOutputBatches[index],
+        radixOutputVectors[index],
         flushRowCount[index],
         loadedToValueHook[index],
         bloomFilterBlocksByteSize[index],

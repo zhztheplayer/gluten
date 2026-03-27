@@ -133,7 +133,7 @@ object MetricsUtil extends Logging {
     var radixPrepareInputWallNanos: Long = 0
     var radixInputRows: Long = 0
     var radixOutputRows: Long = 0
-    var radixOutputBatches: Long = 0
+    var radixOutputVectors: Long = 0
     var flushRowCount: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
@@ -182,7 +182,7 @@ object MetricsUtil extends Logging {
       radixPrepareInputWallNanos += metrics.radixPrepareInputWallNanos
       radixInputRows += metrics.radixInputRows
       radixOutputRows += metrics.radixOutputRows
-      radixOutputBatches += metrics.radixOutputBatches
+      radixOutputVectors += metrics.radixOutputVectors
       flushRowCount += metrics.flushRowCount
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
@@ -238,7 +238,7 @@ object MetricsUtil extends Logging {
       radixPrepareInputWallNanos,
       radixInputRows,
       radixOutputRows,
-      radixOutputBatches,
+      radixOutputVectors,
       flushRowCount,
       loadedToValueHook,
       bloomFilterBlocksByteSize,

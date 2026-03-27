@@ -51,7 +51,7 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long radixPrepareInputWallNanos;
   public long radixInputRows;
   public long radixOutputRows;
-  public long radixOutputBatches;
+  public long radixOutputVectors;
   public long flushRowCount;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
@@ -110,7 +110,7 @@ public class OperatorMetrics implements IOperatorMetrics {
       long radixPrepareInputWallNanos,
       long radixInputRows,
       long radixOutputRows,
-      long radixOutputBatches,
+      long radixOutputVectors,
       long flushRowCount,
       long loadedToValueHook,
       long bloomFilterBlocksByteSize,
@@ -166,7 +166,7 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
     this.radixInputRows = radixInputRows;
     this.radixOutputRows = radixOutputRows;
-    this.radixOutputBatches = radixOutputBatches;
+    this.radixOutputVectors = radixOutputVectors;
     this.flushRowCount = flushRowCount;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;

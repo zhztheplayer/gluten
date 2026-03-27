@@ -104,7 +104,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashProbeRadixPrepareInputWallNanos: SQLMetric = metrics("hashProbeRadixPrepareInputWallNanos")
   val hashProbeRadixInputRows: SQLMetric = metrics("hashProbeRadixInputRows")
   val hashProbeRadixOutputRows: SQLMetric = metrics("hashProbeRadixOutputRows")
-  val hashProbeRadixOutputBatches: SQLMetric = metrics("hashProbeRadixOutputBatches")
+  val hashProbeRadixOutputVectors: SQLMetric = metrics("hashProbeRadixOutputVectors")
 
   // The number of rows which were passed through without any processing
   // after filter was pushed down.
@@ -149,7 +149,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeRadixPrepareInputWallNanos += hashProbeMetrics.radixPrepareInputWallNanos
     hashProbeRadixInputRows += hashProbeMetrics.radixInputRows
     hashProbeRadixOutputRows += hashProbeMetrics.radixOutputRows
-    hashProbeRadixOutputBatches += hashProbeMetrics.radixOutputBatches
+    hashProbeRadixOutputVectors += hashProbeMetrics.radixOutputVectors
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
     hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
     bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize

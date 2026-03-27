@@ -602,7 +602,7 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kRadixPrepareInputWallNanos],
       longArray[Metrics::kRadixInputRows],
       longArray[Metrics::kRadixOutputRows],
-      longArray[Metrics::kRadixOutputBatches],
+      longArray[Metrics::kRadixOutputVectors],
       longArray[Metrics::kFlushRowCount],
       longArray[Metrics::kLoadedToValueHook],
       longArray[Metrics::kBloomFilterBlocksByteSize],
