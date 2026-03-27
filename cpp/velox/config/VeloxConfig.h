@@ -82,6 +82,19 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
 
+const std::string kRadixJoinBits =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.bits";
+const std::string kRadixJoinMinTableBytes =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.minTableBytes";
+const std::string kRadixJoinMaxTableBytes =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.maxTableBytes";
+const std::string kRadixJoinMaxBufferedRowsPerPartition =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.maxBufferedRowsPerPartition";
+const std::string kRadixJoinMinOutputBatchRows =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.minOutputBatchRows";
+const std::string kRadixJoinMaxBufferedRowsMultiplier =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.maxBufferedRowsMultiplier";
+
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
 const bool kValueStreamDynamicFilterEnabledDefault = false;

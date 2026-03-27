@@ -470,6 +470,46 @@ object VeloxConfig extends ConfigRegistry {
       .booleanConf
       .createWithDefault(true)
 
+  val RADIX_JOIN_BITS =
+    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.bits")
+      .doc("Number of radix bits to use for radix-partitioned hash join build/probe. 0 disables radix join.")
+      .intConf
+      .checkValue(v => v >= 0 && v <= 255, "must be in [0, 255]")
+      .createWithDefault(0)
+
+  val RADIX_JOIN_MIN_TABLE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.minTableBytes")
+      .doc("Minimum estimated hash table size in bytes to enable radix join.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefault(0)
+
+  val RADIX_JOIN_MAX_TABLE_BYTES =
+    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.maxTableBytes")
+      .doc("Maximum estimated hash table size in bytes to enable radix join.")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefault(Long.MaxValue)
+
+  val RADIX_JOIN_MAX_BUFFERED_ROWS_PER_PARTITION =
+    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.maxBufferedRowsPerPartition")
+      .doc("Maximum number of buffered probe rows per radix partition.")
+      .intConf
+      .checkValue(_ >= 0, "must be a non-negative number")
+      .createWithDefault(Int.MaxValue)
+
+  val RADIX_JOIN_MIN_OUTPUT_BATCH_ROWS =
+    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.minOutputBatchRows")
+      .doc("Minimum number of rows to coalesce before emitting one radix-partitioned probe batch. 0 uses the operator output batch size.")
+      .intConf
+      .checkValue(_ >= 0, "must be a non-negative number")
+      .createWithDefault(0)
+
+  val RADIX_JOIN_MAX_BUFFERED_ROWS_MULTIPLIER =
+    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.maxBufferedRowsMultiplier")
+      .doc("Multiplier used to derive the buffered probe row limit per radix partition from the build-side row count.")
+      .intConf
+      .checkValue(_ >= 0, "must be a non-negative number")
+      .createWithDefault(10)
+
   val VALUE_STREAM_DYNAMIC_FILTER_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled")
       .doc(

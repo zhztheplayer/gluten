@@ -647,6 +647,24 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         std::to_string(veloxCfg_->get<bool>(kHashProbeDynamicFilterPushdownEnabled, true));
     configs[velox::core::QueryConfig::kHashProbeBloomFilterPushdownMaxSize] =
         std::to_string(veloxCfg_->get<uint64_t>(kHashProbeBloomFilterPushdownMaxSize, 0));
+    configs[velox::core::QueryConfig::kRadixJoinBits] =
+        std::to_string(veloxCfg_->get<uint8_t>(kRadixJoinBits, 0));
+    configs[velox::core::QueryConfig::kRadixJoinMinTableBytes] =
+        std::to_string(veloxCfg_->get<uint64_t>(kRadixJoinMinTableBytes, 0));
+    configs[velox::core::QueryConfig::kRadixJoinMaxTableBytes] =
+        std::to_string(
+            veloxCfg_->get<uint64_t>(
+                kRadixJoinMaxTableBytes,
+                std::numeric_limits<uint64_t>::max()));
+    configs[velox::core::QueryConfig::kRadixJoinMaxBufferedRowsPerPartition] =
+        std::to_string(
+            veloxCfg_->get<uint32_t>(
+                kRadixJoinMaxBufferedRowsPerPartition,
+                std::numeric_limits<uint32_t>::max()));
+    configs[velox::core::QueryConfig::kRadixJoinMinOutputBatchRows] =
+        std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMinOutputBatchRows, 0));
+    configs[velox::core::QueryConfig::kRadixJoinMaxBufferedRowsMultiplier] =
+        std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMaxBufferedRowsMultiplier, 10));
 
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
       configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] = opt.value();

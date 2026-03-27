@@ -1434,6 +1434,35 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("radix join configs are accepted by velox hash join") {
+    withTable("t1", "t2") {
+      sql("""
+            |create table t1 using parquet as
+            |select cast(id as int) as c1, cast(id as string) c2 from range(1000)
+            |""".stripMargin)
+      sql("""
+            |create table t2 using parquet as
+            |select cast(id as int) as c1, cast(id as string) c2 from range(1000)
+            |""".stripMargin)
+
+      withSQLConf(
+        GlutenConfig.COLUMNAR_FORCE_SHUFFLED_HASH_JOIN_ENABLED.key -> "true",
+        VeloxConfig.RADIX_JOIN_BITS.key -> "4",
+        VeloxConfig.RADIX_JOIN_MIN_TABLE_BYTES.key -> "0",
+        VeloxConfig.RADIX_JOIN_MAX_TABLE_BYTES.key -> "64MB",
+        VeloxConfig.RADIX_JOIN_MAX_BUFFERED_ROWS_PER_PARTITION.key -> "32",
+        VeloxConfig.RADIX_JOIN_MIN_OUTPUT_BATCH_ROWS.key -> "8",
+        VeloxConfig.RADIX_JOIN_MAX_BUFFERED_ROWS_MULTIPLIER.key -> "10") {
+        runQueryAndCompare(
+          """
+            |select count(*) from t1 inner join t2 on t1.c1 = t2.c1
+            |""".stripMargin) {
+          checkGlutenPlan[ShuffledHashJoinExecTransformer]
+        }
+      }
+    }
+  }
+
   test("Fix incorrect path by decode") {
     val c = "?.+<_>|/"
     val path = rootPath + "/test +?.+<_>|"
