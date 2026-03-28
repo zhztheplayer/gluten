@@ -607,15 +607,6 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashBuildRadixBits" -> SQLMetrics.createMetric(
         sparkContext,
         "configured radix bits of hash build"),
-      "hashBuildRadixEstimatedTableBytes" -> SQLMetrics.createSizeMetric(
-        sparkContext,
-        "estimated hash build table bytes for radix join"),
-      "hashBuildRadixDisabledByMinTableBytes" -> SQLMetrics.createMetric(
-        sparkContext,
-        "number of hash build operators disabling radix join due to min table bytes"),
-      "hashBuildRadixDisabledByMaxTableBytes" -> SQLMetrics.createMetric(
-        sparkContext,
-        "number of hash build operators disabling radix join due to max table bytes"),
       "hashBuildRadixWallNanos" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "time of radix hash build"),
@@ -665,12 +656,9 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeRadixPrepareInputWallNanos" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "time preparing radix probe input"),
-      "hashProbeRadixInputRows" -> SQLMetrics.createMetric(
+      "hashProbeRadixInputVectors" -> SQLMetrics.createMetric(
         sparkContext,
-        "number of radix probe input rows"),
-      "hashProbeRadixOutputRows" -> SQLMetrics.createMetric(
-        sparkContext,
-        "number of radix probe output rows"),
+        "number of radix probe input vectors"),
       "hashProbeRadixOutputVectors" -> SQLMetrics.createMetric(
         sparkContext,
         "number of radix probe output vectors"),

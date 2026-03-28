@@ -123,16 +123,12 @@ object MetricsUtil extends Logging {
     var numDynamicFilterInputRows: Long = 0
     var radixBuildEnabled: Long = 0
     var radixBuildBits: Long = 0
-    var radixEstimatedTableBytes: Long = 0
-    var radixDisabledByMinTableBytes: Long = 0
-    var radixDisabledByMaxTableBytes: Long = 0
     var radixBuildWallNanos: Long = 0
     var radixPartitionerEnabled: Long = 0
     var radixMaxBufferedRowsPerPartition: Long = 0
     var radixMinOutputBatchRows: Long = 0
     var radixPrepareInputWallNanos: Long = 0
-    var radixInputRows: Long = 0
-    var radixOutputRows: Long = 0
+    var radixInputVectors: Long = 0
     var radixOutputVectors: Long = 0
     var flushRowCount: Long = 0
     var loadedToValueHook: Long = 0
@@ -172,16 +168,12 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       radixBuildEnabled += metrics.radixBuildEnabled
       radixBuildBits += metrics.radixBuildBits
-      radixEstimatedTableBytes += metrics.radixEstimatedTableBytes
-      radixDisabledByMinTableBytes += metrics.radixDisabledByMinTableBytes
-      radixDisabledByMaxTableBytes += metrics.radixDisabledByMaxTableBytes
       radixBuildWallNanos += metrics.radixBuildWallNanos
       radixPartitionerEnabled += metrics.radixPartitionerEnabled
       radixMaxBufferedRowsPerPartition += metrics.radixMaxBufferedRowsPerPartition
       radixMinOutputBatchRows += metrics.radixMinOutputBatchRows
       radixPrepareInputWallNanos += metrics.radixPrepareInputWallNanos
-      radixInputRows += metrics.radixInputRows
-      radixOutputRows += metrics.radixOutputRows
+      radixInputVectors += metrics.radixInputVectors
       radixOutputVectors += metrics.radixOutputVectors
       flushRowCount += metrics.flushRowCount
       loadedToValueHook += metrics.loadedToValueHook
@@ -228,16 +220,12 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows,
       radixBuildEnabled,
       radixBuildBits,
-      radixEstimatedTableBytes,
-      radixDisabledByMinTableBytes,
-      radixDisabledByMaxTableBytes,
       radixBuildWallNanos,
       radixPartitionerEnabled,
       radixMaxBufferedRowsPerPartition,
       radixMinOutputBatchRows,
       radixPrepareInputWallNanos,
-      radixInputRows,
-      radixOutputRows,
+      radixInputVectors,
       radixOutputVectors,
       flushRowCount,
       loadedToValueHook,

@@ -43,16 +43,12 @@ public class Metrics implements IMetrics {
   public long[] numDynamicFilterInputRows;
   public long[] radixBuildEnabled;
   public long[] radixBuildBits;
-  public long[] radixEstimatedTableBytes;
-  public long[] radixDisabledByMinTableBytes;
-  public long[] radixDisabledByMaxTableBytes;
   public long[] radixBuildWallNanos;
   public long[] radixPartitionerEnabled;
   public long[] radixMaxBufferedRowsPerPartition;
   public long[] radixMinOutputBatchRows;
   public long[] radixPrepareInputWallNanos;
-  public long[] radixInputRows;
-  public long[] radixOutputRows;
+  public long[] radixInputVectors;
   public long[] radixOutputVectors;
   public long[] flushRowCount;
   public long[] loadedToValueHook;
@@ -107,16 +103,12 @@ public class Metrics implements IMetrics {
       long[] numDynamicFilterInputRows,
       long[] radixBuildEnabled,
       long[] radixBuildBits,
-      long[] radixEstimatedTableBytes,
-      long[] radixDisabledByMinTableBytes,
-      long[] radixDisabledByMaxTableBytes,
       long[] radixBuildWallNanos,
       long[] radixPartitionerEnabled,
       long[] radixMaxBufferedRowsPerPartition,
       long[] radixMinOutputBatchRows,
       long[] radixPrepareInputWallNanos,
-      long[] radixInputRows,
-      long[] radixOutputRows,
+      long[] radixInputVectors,
       long[] radixOutputVectors,
       long[] flushRowCount,
       long[] loadedToValueHook,
@@ -165,16 +157,12 @@ public class Metrics implements IMetrics {
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.radixBuildEnabled = radixBuildEnabled;
     this.radixBuildBits = radixBuildBits;
-    this.radixEstimatedTableBytes = radixEstimatedTableBytes;
-    this.radixDisabledByMinTableBytes = radixDisabledByMinTableBytes;
-    this.radixDisabledByMaxTableBytes = radixDisabledByMaxTableBytes;
     this.radixBuildWallNanos = radixBuildWallNanos;
     this.radixPartitionerEnabled = radixPartitionerEnabled;
     this.radixMaxBufferedRowsPerPartition = radixMaxBufferedRowsPerPartition;
     this.radixMinOutputBatchRows = radixMinOutputBatchRows;
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
-    this.radixInputRows = radixInputRows;
-    this.radixOutputRows = radixOutputRows;
+    this.radixInputVectors = radixInputVectors;
     this.radixOutputVectors = radixOutputVectors;
     this.flushRowCount = flushRowCount;
     this.loadedToValueHook = loadedToValueHook;
@@ -229,16 +217,12 @@ public class Metrics implements IMetrics {
         numDynamicFilterInputRows[index],
         radixBuildEnabled[index],
         radixBuildBits[index],
-        radixEstimatedTableBytes[index],
-        radixDisabledByMinTableBytes[index],
-        radixDisabledByMaxTableBytes[index],
         radixBuildWallNanos[index],
         radixPartitionerEnabled[index],
         radixMaxBufferedRowsPerPartition[index],
         radixMinOutputBatchRows[index],
         radixPrepareInputWallNanos[index],
-        radixInputRows[index],
-        radixOutputRows[index],
+        radixInputVectors[index],
         radixOutputVectors[index],
         flushRowCount[index],
         loadedToValueHook[index],

@@ -273,7 +273,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
       env,
       metricsBuilderClass,
       "<init>",
-      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
+      "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[J[JLjava/lang/String;)V");
 
   nativeColumnarToRowInfoClass =
       createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/vectorized/NativeColumnarToRowInfo;");
@@ -592,16 +592,12 @@ JNIEXPORT jobject JNICALL Java_org_apache_gluten_metrics_IteratorMetricsJniWrapp
       longArray[Metrics::kNumDynamicFilterInputRows],
       longArray[Metrics::kRadixBuildEnabled],
       longArray[Metrics::kRadixBuildBits],
-      longArray[Metrics::kRadixEstimatedTableBytes],
-      longArray[Metrics::kRadixDisabledByMinTableBytes],
-      longArray[Metrics::kRadixDisabledByMaxTableBytes],
       longArray[Metrics::kRadixBuildWallNanos],
       longArray[Metrics::kRadixPartitionerEnabled],
       longArray[Metrics::kRadixMaxBufferedRowsPerPartition],
       longArray[Metrics::kRadixMinOutputBatchRows],
       longArray[Metrics::kRadixPrepareInputWallNanos],
-      longArray[Metrics::kRadixInputRows],
-      longArray[Metrics::kRadixOutputRows],
+      longArray[Metrics::kRadixInputVectors],
       longArray[Metrics::kRadixOutputVectors],
       longArray[Metrics::kFlushRowCount],
       longArray[Metrics::kLoadedToValueHook],

@@ -78,11 +78,6 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashBuildSpilledFiles: SQLMetric = metrics("hashBuildSpilledFiles")
   val hashBuildRadixEnabled: SQLMetric = metrics("hashBuildRadixEnabled")
   val hashBuildRadixBits: SQLMetric = metrics("hashBuildRadixBits")
-  val hashBuildRadixEstimatedTableBytes: SQLMetric = metrics("hashBuildRadixEstimatedTableBytes")
-  val hashBuildRadixDisabledByMinTableBytes: SQLMetric =
-    metrics("hashBuildRadixDisabledByMinTableBytes")
-  val hashBuildRadixDisabledByMaxTableBytes: SQLMetric =
-    metrics("hashBuildRadixDisabledByMaxTableBytes")
   val hashBuildRadixWallNanos: SQLMetric = metrics("hashBuildRadixWallNanos")
 
   val hashProbeInputRows: SQLMetric = metrics("hashProbeInputRows")
@@ -102,8 +97,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     metrics("hashProbeRadixMaxBufferedRowsPerPartition")
   val hashProbeRadixMinOutputBatchRows: SQLMetric = metrics("hashProbeRadixMinOutputBatchRows")
   val hashProbeRadixPrepareInputWallNanos: SQLMetric = metrics("hashProbeRadixPrepareInputWallNanos")
-  val hashProbeRadixInputRows: SQLMetric = metrics("hashProbeRadixInputRows")
-  val hashProbeRadixOutputRows: SQLMetric = metrics("hashProbeRadixOutputRows")
+  val hashProbeRadixInputVectors: SQLMetric = metrics("hashProbeRadixInputVectors")
   val hashProbeRadixOutputVectors: SQLMetric = metrics("hashProbeRadixOutputVectors")
 
   // The number of rows which were passed through without any processing
@@ -147,8 +141,7 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeRadixMaxBufferedRowsPerPartition += hashProbeMetrics.radixMaxBufferedRowsPerPartition
     hashProbeRadixMinOutputBatchRows += hashProbeMetrics.radixMinOutputBatchRows
     hashProbeRadixPrepareInputWallNanos += hashProbeMetrics.radixPrepareInputWallNanos
-    hashProbeRadixInputRows += hashProbeMetrics.radixInputRows
-    hashProbeRadixOutputRows += hashProbeMetrics.radixOutputRows
+    hashProbeRadixInputVectors += hashProbeMetrics.radixInputVectors
     hashProbeRadixOutputVectors += hashProbeMetrics.radixOutputVectors
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
     hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
@@ -171,9 +164,6 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashBuildSpilledFiles += hashBuildMetrics.spilledFiles
     hashBuildRadixEnabled += hashBuildMetrics.radixBuildEnabled
     hashBuildRadixBits += hashBuildMetrics.radixBuildBits
-    hashBuildRadixEstimatedTableBytes += hashBuildMetrics.radixEstimatedTableBytes
-    hashBuildRadixDisabledByMinTableBytes += hashBuildMetrics.radixDisabledByMinTableBytes
-    hashBuildRadixDisabledByMaxTableBytes += hashBuildMetrics.radixDisabledByMaxTableBytes
     hashBuildRadixWallNanos += hashBuildMetrics.radixBuildWallNanos
     idx += 1
 
