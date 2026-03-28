@@ -49,5 +49,8 @@ public class HashJoinBuilder implements RuntimeAware {
       byte[] namedStruct,
       boolean isNullAwareAntiJoin,
       long bloomFilterPushdownSize,
-      int broadcastHashTableBuildThreads);
+      int broadcastHashTableBuildThreads,
+      int radixJoinBits,
+      long radixJoinMinTableBytes,
+      long radixJoinMaxTableBytes);
 }

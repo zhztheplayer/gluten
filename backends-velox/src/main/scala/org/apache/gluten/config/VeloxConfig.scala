@@ -97,6 +97,12 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def hashProbeDynamicFilterPushdownEnabled: Boolean =
     getConf(HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED)
 
+  def radixJoinBits: Int = getConf(RADIX_JOIN_BITS)
+
+  def radixJoinMinTableBytes: Long = getConf(RADIX_JOIN_MIN_TABLE_BYTES)
+
+  def radixJoinMaxTableBytes: Long = getConf(RADIX_JOIN_MAX_TABLE_BYTES)
+
   def valueStreamDynamicFilterEnabled: Boolean =
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 }

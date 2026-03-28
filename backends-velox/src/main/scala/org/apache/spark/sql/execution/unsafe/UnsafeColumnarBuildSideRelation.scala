@@ -18,6 +18,7 @@ package org.apache.spark.sql.execution.unsafe
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.columnarbatch.ColumnarBatches
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.execution.BroadcastHashJoinContext
 import org.apache.gluten.expression.ConverterUtils
 import org.apache.gluten.iterator.Iterators
@@ -185,7 +186,10 @@ class UnsafeColumnarBuildSideRelation(
             SubstraitUtil.toNameStruct(newOutput).toByteArray,
             broadcastContext.isNullAwareAntiJoin,
             broadcastContext.bloomFilterPushdownSize,
-            broadcastContext.broadcastHashTableBuildThreads
+            broadcastContext.broadcastHashTableBuildThreads,
+            VeloxConfig.get.radixJoinBits,
+            VeloxConfig.get.radixJoinMinTableBytes,
+            VeloxConfig.get.radixJoinMaxTableBytes
           )
 
         jniWrapper.close(serializeHandle)

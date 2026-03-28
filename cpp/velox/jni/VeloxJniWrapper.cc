@@ -946,7 +946,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     jbyteArray namedStruct,
     jboolean isNullAwareAntiJoin,
     jlong bloomFilterPushdownSize,
-    jint broadcastHashTableBuildThreads) {
+    jint broadcastHashTableBuildThreads,
+    jint radixJoinBits,
+    jlong radixJoinMinTableBytes,
+    jlong radixJoinMaxTableBytes) {
   JNI_METHOD_START
   const auto hashTableId = jStringToCString(env, tableId);
 
@@ -1015,6 +1018,12 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         1'000'000,
         builder->dropDuplicates(),
         nullptr);
+    if (mainTable->canBuildRadixPartitions(
+            static_cast<uint8_t>(radixJoinBits),
+            static_cast<uint64_t>(radixJoinMinTableBytes),
+            static_cast<uint64_t>(radixJoinMaxTableBytes))) {
+      mainTable->buildRadixPartitions(static_cast<uint8_t>(radixJoinBits));
+    }
     builder->setHashTable(std::move(mainTable));
 
     return gluten::getHashTableObjStore()->save(builder);
@@ -1073,6 +1082,12 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       1'000'000,
       hashTableBuilders[0]->dropDuplicates(),
       allowParallelJoinBuild ? VeloxBackend::get()->executor() : nullptr);
+  if (mainTable->canBuildRadixPartitions(
+          static_cast<uint8_t>(radixJoinBits),
+          static_cast<uint64_t>(radixJoinMinTableBytes),
+          static_cast<uint64_t>(radixJoinMaxTableBytes))) {
+    mainTable->buildRadixPartitions(static_cast<uint8_t>(radixJoinBits));
+  }
 
   for (int i = 1; i < numThreads; ++i) {
     if (hashTableBuilders[i]->joinHasNullKeys()) {
