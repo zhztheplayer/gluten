@@ -603,7 +603,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "total spilled files of hash build"),
       "hashBuildRadixEnabled" -> SQLMetrics.createMetric(
         sparkContext,
-        "number of hash build operators with radix join enabled"),
+        "number of radix hash builds"),
       "hashBuildRadixBits" -> SQLMetrics.createMetric(
         sparkContext,
         "configured radix bits of hash build"),
@@ -646,7 +646,7 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "total spilled files of hash probe"),
       "hashProbeRadixPartitionerEnabled" -> SQLMetrics.createMetric(
         sparkContext,
-        "number of hash probe operators with radix partitioner enabled"),
+        "number of radix hash probes"),
       "hashProbeRadixMaxBufferedRowsPerPartition" -> SQLMetrics.createMetric(
         sparkContext,
         "max buffered rows per radix partition in hash probe"),
