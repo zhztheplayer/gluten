@@ -72,8 +72,6 @@ struct Metrics {
     kRadixBuildBits,
     kRadixBuildWallNanos,
     kRadixPartitionerEnabled,
-    kRadixMaxBufferedRowsPerPartition,
-    kRadixMinOutputBatchRows,
     kRadixPrepareInputWallNanos,
     kRadixInputVectors,
     kRadixOutputVectors,

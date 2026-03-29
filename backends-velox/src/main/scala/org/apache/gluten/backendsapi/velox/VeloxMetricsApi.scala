@@ -647,12 +647,6 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashProbeRadixPartitionerEnabled" -> SQLMetrics.createMetric(
         sparkContext,
         "number of radix hash probes"),
-      "hashProbeRadixMaxBufferedRowsPerPartition" -> SQLMetrics.createMetric(
-        sparkContext,
-        "max buffered rows per radix partition in hash probe"),
-      "hashProbeRadixMinOutputBatchRows" -> SQLMetrics.createMetric(
-        sparkContext,
-        "minimum radix probe output batch rows"),
       "hashProbeRadixPrepareInputWallNanos" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "time preparing radix probe input"),

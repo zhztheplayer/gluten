@@ -43,8 +43,6 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long radixBuildBits;
   public long radixBuildWallNanos;
   public long radixPartitionerEnabled;
-  public long radixMaxBufferedRowsPerPartition;
-  public long radixMinOutputBatchRows;
   public long radixPrepareInputWallNanos;
   public long radixInputVectors;
   public long radixOutputVectors;
@@ -98,8 +96,6 @@ public class OperatorMetrics implements IOperatorMetrics {
       long radixBuildBits,
       long radixBuildWallNanos,
       long radixPartitionerEnabled,
-      long radixMaxBufferedRowsPerPartition,
-      long radixMinOutputBatchRows,
       long radixPrepareInputWallNanos,
       long radixInputVectors,
       long radixOutputVectors,
@@ -150,8 +146,6 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.radixBuildBits = radixBuildBits;
     this.radixBuildWallNanos = radixBuildWallNanos;
     this.radixPartitionerEnabled = radixPartitionerEnabled;
-    this.radixMaxBufferedRowsPerPartition = radixMaxBufferedRowsPerPartition;
-    this.radixMinOutputBatchRows = radixMinOutputBatchRows;
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
     this.radixInputVectors = radixInputVectors;
     this.radixOutputVectors = radixOutputVectors;

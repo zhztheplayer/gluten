@@ -48,8 +48,6 @@ const std::string kRadixBuildEnabled = "radixEnabled";
 const std::string kRadixBuildBits = "radixBits";
 const std::string kRadixBuildWallNanos = "radixBuildWallNanos";
 const std::string kRadixPartitionerEnabled = "radixPartitionerEnabled";
-const std::string kRadixMaxBufferedRowsPerPartition = "radixMaxBufferedRowsPerPartition";
-const std::string kRadixMinOutputBatchRows = "radixMinOutputBatchRows";
 const std::string kRadixPrepareInputWallNanos = "radixPrepareInputWallNanos";
 const std::string kRadixInputVectors = "radixInputVectors";
 const std::string kRadixOutputVectors = "radixOutputVectors";
@@ -509,10 +507,6 @@ void WholeStageResultIterator::collectMetrics() {
           runtimeMetric("sum", second->customStats, kRadixBuildWallNanos);
       metrics_->get(Metrics::kRadixPartitionerEnabled)[metricIndex] =
           runtimeMetric("sum", second->customStats, kRadixPartitionerEnabled);
-      metrics_->get(Metrics::kRadixMaxBufferedRowsPerPartition)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kRadixMaxBufferedRowsPerPartition);
-      metrics_->get(Metrics::kRadixMinOutputBatchRows)[metricIndex] =
-          runtimeMetric("sum", second->customStats, kRadixMinOutputBatchRows);
       metrics_->get(Metrics::kRadixPrepareInputWallNanos)[metricIndex] =
           runtimeMetric("sum", second->customStats, kRadixPrepareInputWallNanos);
       metrics_->get(Metrics::kRadixInputVectors)[metricIndex] =

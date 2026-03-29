@@ -45,8 +45,6 @@ public class Metrics implements IMetrics {
   public long[] radixBuildBits;
   public long[] radixBuildWallNanos;
   public long[] radixPartitionerEnabled;
-  public long[] radixMaxBufferedRowsPerPartition;
-  public long[] radixMinOutputBatchRows;
   public long[] radixPrepareInputWallNanos;
   public long[] radixInputVectors;
   public long[] radixOutputVectors;
@@ -105,8 +103,6 @@ public class Metrics implements IMetrics {
       long[] radixBuildBits,
       long[] radixBuildWallNanos,
       long[] radixPartitionerEnabled,
-      long[] radixMaxBufferedRowsPerPartition,
-      long[] radixMinOutputBatchRows,
       long[] radixPrepareInputWallNanos,
       long[] radixInputVectors,
       long[] radixOutputVectors,
@@ -159,8 +155,6 @@ public class Metrics implements IMetrics {
     this.radixBuildBits = radixBuildBits;
     this.radixBuildWallNanos = radixBuildWallNanos;
     this.radixPartitionerEnabled = radixPartitionerEnabled;
-    this.radixMaxBufferedRowsPerPartition = radixMaxBufferedRowsPerPartition;
-    this.radixMinOutputBatchRows = radixMinOutputBatchRows;
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
     this.radixInputVectors = radixInputVectors;
     this.radixOutputVectors = radixOutputVectors;
@@ -219,8 +213,6 @@ public class Metrics implements IMetrics {
         radixBuildBits[index],
         radixBuildWallNanos[index],
         radixPartitionerEnabled[index],
-        radixMaxBufferedRowsPerPartition[index],
-        radixMinOutputBatchRows[index],
         radixPrepareInputWallNanos[index],
         radixInputVectors[index],
         radixOutputVectors[index],

@@ -93,9 +93,6 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashProbeSpilledPartitions: SQLMetric = metrics("hashProbeSpilledPartitions")
   val hashProbeSpilledFiles: SQLMetric = metrics("hashProbeSpilledFiles")
   val hashProbeRadixPartitionerEnabled: SQLMetric = metrics("hashProbeRadixPartitionerEnabled")
-  val hashProbeRadixMaxBufferedRowsPerPartition: SQLMetric =
-    metrics("hashProbeRadixMaxBufferedRowsPerPartition")
-  val hashProbeRadixMinOutputBatchRows: SQLMetric = metrics("hashProbeRadixMinOutputBatchRows")
   val hashProbeRadixPrepareInputWallNanos: SQLMetric = metrics("hashProbeRadixPrepareInputWallNanos")
   val hashProbeRadixInputVectors: SQLMetric = metrics("hashProbeRadixInputVectors")
   val hashProbeRadixOutputVectors: SQLMetric = metrics("hashProbeRadixOutputVectors")
@@ -138,8 +135,6 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeSpilledPartitions += hashProbeMetrics.spilledPartitions
     hashProbeSpilledFiles += hashProbeMetrics.spilledFiles
     hashProbeRadixPartitionerEnabled += hashProbeMetrics.radixPartitionerEnabled
-    hashProbeRadixMaxBufferedRowsPerPartition += hashProbeMetrics.radixMaxBufferedRowsPerPartition
-    hashProbeRadixMinOutputBatchRows += hashProbeMetrics.radixMinOutputBatchRows
     hashProbeRadixPrepareInputWallNanos += hashProbeMetrics.radixPrepareInputWallNanos
     hashProbeRadixInputVectors += hashProbeMetrics.radixInputVectors
     hashProbeRadixOutputVectors += hashProbeMetrics.radixOutputVectors

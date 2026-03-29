@@ -125,8 +125,6 @@ object MetricsUtil extends Logging {
     var radixBuildBits: Long = 0
     var radixBuildWallNanos: Long = 0
     var radixPartitionerEnabled: Long = 0
-    var radixMaxBufferedRowsPerPartition: Long = 0
-    var radixMinOutputBatchRows: Long = 0
     var radixPrepareInputWallNanos: Long = 0
     var radixInputVectors: Long = 0
     var radixOutputVectors: Long = 0
@@ -170,8 +168,6 @@ object MetricsUtil extends Logging {
       radixBuildBits += metrics.radixBuildBits
       radixBuildWallNanos += metrics.radixBuildWallNanos
       radixPartitionerEnabled += metrics.radixPartitionerEnabled
-      radixMaxBufferedRowsPerPartition += metrics.radixMaxBufferedRowsPerPartition
-      radixMinOutputBatchRows += metrics.radixMinOutputBatchRows
       radixPrepareInputWallNanos += metrics.radixPrepareInputWallNanos
       radixInputVectors += metrics.radixInputVectors
       radixOutputVectors += metrics.radixOutputVectors
@@ -222,8 +218,6 @@ object MetricsUtil extends Logging {
       radixBuildBits,
       radixBuildWallNanos,
       radixPartitionerEnabled,
-      radixMaxBufferedRowsPerPartition,
-      radixMinOutputBatchRows,
       radixPrepareInputWallNanos,
       radixInputVectors,
       radixOutputVectors,
