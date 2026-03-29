@@ -514,7 +514,7 @@ object VeloxConfig extends ConfigRegistry {
       .doc("Multiplier used to derive the buffered probe row limit per radix partition from the build-side row count.")
       .intConf
       .checkValue(_ >= 0, "must be a non-negative number")
-      .createWithDefault(10)
+      .createWithDefault(1)
 
   val VALUE_STREAM_DYNAMIC_FILTER_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled")
