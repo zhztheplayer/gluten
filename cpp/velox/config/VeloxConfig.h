@@ -94,6 +94,8 @@ const std::string kRadixJoinMinOutputBatchRows =
     "spark.gluten.sql.columnar.backend.velox.radixJoin.minOutputBatchRows";
 const std::string kRadixJoinMaxBufferedRowsMultiplier =
     "spark.gluten.sql.columnar.backend.velox.radixJoin.maxBufferedRowsMultiplier";
+const std::string kRadixJoinUseEagerPassThroughPartitioner =
+    "spark.gluten.sql.columnar.backend.velox.radixJoin.useEagerPassThroughPartitioner";
 
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
