@@ -683,8 +683,6 @@ std::unordered_map<std::string, std::string> WholeStageResultIterator::getQueryC
         std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMinOutputBatchRows, veloxCfg_->get<uint32_t>(kSparkBatchSize, 4096)));
     configs[velox::core::QueryConfig::kRadixJoinMaxBufferedRowsMultiplier] =
         std::to_string(veloxCfg_->get<uint32_t>(kRadixJoinMaxBufferedRowsMultiplier, 10));
-    configs[velox::core::QueryConfig::kRadixJoinUseEagerPassThroughPartitioner] =
-        std::to_string(veloxCfg_->get<bool>(kRadixJoinUseEagerPassThroughPartitioner, false));
 
     if (const auto opt = veloxCfg_->get<std::string>(kSparkBloomFilterExpectedNumItems)) {
       configs[velox::core::QueryConfig::kSparkBloomFilterExpectedNumItems] = opt.value();

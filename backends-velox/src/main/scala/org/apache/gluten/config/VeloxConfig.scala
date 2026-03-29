@@ -103,9 +103,6 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def radixJoinMaxTableBytes: Long = getConf(RADIX_JOIN_MAX_TABLE_BYTES)
 
-  def radixJoinUseEagerPassThroughPartitioner: Boolean =
-    getConf(RADIX_JOIN_USE_EAGER_PASS_THROUGH_PARTITIONER)
-
   def valueStreamDynamicFilterEnabled: Boolean =
     getConf(VALUE_STREAM_DYNAMIC_FILTER_ENABLED)
 }
@@ -518,12 +515,6 @@ object VeloxConfig extends ConfigRegistry {
       .intConf
       .checkValue(_ >= 0, "must be a non-negative number")
       .createWithDefault(10)
-
-  val RADIX_JOIN_USE_EAGER_PASS_THROUGH_PARTITIONER =
-    buildConf("spark.gluten.sql.columnar.backend.velox.radixJoin.useEagerPassThroughPartitioner")
-      .doc("Whether to use the eager pass-through partitioner for radix join probe.")
-      .booleanConf
-      .createWithDefault(false)
 
   val VALUE_STREAM_DYNAMIC_FILTER_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled")
