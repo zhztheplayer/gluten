@@ -45,7 +45,6 @@ const std::string kDynamicFiltersAccepted = "dynamicFiltersAccepted";
 const std::string kReplacedWithDynamicFilterRows = "replacedWithDynamicFilterRows";
 const std::string kDynamicFilterInputRows = "dynamicFilterInputRows";
 const std::string kRadixBuildEnabled = "radixEnabled";
-const std::string kRadixBuildBits = "radixBits";
 const std::string kRadixBuildWallNanos = "radixBuildWallNanos";
 const std::string kRadixPartitionerEnabled = "radixPartitionerEnabled";
 const std::string kRadixPrepareInputWallNanos = "radixPrepareInputWallNanos";
@@ -502,7 +501,6 @@ void WholeStageResultIterator::collectMetrics() {
           runtimeMetric("sum", second->customStats, kDynamicFilterInputRows);
       metrics_->get(Metrics::kRadixBuildEnabled)[metricIndex] =
           runtimeMetric("sum", second->customStats, kRadixBuildEnabled);
-      metrics_->get(Metrics::kRadixBuildBits)[metricIndex] = runtimeMetric("sum", second->customStats, kRadixBuildBits);
       metrics_->get(Metrics::kRadixBuildWallNanos)[metricIndex] =
           runtimeMetric("sum", second->customStats, kRadixBuildWallNanos);
       metrics_->get(Metrics::kRadixPartitionerEnabled)[metricIndex] =

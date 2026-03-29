@@ -122,7 +122,6 @@ object MetricsUtil extends Logging {
     var numReplacedWithDynamicFilterRows: Long = 0
     var numDynamicFilterInputRows: Long = 0
     var radixBuildEnabled: Long = 0
-    var radixBuildBits: Long = 0
     var radixBuildWallNanos: Long = 0
     var radixPartitionerEnabled: Long = 0
     var radixPrepareInputWallNanos: Long = 0
@@ -165,7 +164,6 @@ object MetricsUtil extends Logging {
       numReplacedWithDynamicFilterRows += metrics.numReplacedWithDynamicFilterRows
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       radixBuildEnabled += metrics.radixBuildEnabled
-      radixBuildBits += metrics.radixBuildBits
       radixBuildWallNanos += metrics.radixBuildWallNanos
       radixPartitionerEnabled += metrics.radixPartitionerEnabled
       radixPrepareInputWallNanos += metrics.radixPrepareInputWallNanos
@@ -215,7 +213,6 @@ object MetricsUtil extends Logging {
       numReplacedWithDynamicFilterRows,
       numDynamicFilterInputRows,
       radixBuildEnabled,
-      radixBuildBits,
       radixBuildWallNanos,
       radixPartitionerEnabled,
       radixPrepareInputWallNanos,

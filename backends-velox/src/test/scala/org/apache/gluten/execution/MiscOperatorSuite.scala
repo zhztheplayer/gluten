@@ -1465,7 +1465,6 @@ class MiscOperatorSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
             assert(shj.isDefined)
             val metrics = shj.get.metrics
             assert(metrics("hashBuildRadixEnabled").value == 1)
-            assert(metrics("hashBuildRadixBits").value == 4)
             assert(metrics("hashBuildRadixWallNanos").value > 0)
             assert(metrics("hashProbeRadixPartitionerEnabled").value == 1)
             assert(metrics("hashProbeRadixPrepareInputWallNanos").value > 0)

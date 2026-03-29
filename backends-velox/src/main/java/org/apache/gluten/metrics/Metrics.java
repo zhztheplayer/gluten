@@ -42,7 +42,6 @@ public class Metrics implements IMetrics {
   public long[] numReplacedWithDynamicFilterRows;
   public long[] numDynamicFilterInputRows;
   public long[] radixBuildEnabled;
-  public long[] radixBuildBits;
   public long[] radixBuildWallNanos;
   public long[] radixPartitionerEnabled;
   public long[] radixPrepareInputWallNanos;
@@ -100,7 +99,6 @@ public class Metrics implements IMetrics {
       long[] numReplacedWithDynamicFilterRows,
       long[] numDynamicFilterInputRows,
       long[] radixBuildEnabled,
-      long[] radixBuildBits,
       long[] radixBuildWallNanos,
       long[] radixPartitionerEnabled,
       long[] radixPrepareInputWallNanos,
@@ -152,7 +150,6 @@ public class Metrics implements IMetrics {
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.radixBuildEnabled = radixBuildEnabled;
-    this.radixBuildBits = radixBuildBits;
     this.radixBuildWallNanos = radixBuildWallNanos;
     this.radixPartitionerEnabled = radixPartitionerEnabled;
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
@@ -210,7 +207,6 @@ public class Metrics implements IMetrics {
         numReplacedWithDynamicFilterRows[index],
         numDynamicFilterInputRows[index],
         radixBuildEnabled[index],
-        radixBuildBits[index],
         radixBuildWallNanos[index],
         radixPartitionerEnabled[index],
         radixPrepareInputWallNanos[index],

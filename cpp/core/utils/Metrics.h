@@ -69,7 +69,6 @@ struct Metrics {
     kNumReplacedWithDynamicFilterRows,
     kNumDynamicFilterInputRows,
     kRadixBuildEnabled,
-    kRadixBuildBits,
     kRadixBuildWallNanos,
     kRadixPartitionerEnabled,
     kRadixPrepareInputWallNanos,

@@ -604,9 +604,6 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "hashBuildRadixEnabled" -> SQLMetrics.createMetric(
         sparkContext,
         "number of radix hash builds"),
-      "hashBuildRadixBits" -> SQLMetrics.createMetric(
-        sparkContext,
-        "configured radix bits of hash build"),
       "hashBuildRadixWallNanos" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "time of radix hash build"),

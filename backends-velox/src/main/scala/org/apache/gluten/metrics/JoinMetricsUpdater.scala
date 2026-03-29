@@ -77,7 +77,6 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
   val hashBuildSpilledPartitions: SQLMetric = metrics("hashBuildSpilledPartitions")
   val hashBuildSpilledFiles: SQLMetric = metrics("hashBuildSpilledFiles")
   val hashBuildRadixEnabled: SQLMetric = metrics("hashBuildRadixEnabled")
-  val hashBuildRadixBits: SQLMetric = metrics("hashBuildRadixBits")
   val hashBuildRadixWallNanos: SQLMetric = metrics("hashBuildRadixWallNanos")
 
   val hashProbeInputRows: SQLMetric = metrics("hashProbeInputRows")
@@ -158,7 +157,6 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashBuildSpilledPartitions += hashBuildMetrics.spilledPartitions
     hashBuildSpilledFiles += hashBuildMetrics.spilledFiles
     hashBuildRadixEnabled += hashBuildMetrics.radixBuildEnabled
-    hashBuildRadixBits += hashBuildMetrics.radixBuildBits
     hashBuildRadixWallNanos += hashBuildMetrics.radixBuildWallNanos
     idx += 1
 

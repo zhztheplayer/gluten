@@ -40,7 +40,6 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long numReplacedWithDynamicFilterRows;
   public long numDynamicFilterInputRows;
   public long radixBuildEnabled;
-  public long radixBuildBits;
   public long radixBuildWallNanos;
   public long radixPartitionerEnabled;
   public long radixPrepareInputWallNanos;
@@ -93,7 +92,6 @@ public class OperatorMetrics implements IOperatorMetrics {
       long numReplacedWithDynamicFilterRows,
       long numDynamicFilterInputRows,
       long radixBuildEnabled,
-      long radixBuildBits,
       long radixBuildWallNanos,
       long radixPartitionerEnabled,
       long radixPrepareInputWallNanos,
@@ -143,7 +141,6 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.numReplacedWithDynamicFilterRows = numReplacedWithDynamicFilterRows;
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.radixBuildEnabled = radixBuildEnabled;
-    this.radixBuildBits = radixBuildBits;
     this.radixBuildWallNanos = radixBuildWallNanos;
     this.radixPartitionerEnabled = radixPartitionerEnabled;
     this.radixPrepareInputWallNanos = radixPrepareInputWallNanos;
