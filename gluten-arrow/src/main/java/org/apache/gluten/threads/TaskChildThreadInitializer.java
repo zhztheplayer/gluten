@@ -30,7 +30,7 @@ public class TaskChildThreadInitializer implements NativeThreadInitializer {
   }
 
   @Override
-  public void initialize() {
+  public void initialize(String threadName) {
     SparkTaskUtil.setTaskContext(parentTaskContext);
   }
 }

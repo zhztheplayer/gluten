@@ -83,7 +83,7 @@ class ThreadInitializerThreadFactory final : public folly::NamedThreadFactory {
     return std::thread([threadFunc = std::move(func), threadName = std::move(name), initializer = initializer_]() mutable {
       folly::setThreadName(threadName);
       if (initializer != nullptr) {
-        initializer->initialize();
+        initializer->initialize(threadName);
       }
       threadFunc();
     });

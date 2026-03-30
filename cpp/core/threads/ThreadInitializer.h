@@ -27,7 +27,7 @@ class ThreadInitializer {
 
   virtual ~ThreadInitializer() = default;
 
-  virtual void initialize() = 0;
+  virtual void initialize(const std::string& threadName) = 0;
 
  protected:
   ThreadInitializer() = default;
