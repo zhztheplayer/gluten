@@ -435,6 +435,6 @@ class VeloxTPCHV1ParallelExecutionSuite extends VeloxTPCHSuite {
     super.sparkConf
       .set("spark.sql.sources.useV1SourceList", "parquet")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set("spark.gluten.sql.columnar.backend.velox.numParallelExecutionThreads", "2")
+      .set(VeloxConfig.NUM_PARALLEL_EXECUTION_THREADS.key, "2")
   }
 }

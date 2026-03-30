@@ -16,6 +16,10 @@
  */
 package org.apache.gluten.threads;
 
-public interface NativeThreadInitializer {
-  void initialize();
+public class NativeThreadManagerJniWrapper {
+  private NativeThreadManagerJniWrapper() {}
+
+  public static native long create(String backendType, NativeThreadInitializer initializer);
+
+  public static native void release(long handle);
 }

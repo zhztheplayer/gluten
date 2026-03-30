@@ -19,15 +19,13 @@ package org.apache.gluten.runtime
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.memory.NativeMemoryManager
-import org.apache.gluten.threads.{NativeThreadInitializer, NativeThreadManager}
+import org.apache.gluten.threads.{NativeThreadManager, TaskChildThreadInitializer}
 import org.apache.gluten.utils.ConfigUtil
-
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
-import org.apache.spark.task.TaskResource
+import org.apache.spark.task.{TaskResource, TaskResources}
 
 import java.util
 import java.util.concurrent.atomic.AtomicBoolean
-
 import scala.collection.JavaConverters._ // for 2.12
 
 trait Runtime {
@@ -55,7 +53,7 @@ object Runtime {
     private val nmm: NativeMemoryManager = NativeMemoryManager(backendName, name)
     private val ntm: NativeThreadManager = NativeThreadManager(
       backendName,
-      new NativeThreadInitializer {})
+      new TaskChildThreadInitializer(TaskResources.getLocalTaskContext()))
     private val handle = RuntimeJniWrapper.createRuntime(
       backendName,
       nmm.getHandle(),

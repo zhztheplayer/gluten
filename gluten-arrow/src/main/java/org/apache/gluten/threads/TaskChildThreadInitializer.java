@@ -14,8 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.gluten.threads;
 
-public interface NativeThreadInitializer {
-  void initialize();
+import org.apache.spark.TaskContext;
+import org.apache.spark.util.SparkTaskUtil;
+
+public class TaskChildThreadInitializer implements NativeThreadInitializer {
+  private final TaskContext parentTaskContext;
+
+  public TaskChildThreadInitializer(TaskContext parentTaskContext) {
+    this.parentTaskContext = parentTaskContext;
+  }
+
+  @Override
+  public void initialize() {
+    SparkTaskUtil.setTaskContext(parentTaskContext);
+  }
 }
