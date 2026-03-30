@@ -21,8 +21,12 @@ import com.google.common.base.Preconditions;
 import org.apache.spark.TaskContext;
 import org.apache.spark.util.SparkTaskUtil;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 public class TaskChildThreadInitializer implements NativeThreadInitializer {
   private final TaskContext parentTaskContext;
+  private final Map<String, String> childThreads = new LinkedHashMap<>();
 
   public TaskChildThreadInitializer(TaskContext parentTaskContext) {
     Preconditions.checkNotNull(parentTaskContext);
@@ -31,6 +35,21 @@ public class TaskChildThreadInitializer implements NativeThreadInitializer {
 
   @Override
   public void initialize(String threadName) {
+    final String javaThreadName = Thread.currentThread().getName();
+    if (childThreads.put(threadName, javaThreadName) != null) {
+      throw new IllegalStateException(
+          String.format("Task native child thread %s (Java name: %s) is already initialized",
+              threadName, javaThreadName));
+    }
     SparkTaskUtil.setTaskContext(parentTaskContext);
+  }
+
+  @Override
+  public void destroy(String threadName) {
+    if (childThreads.remove(threadName) == null) {
+      throw new IllegalStateException(
+          String.format("Task native thread %s is not initialized", threadName));
+    }
+    SparkTaskUtil.unsetTaskContext();
   }
 }

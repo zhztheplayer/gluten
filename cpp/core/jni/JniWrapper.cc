@@ -103,7 +103,6 @@ class JavaInputStreamAdaptor final : public arrow::io::InputStream {
     env->CallVoidMethod(jniIn_, jniByteInputStreamClose);
     checkException(env);
     env->DeleteGlobalRef(jniIn_);
-    vm_->DetachCurrentThread();
     closed_ = true;
     return arrow::Status::OK();
   }

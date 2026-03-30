@@ -585,11 +585,27 @@ class SparkThreadInitializer final : public gluten::ThreadInitializer {
     checkException(env);
   }
 
+  void destroy(const std::string& threadName) override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jstring jThreadName = env->NewStringUTF(threadName.c_str());
+    env->CallVoidMethod(jInitializerGlobalRef_, destroyMethod(env), jThreadName);
+    env->DeleteLocalRef(jThreadName);
+    checkException(env);
+    vm_->DetachCurrentThread();
+  }
+
  private:
   jmethodID initializeMethod(JNIEnv* env) {
     static jmethodID initializeMethod =
         getMethodIdOrError(env, nativeThreadInitializerClass(env), "initialize", "(Ljava/lang/String;)V");
     return initializeMethod;
+  }
+
+  jmethodID destroyMethod(JNIEnv* env) {
+    static jmethodID destroyMethod =
+        getMethodIdOrError(env, nativeThreadInitializerClass(env), "destroy", "(Ljava/lang/String;)V");
+    return destroyMethod;
   }
 
   jclass nativeThreadInitializerClass(JNIEnv* env) {
@@ -598,6 +614,7 @@ class SparkThreadInitializer final : public gluten::ThreadInitializer {
     return javaInitializerClass;
   }
 
+ private:
   JavaVM* vm_;
   jobject jInitializerGlobalRef_;
 };

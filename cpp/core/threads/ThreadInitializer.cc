@@ -23,6 +23,7 @@ namespace {
 class NoopThreadInitializer final : public ThreadInitializer {
  public:
   void initialize(const std::string& threadName) override {}
+  void destroy(const std::string& threadName) override {};
 };
 
 } // namespace

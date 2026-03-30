@@ -80,13 +80,26 @@ class ThreadInitializerThreadFactory final : public folly::NamedThreadFactory {
 
   std::thread newThread(folly::Func&& func) override {
     auto name = std::string(prefix_) + std::to_string(suffix_++);
-    return std::thread([threadFunc = std::move(func), threadName = std::move(name), initializer = initializer_]() mutable {
-      folly::setThreadName(threadName);
-      if (initializer != nullptr) {
-        initializer->initialize(threadName);
-      }
-      threadFunc();
-    });
+    return std::thread(
+        [threadFunc = std::move(func),
+         threadName = std::move(name),
+         initializer = initializer_]() mutable {
+          GLUTEN_CHECK(initializer != nullptr, "ThreadInitializer is null.");
+          folly::setThreadName(threadName);
+          if (initializer != nullptr) {
+            initializer->initialize(threadName);
+          }
+          struct Guard {
+            ThreadInitializer* init;
+            std::string& name;
+            ~Guard() {
+              if (init != nullptr) {
+                init->destroy(name);
+              }
+            }
+          } guard{initializer.get(), threadName};
+          threadFunc();
+        });
   }
 
  private:
@@ -117,7 +130,14 @@ WholeStageResultIterator::WholeStageResultIterator(
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
   auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum);
+    auto initializer = threadManager_->getThreadInitializer();
+    auto threadFactoryId = fmt::format(
+        "Gluten_Spill_Thread_Factory_{}_TID_{}_VTID_{}",
+        std::to_string(taskInfo_.stageId),
+        std::to_string(taskInfo_.taskId),
+        std::to_string(taskInfo_.vId));
+    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum,
+      std::make_shared<ThreadInitializerThreadFactory>(threadFactoryId, std::move(initializer)));
   }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 

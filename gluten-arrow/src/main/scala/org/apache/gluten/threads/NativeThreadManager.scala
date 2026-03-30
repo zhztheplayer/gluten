@@ -27,7 +27,7 @@ trait NativeThreadManager {
 }
 
 object NativeThreadManager {
-  private class Impl(backendName: String, initializer: NativeThreadInitializer)
+  private class Impl(private val backendName: String, private val initializer: NativeThreadInitializer)
     extends NativeThreadManager
     with TaskResource {
     private val handle = NativeThreadManagerJniWrapper.create(backendName, initializer)
