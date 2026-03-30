@@ -331,9 +331,6 @@ void WholeStageResultIterator::getOrderedNodeIds(
   }
 
   if (isUnionNode) {
-    // FIXME: The whole metrics system in gluten-substrait is magic. Passing metrics trees through JNI with a trivial
-    //  array is possible but requires for a solid design. Apparently we haven't had it. All the code requires complete
-    //  rework.
     // Union was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in Velox. So we only fetch
     // metrics from the root node.
     std::vector<std::shared_ptr<const velox::core::PlanNode>> unionChildren{};
