@@ -48,17 +48,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
       const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg,
       const SparkTaskInfo& taskInfo);
 
-  virtual ~WholeStageResultIterator() {
-    if (task_ != nullptr && task_->isRunning()) {
-      // calling .wait() may take no effect in single thread execution mode
-      task_->requestCancel().wait();
-    }
-#ifdef GLUTEN_ENABLE_GPU
-    if (enableCudf_) {
-      unlockGpu();
-    }
-#endif
-  }
+  virtual ~WholeStageResultIterator();
 
   std::shared_ptr<ColumnarBatch> next() override;
 
@@ -130,7 +120,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   const bool enableCudf_;
 #endif
   const SparkTaskInfo taskInfo_;
-  std::shared_ptr<folly::Executor> taskExecutor_;
+  std::unique_ptr<folly::Executor> taskExecutor_;
   std::unique_ptr<facebook::velox::exec::TaskCursor> cursor_;
   std::shared_ptr<facebook::velox::exec::Task> task_;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;

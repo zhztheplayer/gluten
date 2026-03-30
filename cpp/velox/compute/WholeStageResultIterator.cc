@@ -71,7 +71,7 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 
-class HookedExecutor final : public folly::DefaultKeepAliveExecutor {
+class HookedExecutor final : public folly::Executor {
 public:
   HookedExecutor(
       folly::Executor::KeepAlive<folly::Executor> parent,
@@ -82,10 +82,12 @@ public:
         initializer_(initializer) {}
 
   void add(folly::Func func) override {
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
     parent_->add(wrap(std::move(func)));
   }
 
   void addWithPriority(folly::Func func, int8_t priority) override {
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
     parent_->addWithPriority(wrap(std::move(func)), priority);
   }
 
@@ -93,19 +95,37 @@ public:
     return parent_->getNumPriorities();
   }
 
+  void join() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [&] {
+      return inFlight_.load(std::memory_order_acquire) == 0;
+    });
+  }
+
 private:
   folly::Func wrap(folly::Func func) {
     auto seq = suffix_.fetch_add(1, std::memory_order_relaxed);
     auto taskName = prefix_ + std::to_string(seq);
+    auto* initializer = initializer_;
+    auto* self = this;
 
     return [func = std::move(func),
             taskName = std::move(taskName),
-            initializer = initializer_]() mutable {
+            initializer,
+            self]() mutable {
+      auto done = folly::makeGuard([&] {
+        if (self->inFlight_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          std::lock_guard<std::mutex> lock(self->mutex_);
+          self->cv_.notify_all();
+        }
+      });
+
       GLUTEN_CHECK(initializer != nullptr, "ThreadInitializer is null.");
       initializer->initialize(taskName);
       auto guard = folly::makeGuard([&] {
         initializer->destroy(taskName);
       });
+
       func();
     };
   }
@@ -114,6 +134,10 @@ private:
   std::string prefix_;
   ThreadInitializer* initializer_;
   std::atomic<uint64_t> suffix_{0};
+
+  std::atomic<size_t> inFlight_{0};
+  std::mutex mutex_;
+  std::condition_variable cv_;
 };
 
 } // namespace
@@ -160,7 +184,7 @@ WholeStageResultIterator::WholeStageResultIterator(
         std::to_string(taskInfo_.stageId),
         std::to_string(taskInfo_.taskId),
         std::to_string(taskInfo_.vId));
-    taskExecutor_ = std::make_shared<HookedExecutor>(globalExecutor, parallelTaskId, initializer);
+    taskExecutor_ = std::make_unique<HookedExecutor>(globalExecutor, parallelTaskId, initializer);
   }
 
   facebook::velox::exec::CursorParameters params;
@@ -266,6 +290,21 @@ WholeStageResultIterator::WholeStageResultIterator(
     }
     splits_.emplace_back(scanSplits);
   }
+}
+
+WholeStageResultIterator::~WholeStageResultIterator() {
+  if (task_ != nullptr && task_->isRunning()) {
+    // calling .wait() may take no effect in single thread execution mode
+    task_->requestCancel().wait();
+  }
+  auto hookedExecutor = dynamic_cast<HookedExecutor*>(taskExecutor_.get());
+  hookedExecutor->join();
+  taskExecutor_.reset();
+#ifdef GLUTEN_ENABLE_GPU
+  if (enableCudf_) {
+    unlockGpu();
+  }
+#endif
 }
 
 std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx(folly::Executor* executor) {
