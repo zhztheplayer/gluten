@@ -23,9 +23,11 @@
 #include "substrait/SubstraitToVeloxPlan.h"
 #include "substrait/plan.pb.h"
 #include "utils/Metrics.h"
+#include <folly/Executor.h>
 #include "velox/common/config/Config.h"
 #include "velox/connectors/hive/iceberg/IcebergSplit.h"
 #include "velox/core/PlanNode.h"
+#include "velox/exec/Cursor.h"
 #include "velox/exec/Task.h"
 #ifdef GLUTEN_ENABLE_GPU
 #include "cudf/GpuLock.h"
@@ -96,7 +98,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   std::unordered_map<std::string, std::string> getQueryContextConf();
 
   /// Create QueryCtx.
-  std::shared_ptr<facebook::velox::core::QueryCtx> createNewVeloxQueryCtx();
+  std::shared_ptr<facebook::velox::core::QueryCtx> createNewVeloxQueryCtx(folly::Executor* executor);
 
   /// Get all the children plan node ids with postorder traversal.
   void getOrderedNodeIds(
@@ -126,6 +128,8 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   const bool enableCudf_;
 #endif
   const SparkTaskInfo taskInfo_;
+  std::shared_ptr<folly::Executor> taskExecutor_;
+  std::unique_ptr<facebook::velox::exec::TaskCursor> cursor_;
   std::shared_ptr<facebook::velox::exec::Task> task_;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
 

@@ -70,7 +70,10 @@ class VeloxBackend {
     init(std::move(listener), conf);
   }
 
-  void init(std::unique_ptr<AllocationListener> listener, const std::unordered_map<std::string, std::string>& conf);
+  void init(
+      std::unique_ptr<AllocationListener> listener,
+      const std::unordered_map<std::string, std::string>& conf);
+
   void initCache();
   void initConnector(const std::shared_ptr<facebook::velox::config::ConfigBase>& hiveConf);
   void initUdf();

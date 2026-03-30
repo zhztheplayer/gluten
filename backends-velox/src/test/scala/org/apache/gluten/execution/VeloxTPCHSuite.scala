@@ -427,3 +427,14 @@ class VeloxTPCHV1VanillaBhjGlutenBeSuite extends VeloxTPCHSuite {
       .set(GlutenConfig.COLUMNAR_BROADCAST_EXCHANGE_ENABLED.key, "true")
   }
 }
+
+class VeloxTPCHV1ParallelExecutionSuite extends VeloxTPCHSuite {
+  override def subType(): String = "v1"
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.sql.sources.useV1SourceList", "parquet")
+      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      .set("spark.gluten.sql.columnar.backend.velox.numParallelExecutionThreads", "2")
+  }
+}

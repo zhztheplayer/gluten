@@ -463,7 +463,7 @@ class SparkAllocationListener final : public gluten::AllocationListener {
 };
 
 class BacktraceAllocationListener final : public gluten::AllocationListener {
- public:
+public:
   BacktraceAllocationListener(std::unique_ptr<gluten::AllocationListener> delegator)
       : delegator_(std::move(delegator)) {}
 

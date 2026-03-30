@@ -23,6 +23,7 @@
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
+#include <folly/executors/CPUThreadPoolExecutor.h>
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
 #include "velox/experimental/cudf/CudfConfig.h"
@@ -99,28 +100,30 @@ WholeStageResultIterator::WholeStageResultIterator(
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
   GLUTEN_CHECK(fileSystem != nullptr, "File System for spilling is null!");
   fileSystem->mkdir(spillDir);
-  velox::common::SpillDiskOptions spillOpts{
-      .spillDirPath = spillDir, .spillDirCreated = true, .spillDirCreateCb = nullptr};
 
-  // Create task instance.
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  velox::core::PlanFragment planFragment{planNode, velox::core::ExecutionStrategy::kUngrouped, 1, emptySet};
-  std::shared_ptr<velox::core::QueryCtx> queryCtx = createNewVeloxQueryCtx();
-  task_ = velox::exec::Task::create(
-      fmt::format(
-          "Gluten_Stage_{}_TID_{}_VTID_{}",
-          std::to_string(taskInfo_.stageId),
-          std::to_string(taskInfo_.taskId),
-          std::to_string(taskInfo.vId)),
-      std::move(planFragment),
-      0,
-      std::move(queryCtx),
-      velox::exec::Task::ExecutionMode::kSerial,
-      /*consumer=*/velox::exec::Consumer{},
-      /*memoryArbitrationPriority=*/0,
-      /*spillDiskOpts=*/spillOpts,
-      /*onError=*/nullptr);
-  if (!task_->supportSerialExecutionMode()) {
+  const auto numParallelExecutionThreads =
+      veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
+  const bool serialExecution = numParallelExecutionThreads <= 1;
+  if (!serialExecution) {
+    taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(numParallelExecutionThreads);
+  }
+
+  facebook::velox::exec::CursorParameters params;
+  params.planNode = planNode;
+  params.destination = 0;
+  params.maxDrivers = serialExecution ? 1 : numParallelExecutionThreads;
+  params.queryCtx = createNewVeloxQueryCtx(taskExecutor_.get());
+  params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
+  params.groupedExecutionLeafNodeIds = std::move(emptySet);
+  params.numSplitGroups = 1;
+  params.spillDirectory = spillDir;
+  params.serialExecution = serialExecution;
+  params.copyResult = false;
+  params.outputPool = memoryManager_->getLeafMemoryPool();
+  cursor_ = velox::exec::TaskCursor::create(params);
+  task_ = cursor_->task();
+  if (serialExecution && !task_->supportSerialExecutionMode()) {
     throw std::runtime_error("Task doesn't support single threaded execution: " + planNode->toString());
   }
 
@@ -211,11 +214,11 @@ WholeStageResultIterator::WholeStageResultIterator(
   }
 }
 
-std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx() {
+std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx(folly::Executor* executor) {
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
   connectorConfigs[kHiveConnectorId] = createHiveConnectorSessionConfig(veloxCfg_);
   std::shared_ptr<velox::core::QueryCtx> ctx = velox::core::QueryCtx::create(
-      nullptr,
+      executor,
       facebook::velox::core::QueryConfig{getQueryContextConf()},
       connectorConfigs,
       gluten::VeloxBackend::get()->getAsyncDataCache(),
@@ -233,22 +236,10 @@ std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
   if (task_->isFinished()) {
     return nullptr;
   }
-  velox::RowVectorPtr vector;
-  while (true) {
-    auto future = velox::ContinueFuture::makeEmpty();
-    auto out = task_->next(&future);
-    if (!future.valid()) {
-      // Not need to wait. Break.
-      vector = std::move(out);
-      break;
-    }
-    // Velox suggested to wait. This might be because another thread (e.g., background io thread) is spilling the task.
-    GLUTEN_CHECK(out == nullptr, "Expected to wait but still got non-null output from Velox task");
-    VLOG(2) << "Velox task " << task_->taskId()
-            << " is busy when ::next() is called. Will wait and try again. Task state: "
-            << taskStateString(task_->state());
-    future.wait();
+  if (!cursor_->moveNext()) {
+    return nullptr;
   }
+  velox::RowVectorPtr vector = cursor_->current();
   if (vector == nullptr) {
     return nullptr;
   }
@@ -390,6 +381,7 @@ void WholeStageResultIterator::noMoreSplits() {
   for (const auto& streamId : streamIds_) {
     task_->noMoreSplits(streamId);
   }
+  cursor_->setNoMoreSplits();
   allSplitsAdded_ = true;
 }
 
