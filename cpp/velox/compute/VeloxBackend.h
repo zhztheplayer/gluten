@@ -58,6 +58,14 @@ class VeloxBackend {
   }
 
   folly::Executor* executor() const {
+    return executor_.get();
+  }
+
+  folly::Executor* spillExecutor() const {
+    return spillExecutor_.get();
+  }
+
+  folly::Executor* ioExecutor() const {
     return ioExecutor_.get();
   }
 
@@ -92,6 +100,8 @@ class VeloxBackend {
   // Instance of AsyncDataCache used for all large allocations.
   std::shared_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 
+  std::unique_ptr<folly::CPUThreadPoolExecutor> executor_;
+  std::unique_ptr<folly::CPUThreadPoolExecutor> spillExecutor_;
   std::unique_ptr<folly::IOThreadPoolExecutor> ssdCacheExecutor_;
   std::unique_ptr<folly::CPUThreadPoolExecutor> ioExecutor_;
   std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;

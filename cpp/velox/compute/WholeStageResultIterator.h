@@ -53,12 +53,6 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
       // calling .wait() may take no effect in single thread execution mode
       task_->requestCancel().wait();
     }
-    if (taskExecutor_ != nullptr) {
-      taskExecutor_->join();
-    }
-    if (spillExecutor_ != nullptr) {
-      spillExecutor_->join();
-    }
 #ifdef GLUTEN_ENABLE_GPU
     if (enableCudf_) {
       unlockGpu();
@@ -136,14 +130,13 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   const bool enableCudf_;
 #endif
   const SparkTaskInfo taskInfo_;
-  std::shared_ptr<folly::CPUThreadPoolExecutor> taskExecutor_;
+  std::shared_ptr<folly::Executor> taskExecutor_;
   std::unique_ptr<facebook::velox::exec::TaskCursor> cursor_;
   std::shared_ptr<facebook::velox::exec::Task> task_;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
 
   /// Spill.
   std::string spillStrategy_;
-  std::shared_ptr<folly::CPUThreadPoolExecutor> spillExecutor_;
 
   /// Metrics
   std::unique_ptr<Metrics> metrics_{};

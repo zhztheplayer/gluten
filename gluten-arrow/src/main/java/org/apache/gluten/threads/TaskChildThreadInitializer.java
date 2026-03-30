@@ -21,12 +21,12 @@ import com.google.common.base.Preconditions;
 import org.apache.spark.TaskContext;
 import org.apache.spark.util.SparkTaskUtil;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TaskChildThreadInitializer implements NativeThreadInitializer {
   private final TaskContext parentTaskContext;
-  private final Map<String, String> childThreads = new LinkedHashMap<>();
+  private final Map<String, String> childThreads = new ConcurrentHashMap<>();
 
   public TaskChildThreadInitializer(TaskContext parentTaskContext) {
     Preconditions.checkNotNull(parentTaskContext);

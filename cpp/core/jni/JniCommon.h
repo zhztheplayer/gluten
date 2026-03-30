@@ -586,13 +586,15 @@ class SparkThreadInitializer final : public gluten::ThreadInitializer {
   }
 
   void destroy(const std::string& threadName) override {
+    // IMPORTANT: Do not call vm_.DetachCurrentThread here, otherwise Java side thread
+    // object might be dereferenced and garbage-collected, to break the reuse of thread
+    // resources.
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     jstring jThreadName = env->NewStringUTF(threadName.c_str());
     env->CallVoidMethod(jInitializerGlobalRef_, destroyMethod(env), jThreadName);
     env->DeleteLocalRef(jThreadName);
     checkException(env);
-    vm_->DetachCurrentThread();
   }
 
  private:

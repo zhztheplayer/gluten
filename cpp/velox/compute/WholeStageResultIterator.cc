@@ -71,40 +71,54 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 
-} // namespace
+class HookedExecutor final : public folly::DefaultKeepAliveExecutor {
+public:
+  HookedExecutor(
+      folly::Executor::KeepAlive<folly::Executor> parent,
+      std::string prefix,
+      ThreadInitializer* initializer)
+      : parent_(std::move(parent)),
+        prefix_(std::move(prefix)),
+        initializer_(initializer) {}
 
-class ThreadInitializerThreadFactory final : public folly::NamedThreadFactory {
- public:
-  explicit ThreadInitializerThreadFactory(std::string prefix, std::shared_ptr<ThreadInitializer> initializer)
-      : folly::NamedThreadFactory(prefix), initializer_(std::move(initializer)) {}
-
-  std::thread newThread(folly::Func&& func) override {
-    auto name = std::string(prefix_) + std::to_string(suffix_++);
-    return std::thread(
-        [threadFunc = std::move(func),
-         threadName = std::move(name),
-         initializer = initializer_]() mutable {
-          GLUTEN_CHECK(initializer != nullptr, "ThreadInitializer is null.");
-          folly::setThreadName(threadName);
-          if (initializer != nullptr) {
-            initializer->initialize(threadName);
-          }
-          struct Guard {
-            ThreadInitializer* init;
-            std::string& name;
-            ~Guard() {
-              if (init != nullptr) {
-                init->destroy(name);
-              }
-            }
-          } guard{initializer.get(), threadName};
-          threadFunc();
-        });
+  void add(folly::Func func) override {
+    parent_->add(wrap(std::move(func)));
   }
 
- private:
-  std::shared_ptr<ThreadInitializer> initializer_;
+  void addWithPriority(folly::Func func, int8_t priority) override {
+    parent_->addWithPriority(wrap(std::move(func)), priority);
+  }
+
+  uint8_t getNumPriorities() const override {
+    return parent_->getNumPriorities();
+  }
+
+private:
+  folly::Func wrap(folly::Func func) {
+    auto seq = suffix_.fetch_add(1, std::memory_order_relaxed);
+    auto taskName = prefix_ + std::to_string(seq);
+
+    return [func = std::move(func),
+            taskName = std::move(taskName),
+            initializer = initializer_]() mutable {
+      GLUTEN_CHECK(initializer != nullptr, "ThreadInitializer is null.");
+      initializer->initialize(taskName);
+      auto guard = folly::makeGuard([&] {
+        initializer->destroy(taskName);
+      });
+      func();
+    };
+  }
+
+  folly::Executor::KeepAlive<folly::Executor> parent_;
+  std::string prefix_;
+  ThreadInitializer* initializer_;
+  std::atomic<uint64_t> suffix_{0};
 };
+
+} // namespace
+
+
 
 WholeStageResultIterator::WholeStageResultIterator(
     VeloxMemoryManager* memoryManager,
@@ -128,17 +142,6 @@ WholeStageResultIterator::WholeStageResultIterator(
       scanInfos_(scanInfos),
       streamIds_(streamIds) {
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
-  auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
-  if (spillThreadNum > 0) {
-    auto initializer = threadManager_->getThreadInitializer();
-    auto threadFactoryId = fmt::format(
-        "Gluten_Spill_Thread_Factory_{}_TID_{}_VTID_{}",
-        std::to_string(taskInfo_.stageId),
-        std::to_string(taskInfo_.taskId),
-        std::to_string(taskInfo_.vId));
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum,
-      std::make_shared<ThreadInitializerThreadFactory>(threadFactoryId, std::move(initializer)));
-  }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
@@ -149,15 +152,15 @@ WholeStageResultIterator::WholeStageResultIterator(
   const auto numParallelExecutionThreads = veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
   const bool serialExecution = numParallelExecutionThreads <= 1;
   if (!serialExecution) {
+    auto globalExecutor = VeloxBackend::get()->executor();
+    GLUTEN_CHECK(globalExecutor != nullptr, "VeloxBackend is null!");
     auto initializer = threadManager_->getThreadInitializer();
-    auto threadFactoryId = fmt::format(
-        "Gluten_Thread_Factory_{}_TID_{}_VTID_{}",
+    auto parallelTaskId = fmt::format(
+        "Gluten_Parallel_Task_{}_TID_{}_VTID_{}",
         std::to_string(taskInfo_.stageId),
         std::to_string(taskInfo_.taskId),
         std::to_string(taskInfo_.vId));
-    taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        numParallelExecutionThreads,
-        std::make_shared<ThreadInitializerThreadFactory>(threadFactoryId, std::move(initializer)));
+    taskExecutor_ = std::make_shared<HookedExecutor>(globalExecutor, parallelTaskId, initializer);
   }
 
   facebook::velox::exec::CursorParameters params;
@@ -274,7 +277,7 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
       connectorConfigs,
       gluten::VeloxBackend::get()->getAsyncDataCache(),
       memoryManager_->getAggregateMemoryPool(),
-      spillExecutor_.get(),
+      gluten::VeloxBackend::get()->spillExecutor(),
       fmt::format(
           "Gluten_Stage_{}_TID_{}_VTID_{}",
           std::to_string(taskInfo_.stageId),

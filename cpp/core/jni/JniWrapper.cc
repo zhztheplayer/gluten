@@ -194,8 +194,8 @@ class InternalThreadManager : public ThreadManager {
   InternalThreadManager(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer)
       : ThreadManager(kind), initializer_(std::shared_ptr<ThreadInitializer>(std::move(initializer))) {}
 
-  std::shared_ptr<ThreadInitializer> getThreadInitializer() override {
-    return initializer_;
+  ThreadInitializer* getThreadInitializer() override {
+    return initializer_.get();
   }
 
  private:
