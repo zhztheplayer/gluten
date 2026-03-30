@@ -126,18 +126,12 @@ WholeStageResultIterator::WholeStageResultIterator(
   fileSystem->mkdir(spillDir);
 
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  const auto numParallelExecutionThreads =
-      veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
+  const auto numParallelExecutionThreads = veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
   const bool serialExecution = numParallelExecutionThreads <= 1;
   if (!serialExecution) {
-    auto initializer = threadManager_ == nullptr ? nullptr : threadManager_->getThreadInitializer();
-    if (initializer == nullptr) {
-      taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(numParallelExecutionThreads);
-    } else {
-      taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-          numParallelExecutionThreads,
-          std::make_shared<ThreadInitializerThreadFactory>(std::move(initializer)));
-    }
+    auto initializer = threadManager_->getThreadInitializer();
+    taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
+        numParallelExecutionThreads, std::make_shared<ThreadInitializerThreadFactory>(std::move(initializer)));
   }
 
   facebook::velox::exec::CursorParameters params;
