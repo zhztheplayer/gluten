@@ -24,6 +24,8 @@
 #include "velox/connectors/hive/HiveConnectorSplit.h"
 #include "velox/exec/PlanNodeStats.h"
 #include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/thread_factory/NamedThreadFactory.h>
+#include <folly/system/ThreadName.h>
 #ifdef GLUTEN_ENABLE_GPU
 #include <cudf/io/types.hpp>
 #include "velox/experimental/cudf/CudfConfig.h"
@@ -71,8 +73,29 @@ const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 
 } // namespace
 
+class ThreadInitializerThreadFactory final : public folly::NamedThreadFactory {
+ public:
+  explicit ThreadInitializerThreadFactory(std::shared_ptr<ThreadInitializer> initializer)
+      : folly::NamedThreadFactory("GlutenNativeThread"), initializer_(std::move(initializer)) {}
+
+  std::thread newThread(folly::Func&& func) override {
+    auto name = std::string(prefix_) + std::to_string(suffix_++);
+    return std::thread([threadFunc = std::move(func), threadName = std::move(name), initializer = initializer_]() mutable {
+      folly::setThreadName(threadName);
+      if (initializer != nullptr) {
+        initializer->initialize();
+      }
+      threadFunc();
+    });
+  }
+
+ private:
+  std::shared_ptr<ThreadInitializer> initializer_;
+};
+
 WholeStageResultIterator::WholeStageResultIterator(
     VeloxMemoryManager* memoryManager,
+    ThreadManager* threadManager,
     const std::shared_ptr<const facebook::velox::core::PlanNode>& planNode,
     const std::vector<facebook::velox::core::PlanNodeId>& scanNodeIds,
     const std::vector<std::shared_ptr<SplitInfo>>& scanInfos,
@@ -81,6 +104,7 @@ WholeStageResultIterator::WholeStageResultIterator(
     const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg,
     const SparkTaskInfo& taskInfo)
     : memoryManager_(memoryManager),
+      threadManager_(threadManager),
       veloxCfg_(veloxCfg),
 #ifdef GLUTEN_ENABLE_GPU
       enableCudf_(veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)),
@@ -106,7 +130,14 @@ WholeStageResultIterator::WholeStageResultIterator(
       veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
   const bool serialExecution = numParallelExecutionThreads <= 1;
   if (!serialExecution) {
-    taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(numParallelExecutionThreads);
+    auto initializer = threadManager_ == nullptr ? nullptr : threadManager_->getThreadInitializer();
+    if (initializer == nullptr) {
+      taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(numParallelExecutionThreads);
+    } else {
+      taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
+          numParallelExecutionThreads,
+          std::make_shared<ThreadInitializerThreadFactory>(std::move(initializer)));
+    }
   }
 
   facebook::velox::exec::CursorParameters params;

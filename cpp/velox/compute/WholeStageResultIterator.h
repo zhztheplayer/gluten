@@ -39,6 +39,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
  public:
   WholeStageResultIterator(
       VeloxMemoryManager* memoryManager,
+      ThreadManager* threadManager,
       const std::shared_ptr<const facebook::velox::core::PlanNode>& planNode,
       const std::vector<facebook::velox::core::PlanNodeId>& scanNodeIds,
       const std::vector<std::shared_ptr<SplitInfo>>& scanInfos,
@@ -121,6 +122,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   /// Memory.
   VeloxMemoryManager* memoryManager_;
+  ThreadManager* threadManager_;
 
   /// Config, task and plan.
   const std::shared_ptr<facebook::velox::config::ConfigBase> veloxCfg_;

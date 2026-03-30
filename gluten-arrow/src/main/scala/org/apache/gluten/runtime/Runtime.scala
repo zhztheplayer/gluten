@@ -19,6 +19,7 @@ package org.apache.gluten.runtime
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.exception.GlutenException
 import org.apache.gluten.memory.NativeMemoryManager
+import org.apache.gluten.threads.{NativeThreadInitializer, NativeThreadManager}
 import org.apache.gluten.utils.ConfigUtil
 
 import org.apache.spark.sql.internal.{GlutenConfigUtil, SQLConf}
@@ -31,6 +32,7 @@ import scala.collection.JavaConverters._ // for 2.12
 
 trait Runtime {
   def memoryManager(): NativeMemoryManager
+  def threadManager(): NativeThreadManager
   def getHandle(): Long
 }
 
@@ -51,9 +53,13 @@ object Runtime {
     with TaskResource {
 
     private val nmm: NativeMemoryManager = NativeMemoryManager(backendName, name)
+    private val ntm: NativeThreadManager = NativeThreadManager(
+      backendName,
+      new NativeThreadInitializer {})
     private val handle = RuntimeJniWrapper.createRuntime(
       backendName,
       nmm.getHandle(),
+      ntm.getHandle(),
       ConfigUtil.serialize(
         (GlutenConfig
           .getNativeSessionConf(
@@ -66,6 +72,8 @@ object Runtime {
     override def getHandle(): Long = handle
 
     override def memoryManager(): NativeMemoryManager = nmm
+
+    override def threadManager(): NativeThreadManager = ntm
 
     override def release(): Unit = {
       if (!released.compareAndSet(false, true)) {

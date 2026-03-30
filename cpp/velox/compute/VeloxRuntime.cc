@@ -65,8 +65,9 @@ namespace gluten {
 VeloxRuntime::VeloxRuntime(
     const std::string& kind,
     VeloxMemoryManager* vmm,
+    ThreadManager* threadManager,
     const std::unordered_map<std::string, std::string>& confMap)
-    : Runtime(kind, vmm, confMap) {
+    : Runtime(kind, vmm, threadManager, confMap) {
   // Refresh session config.
   veloxCfg_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));
@@ -190,6 +191,7 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
 
   auto wholeStageIter = std::make_unique<WholeStageResultIterator>(
       memoryManager(),
+      threadManager(),
       veloxPlan_,
       scanIds,
       scanInfos,

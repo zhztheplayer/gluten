@@ -20,13 +20,13 @@
 #include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
 #include <execinfo.h>
-#include <folly/executors/thread_factory/NamedThreadFactory.h>
 #include <jni.h>
 
 #include "compute/ProtobufUtils.h"
 #include "compute/Runtime.h"
 #include "memory/AllocationListener.h"
 #include "shuffle/rss/RssClient.h"
+#include "threads/ThreadInitializer.h"
 #include "utils/Compression.h"
 #include "utils/Exception.h"
 #include "utils/ResourceMap.h"
@@ -551,10 +551,9 @@ class JavaRssClient : public RssClient {
   jbyteArray array_;
 };
 
-class SparkThreadFactory final : public folly::NamedThreadFactory {
+class SparkThreadInitializer final : public gluten::ThreadInitializer {
  public:
-  SparkThreadFactory(JavaVM* vm, jobject jInitializerLocalRef, std::string_view prefix = "GlutenNativeThread")
-      : folly::NamedThreadFactory(prefix), vm_(vm) {
+  SparkThreadInitializer(JavaVM* vm, jobject jInitializerLocalRef) : vm_(vm) {
     JNIEnv* env;
     attachCurrentThreadAsDaemonOrThrow(vm_, &env);
     jInitializerGlobalRef_ = env->NewGlobalRef(jInitializerLocalRef);
@@ -562,31 +561,26 @@ class SparkThreadFactory final : public folly::NamedThreadFactory {
     (void)initializeMethod(env);
   }
 
-  SparkThreadFactory(const SparkThreadFactory&) = delete;
-  SparkThreadFactory(SparkThreadFactory&&) = delete;
-  SparkThreadFactory& operator=(const SparkThreadFactory&) = delete;
-  SparkThreadFactory& operator=(SparkThreadFactory&&) = delete;
+  SparkThreadInitializer(const SparkThreadInitializer&) = delete;
+  SparkThreadInitializer(SparkThreadInitializer&&) = delete;
+  SparkThreadInitializer& operator=(const SparkThreadInitializer&) = delete;
+  SparkThreadInitializer& operator=(SparkThreadInitializer&&) = delete;
 
-  ~SparkThreadFactory() override {
+  ~SparkThreadInitializer() override {
     JNIEnv* env;
     if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
-      LOG(WARNING) << "SparkThreadFactory#~SparkThreadFactory(): "
+      LOG(WARNING) << "SparkThreadInitializer#~SparkThreadInitializer(): "
                    << "JNIEnv was not attached to current thread";
       return;
     }
     env->DeleteGlobalRef(jInitializerGlobalRef_);
   }
 
-  std::thread newThread(folly::Func&& func) override {
-    auto name = folly::to<std::string>(prefix_, suffix_++);
-    return std::thread([this, threadFunc = std::move(func), threadName = std::move(name)]() mutable {
-      folly::setThreadName(threadName);
-      JNIEnv* env;
-      attachCurrentThreadAsDaemonOrThrow(vm_, &env);
-      env->CallVoidMethod(jInitializerGlobalRef_, initializeMethod(env));
-      checkException(env);
-      threadFunc();
-    });
+  void initialize() override {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    env->CallVoidMethod(jInitializerGlobalRef_, initializeMethod(env));
+    checkException(env);
   }
 
  private:
@@ -598,7 +592,7 @@ class SparkThreadFactory final : public folly::NamedThreadFactory {
 
   jclass nativeThreadInitializerClass(JNIEnv* env) {
     static jclass javaInitializerClass =
-        createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/execution/NativeThreadInitializer;");
+        createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/threads/NativeThreadInitializer;");
     return javaInitializerClass;
   }
 

@@ -14,10 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gluten.execution;
 
-public interface NativeThreadInitializer {
-  default void initialize() {
-    // TODO: Propagate Spark thread-local execution context to native-created threads.
-  }
+#include "ThreadInitializer.h"
+
+namespace gluten {
+namespace {
+
+class NoopThreadInitializer final : public ThreadInitializer {
+ public:
+  void initialize() override {}
+};
+
+} // namespace
+
+std::unique_ptr<ThreadInitializer> ThreadInitializer::noop() {
+  return std::make_unique<NoopThreadInitializer>();
 }
+
+} // namespace gluten
