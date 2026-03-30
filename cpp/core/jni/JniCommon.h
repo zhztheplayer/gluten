@@ -20,6 +20,7 @@
 #include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
 #include <execinfo.h>
+#include <folly/executors/thread_factory/NamedThreadFactory.h>
 #include <jni.h>
 
 #include "compute/ProtobufUtils.h"
@@ -548,4 +549,59 @@ class JavaRssClient : public RssClient {
   jobject javaRssShuffleWriter_;
   jmethodID javaPushPartitionData_;
   jbyteArray array_;
+};
+
+class SparkThreadFactory final : public folly::NamedThreadFactory {
+ public:
+  SparkThreadFactory(JavaVM* vm, jobject jInitializerLocalRef, std::string_view prefix = "GlutenNativeThread")
+      : folly::NamedThreadFactory(prefix), vm_(vm) {
+    JNIEnv* env;
+    attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+    jInitializerGlobalRef_ = env->NewGlobalRef(jInitializerLocalRef);
+    GLUTEN_CHECK(jInitializerGlobalRef_ != nullptr, "Failed to create global reference for native thread initializer.");
+    (void)initializeMethod(env);
+  }
+
+  SparkThreadFactory(const SparkThreadFactory&) = delete;
+  SparkThreadFactory(SparkThreadFactory&&) = delete;
+  SparkThreadFactory& operator=(const SparkThreadFactory&) = delete;
+  SparkThreadFactory& operator=(SparkThreadFactory&&) = delete;
+
+  ~SparkThreadFactory() override {
+    JNIEnv* env;
+    if (vm_->GetEnv(reinterpret_cast<void**>(&env), jniVersion) != JNI_OK) {
+      LOG(WARNING) << "SparkThreadFactory#~SparkThreadFactory(): "
+                   << "JNIEnv was not attached to current thread";
+      return;
+    }
+    env->DeleteGlobalRef(jInitializerGlobalRef_);
+  }
+
+  std::thread newThread(folly::Func&& func) override {
+    auto name = folly::to<std::string>(prefix_, suffix_++);
+    return std::thread([this, threadFunc = std::move(func), threadName = std::move(name)]() mutable {
+      folly::setThreadName(threadName);
+      JNIEnv* env;
+      attachCurrentThreadAsDaemonOrThrow(vm_, &env);
+      env->CallVoidMethod(jInitializerGlobalRef_, initializeMethod(env));
+      checkException(env);
+      threadFunc();
+    });
+  }
+
+ private:
+  jmethodID initializeMethod(JNIEnv* env) {
+    static jmethodID initializeMethod =
+        getMethodIdOrError(env, nativeThreadInitializerClass(env), "initialize", "()V");
+    return initializeMethod;
+  }
+
+  jclass nativeThreadInitializerClass(JNIEnv* env) {
+    static jclass javaInitializerClass =
+        createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/execution/NativeThreadInitializer;");
+    return javaInitializerClass;
+  }
+
+  JavaVM* vm_;
+  jobject jInitializerGlobalRef_;
 };
