@@ -448,5 +448,6 @@ class VeloxTPCHV1ParallelExecutionBhjSuite extends VeloxTPCHSuite {
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
       .set(VeloxConfig.NUM_PARALLEL_EXECUTION_THREADS.key, "2")
       .set("spark.sql.autoBroadcastJoinThreshold", "30M")
+      .set("spark.gluten.sql.debug", "true")
   }
 }
