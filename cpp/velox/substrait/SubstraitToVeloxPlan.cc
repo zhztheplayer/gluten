@@ -401,11 +401,6 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
   } else if (
       sJoin.has_advanced_extension() &&
       SubstraitParser::configSetInOptimization(sJoin.advanced_extension(), "isBHJ=")) {
-    leftNode = addLocalPartitionForParallelExecution(
-        leftNode, std::vector<core::TypedExprPtr>(leftKeys.begin(), leftKeys.end()));
-    rightNode = addLocalPartitionForParallelExecution(
-        rightNode, std::vector<core::TypedExprPtr>(rightKeys.begin(), rightKeys.end()));
-
     std::string hashTableId = sJoin.hashtableid();
 
     std::shared_ptr<core::OpaqueHashTable> opaqueSharedHashTable = nullptr;
@@ -424,6 +419,13 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
           << "Error retrieving HashTable from ObjectStore: " << e.what()
           << ". Falling back to building new table. To ensure correct results, please verify that spark.gluten.velox.buildHashTableOncePerExecutor.enabled is set to false.";
       opaqueSharedHashTable = nullptr;
+    }
+
+    leftNode = addLocalPartitionForParallelExecution(
+        leftNode, std::vector<core::TypedExprPtr>(leftKeys.begin(), leftKeys.end()));
+    if (!opaqueSharedHashTable) {
+      rightNode = addLocalPartitionForParallelExecution(
+          rightNode, std::vector<core::TypedExprPtr>(rightKeys.begin(), rightKeys.end()));
     }
 
     // Create HashJoinNode node

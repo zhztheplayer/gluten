@@ -18,4 +18,5 @@ package org.apache.gluten.threads;
 
 public interface NativeThreadInitializer {
   void initialize(String threadName);
+  void destroy(String threadName);
 }

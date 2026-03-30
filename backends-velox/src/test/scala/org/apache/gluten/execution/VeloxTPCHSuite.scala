@@ -373,7 +373,7 @@ class VeloxTPCHV2BhjSuite extends VeloxTPCHSuite {
   }
 }
 
-class VeloxPartitionedTableTPCHSuite extends VeloxTPCHSuite {
+class VeloxTPCHPartitionedTableSuite extends VeloxTPCHSuite {
   override def subType(): String = "partitioned"
 
   override protected def sparkConf: SparkConf = {
@@ -429,12 +429,24 @@ class VeloxTPCHV1VanillaBhjGlutenBeSuite extends VeloxTPCHSuite {
 }
 
 class VeloxTPCHV1ParallelExecutionSuite extends VeloxTPCHSuite {
-  override def subType(): String = "v1"
+  override def subType(): String = "v1-parallel"
 
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set("spark.sql.sources.useV1SourceList", "parquet")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
       .set(VeloxConfig.NUM_PARALLEL_EXECUTION_THREADS.key, "2")
+  }
+}
+
+class VeloxTPCHV1ParallelExecutionBhjSuite extends VeloxTPCHSuite {
+  override def subType(): String = "v1-parallel-bhj"
+
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set("spark.sql.sources.useV1SourceList", "parquet")
+      .set("spark.sql.autoBroadcastJoinThreshold", "-1")
+      .set(VeloxConfig.NUM_PARALLEL_EXECUTION_THREADS.key, "2")
+      .set("spark.sql.autoBroadcastJoinThreshold", "30M")
   }
 }

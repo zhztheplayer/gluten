@@ -42,7 +42,7 @@ class ThreadManager {
     return kind_;
   }
 
-  virtual std::shared_ptr<ThreadInitializer> getThreadInitializer() = 0;
+  virtual ThreadInitializer* getThreadInitializer() = 0;
 
  private:
   std::string kind_;

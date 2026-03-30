@@ -100,8 +100,8 @@ class VeloxThreadManager : public ThreadManager {
   VeloxThreadManager(const std::string& kind, std::unique_ptr<ThreadInitializer> initializer)
       : ThreadManager(kind), initializer_(std::shared_ptr<ThreadInitializer>(std::move(initializer))) {}
 
-  std::shared_ptr<ThreadInitializer> getThreadInitializer() override {
-    return initializer_;
+  ThreadInitializer* getThreadInitializer() override {
+    return initializer_.get();
   }
 
  private:
@@ -208,6 +208,30 @@ void VeloxBackend::init(
     velox::exec::Operator::registerOperator(std::make_unique<CudfVectorStreamOperatorTranslator>());
   }
 #endif
+
+  const int32_t numTaskSlotsPerExecutor = backendConf_->get<int32_t>(kNumTaskSlotsPerExecutor, kNumTaskSlotsPerExecutorDefault);
+  GLUTEN_CHECK(
+      numTaskSlotsPerExecutor >= 0,
+      kNumTaskSlotsPerExecutor + " was set to negative number " + std::to_string(numTaskSlotsPerExecutor) + ", this should not happen.");
+
+  const auto numParallelExecutionThreads = backendConf_->get<int32_t>(kNumParallelExecutionThreads, 0);
+  const bool serialExecution = numParallelExecutionThreads <= 1;
+  if (!serialExecution) {
+    const auto numParallelExecutionThreadsOnExecutor = numParallelExecutionThreads * numTaskSlotsPerExecutor;
+    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(numParallelExecutionThreadsOnExecutor);
+    LOG(INFO) << "Initialized CPUThreadPoolExecutor for parallel execution with thread num: " << numParallelExecutionThreadsOnExecutor
+              << " (numParallelExecutionThreads: " << numParallelExecutionThreads
+              << ", numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
+  }
+
+  const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
+  if (spillThreadNum > 0) {
+    const auto spillThreadNumOnExecutor = spillThreadNum * numTaskSlotsPerExecutor;
+    spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNumOnExecutor);
+    LOG(INFO) << "Initialized CPUThreadPoolExecutor for spill with thread num: " << spillThreadNumOnExecutor
+              << " (spillThreadNum: " << spillThreadNum
+              << ", numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
+  }
 
   initJolFilesystem();
   initConnector(hiveConf);
@@ -332,7 +356,8 @@ void VeloxBackend::initCache() {
 }
 
 void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase>& hiveConf) {
-  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
+  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads,
+    backendConf_->get<int32_t>(kNumTaskSlotsPerExecutor, kNumTaskSlotsPerExecutorDefault));
   GLUTEN_CHECK(
       ioThreads >= 0,
       kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");

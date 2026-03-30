@@ -71,27 +71,78 @@ const std::string kWriteIOTime = "writeIOWallNanos";
 // others
 const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 
-} // namespace
+class HookedExecutor final : public folly::Executor {
+public:
+  HookedExecutor(
+      folly::Executor::KeepAlive<folly::Executor> parent,
+      std::string prefix,
+      ThreadInitializer* initializer)
+      : parent_(std::move(parent)),
+        prefix_(std::move(prefix)),
+        initializer_(initializer) {}
 
-class ThreadInitializerThreadFactory final : public folly::NamedThreadFactory {
- public:
-  explicit ThreadInitializerThreadFactory(std::string prefix, std::shared_ptr<ThreadInitializer> initializer)
-      : folly::NamedThreadFactory(prefix), initializer_(std::move(initializer)) {}
+  void add(folly::Func func) override {
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
+    parent_->add(wrap(std::move(func)));
+  }
 
-  std::thread newThread(folly::Func&& func) override {
-    auto name = std::string(prefix_) + std::to_string(suffix_++);
-    return std::thread([threadFunc = std::move(func), threadName = std::move(name), initializer = initializer_]() mutable {
-      folly::setThreadName(threadName);
-      if (initializer != nullptr) {
-        initializer->initialize(threadName);
-      }
-      threadFunc();
+  void addWithPriority(folly::Func func, int8_t priority) override {
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
+    parent_->addWithPriority(wrap(std::move(func)), priority);
+  }
+
+  uint8_t getNumPriorities() const override {
+    return parent_->getNumPriorities();
+  }
+
+  void join() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [&] {
+      return inFlight_.load(std::memory_order_acquire) == 0;
     });
   }
 
- private:
-  std::shared_ptr<ThreadInitializer> initializer_;
+private:
+  folly::Func wrap(folly::Func func) {
+    auto seq = suffix_.fetch_add(1, std::memory_order_relaxed);
+    auto taskName = prefix_ + std::to_string(seq);
+    auto* initializer = initializer_;
+    auto* self = this;
+
+    return [func = std::move(func),
+            taskName = std::move(taskName),
+            initializer,
+            self]() mutable {
+      auto done = folly::makeGuard([&] {
+        if (self->inFlight_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          std::lock_guard<std::mutex> lock(self->mutex_);
+          self->cv_.notify_all();
+        }
+      });
+
+      GLUTEN_CHECK(initializer != nullptr, "ThreadInitializer is null.");
+      initializer->initialize(taskName);
+      auto guard = folly::makeGuard([&] {
+        initializer->destroy(taskName);
+      });
+
+      func();
+    };
+  }
+
+  folly::Executor::KeepAlive<folly::Executor> parent_;
+  std::string prefix_;
+  ThreadInitializer* initializer_;
+  std::atomic<uint64_t> suffix_{0};
+
+  std::atomic<size_t> inFlight_{0};
+  std::mutex mutex_;
+  std::condition_variable cv_;
 };
+
+} // namespace
+
+
 
 WholeStageResultIterator::WholeStageResultIterator(
     VeloxMemoryManager* memoryManager,
@@ -115,10 +166,6 @@ WholeStageResultIterator::WholeStageResultIterator(
       scanInfos_(scanInfos),
       streamIds_(streamIds) {
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
-  auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
-  if (spillThreadNum > 0) {
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum);
-  }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
   auto fileSystem = velox::filesystems::getFileSystem(spillDir, nullptr);
@@ -129,15 +176,15 @@ WholeStageResultIterator::WholeStageResultIterator(
   const auto numParallelExecutionThreads = veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
   const bool serialExecution = numParallelExecutionThreads <= 1;
   if (!serialExecution) {
+    auto globalExecutor = VeloxBackend::get()->executor();
+    GLUTEN_CHECK(globalExecutor != nullptr, "VeloxBackend is null!");
     auto initializer = threadManager_->getThreadInitializer();
-    auto threadFactoryId = fmt::format(
-        "Gluten_Thread_Factory_{}_TID_{}_VTID_{}",
+    auto parallelTaskId = fmt::format(
+        "Gluten_Parallel_Task_{}_TID_{}_VTID_{}",
         std::to_string(taskInfo_.stageId),
         std::to_string(taskInfo_.taskId),
         std::to_string(taskInfo_.vId));
-    taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        numParallelExecutionThreads,
-        std::make_shared<ThreadInitializerThreadFactory>(threadFactoryId, std::move(initializer)));
+    taskExecutor_ = std::make_unique<HookedExecutor>(globalExecutor, parallelTaskId, initializer);
   }
 
   facebook::velox::exec::CursorParameters params;
@@ -245,6 +292,21 @@ WholeStageResultIterator::WholeStageResultIterator(
   }
 }
 
+WholeStageResultIterator::~WholeStageResultIterator() {
+  if (task_ != nullptr && task_->isRunning()) {
+    // calling .wait() may take no effect in single thread execution mode
+    task_->requestCancel().wait();
+  }
+  auto hookedExecutor = dynamic_cast<HookedExecutor*>(taskExecutor_.get());
+  hookedExecutor->join();
+  taskExecutor_.reset();
+#ifdef GLUTEN_ENABLE_GPU
+  if (enableCudf_) {
+    unlockGpu();
+  }
+#endif
+}
+
 std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx(folly::Executor* executor) {
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
   connectorConfigs[kHiveConnectorId] = createHiveConnectorSessionConfig(veloxCfg_);
@@ -254,7 +316,7 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
       connectorConfigs,
       gluten::VeloxBackend::get()->getAsyncDataCache(),
       memoryManager_->getAggregateMemoryPool(),
-      spillExecutor_.get(),
+      gluten::VeloxBackend::get()->spillExecutor(),
       fmt::format(
           "Gluten_Stage_{}_TID_{}_VTID_{}",
           std::to_string(taskInfo_.stageId),
@@ -264,29 +326,24 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
-  if (task_->isFinished()) {
-    return nullptr;
-  }
-  if (!cursor_->moveNext()) {
-    return nullptr;
-  }
-  velox::RowVectorPtr vector = cursor_->current();
-  if (vector == nullptr) {
-    return nullptr;
-  }
-  uint64_t numRows = vector->size();
-  if (numRows == 0) {
-    return nullptr;
-  }
-
-  {
-    ScopedTimer timer(&loadLazyVectorTime_);
-    for (auto& child : vector->children()) {
-      child->loadedVector();
+  while (true) {
+    if (!cursor_->moveNext()) {
+      return nullptr;
     }
+    RowVectorPtr vector = cursor_->current();
+    GLUTEN_CHECK(vector != nullptr, "Cursor returned null vector.");
+    uint64_t numRows = vector->size();
+    if (numRows == 0) {
+      continue;
+    }
+    {
+      ScopedTimer timer(&loadLazyVectorTime_);
+      for (auto& child : vector->children()) {
+        child->loadedVector();
+      }
+    }
+    return std::make_shared<VeloxColumnarBatch>(vector);
   }
-
-  return std::make_shared<VeloxColumnarBatch>(vector);
 }
 
 int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
@@ -336,7 +393,6 @@ void WholeStageResultIterator::getOrderedNodeIds(
   if (isLocalExchangeNode) {
     // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in SubstraitToVeloxPlan.
     // So we only fetch metrics from the root node.
-    std::vector<std::shared_ptr<const velox::core::PlanNode>> unionChildren{};
     for (const auto& source : planNode->sources()) {
       const auto projectedChild = std::dynamic_pointer_cast<const velox::core::ProjectNode>(source);
       GLUTEN_CHECK(projectedChild != nullptr, "Illegal state");
@@ -345,7 +401,10 @@ void WholeStageResultIterator::getOrderedNodeIds(
       const auto projectSource = projectSources.at(0);
       getOrderedNodeIds(projectSource, nodeIds);
     }
-    nodeIds.emplace_back(planNode->id());
+    if (planNode->sources().size() == 2) {
+      // The LocalPartition maps to a concrete Spark native union transformer operator.
+      nodeIds.emplace_back(planNode->id());
+    }
     return;
   }
 

@@ -96,7 +96,6 @@ gluten::JniColumnarBatchIterator::~JniColumnarBatchIterator() {
   attachCurrentThreadAsDaemonOrThrow(vm_, &env);
   env->DeleteGlobalRef(jColumnarBatchItr_);
   env->DeleteGlobalRef(serializedColumnarBatchIteratorClass_);
-  vm_->DetachCurrentThread();
 }
 
 std::shared_ptr<gluten::ColumnarBatch> gluten::JniColumnarBatchIterator::next() {
