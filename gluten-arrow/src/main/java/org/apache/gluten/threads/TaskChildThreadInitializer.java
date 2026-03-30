@@ -17,6 +17,7 @@
 
 package org.apache.gluten.threads;
 
+import com.google.common.base.Preconditions;
 import org.apache.spark.TaskContext;
 import org.apache.spark.util.SparkTaskUtil;
 
@@ -24,6 +25,7 @@ public class TaskChildThreadInitializer implements NativeThreadInitializer {
   private final TaskContext parentTaskContext;
 
   public TaskChildThreadInitializer(TaskContext parentTaskContext) {
+    Preconditions.checkNotNull(parentTaskContext);
     this.parentTaskContext = parentTaskContext;
   }
 

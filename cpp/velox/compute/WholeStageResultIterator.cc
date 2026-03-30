@@ -75,8 +75,8 @@ const std::string kHiveDefaultPartition = "__HIVE_DEFAULT_PARTITION__";
 
 class ThreadInitializerThreadFactory final : public folly::NamedThreadFactory {
  public:
-  explicit ThreadInitializerThreadFactory(std::shared_ptr<ThreadInitializer> initializer)
-      : folly::NamedThreadFactory("GlutenNativeThread"), initializer_(std::move(initializer)) {}
+  explicit ThreadInitializerThreadFactory(std::string prefix, std::shared_ptr<ThreadInitializer> initializer)
+      : folly::NamedThreadFactory(prefix), initializer_(std::move(initializer)) {}
 
   std::thread newThread(folly::Func&& func) override {
     auto name = std::string(prefix_) + std::to_string(suffix_++);
@@ -130,8 +130,14 @@ WholeStageResultIterator::WholeStageResultIterator(
   const bool serialExecution = numParallelExecutionThreads <= 1;
   if (!serialExecution) {
     auto initializer = threadManager_->getThreadInitializer();
+    auto threadFactoryId = fmt::format(
+        "Gluten_Thread_Factory_{}_TID_{}_VTID_{}",
+        std::to_string(taskInfo_.stageId),
+        std::to_string(taskInfo_.taskId),
+        std::to_string(taskInfo_.vId));
     taskExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        numParallelExecutionThreads, std::make_shared<ThreadInitializerThreadFactory>(std::move(initializer)));
+        numParallelExecutionThreads,
+        std::make_shared<ThreadInitializerThreadFactory>(threadFactoryId, std::move(initializer)));
   }
 
   facebook::velox::exec::CursorParameters params;
@@ -312,9 +318,6 @@ void WholeStageResultIterator::getOrderedNodeIds(
     std::vector<velox::core::PlanNodeId>& nodeIds) {
   bool isProjectNode = (std::dynamic_pointer_cast<const velox::core::ProjectNode>(planNode) != nullptr);
   bool isLocalExchangeNode = (std::dynamic_pointer_cast<const velox::core::LocalPartitionNode>(planNode) != nullptr);
-  bool isUnionNode = isLocalExchangeNode &&
-      std::dynamic_pointer_cast<const velox::core::LocalPartitionNode>(planNode)->type() ==
-          velox::core::LocalPartitionNode::Type::kGather;
   const auto& sourceNodes = planNode->sources();
   if (isProjectNode) {
     GLUTEN_CHECK(sourceNodes.size() == 1, "Illegal state");
@@ -330,9 +333,9 @@ void WholeStageResultIterator::getOrderedNodeIds(
     return;
   }
 
-  if (isUnionNode) {
-    // Union was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in Velox. So we only fetch
-    // metrics from the root node.
+  if (isLocalExchangeNode) {
+    // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in SubstraitToVeloxPlan.
+    // So we only fetch metrics from the root node.
     std::vector<std::shared_ptr<const velox::core::PlanNode>> unionChildren{};
     for (const auto& source : planNode->sources()) {
       const auto projectedChild = std::dynamic_pointer_cast<const velox::core::ProjectNode>(source);
