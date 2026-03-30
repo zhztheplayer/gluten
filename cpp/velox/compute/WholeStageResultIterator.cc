@@ -284,29 +284,24 @@ std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQ
 }
 
 std::shared_ptr<ColumnarBatch> WholeStageResultIterator::next() {
-  if (task_->isFinished()) {
-    return nullptr;
-  }
-  if (!cursor_->moveNext()) {
-    return nullptr;
-  }
-  velox::RowVectorPtr vector = cursor_->current();
-  if (vector == nullptr) {
-    return nullptr;
-  }
-  uint64_t numRows = vector->size();
-  if (numRows == 0) {
-    return nullptr;
-  }
-
-  {
-    ScopedTimer timer(&loadLazyVectorTime_);
-    for (auto& child : vector->children()) {
-      child->loadedVector();
+  while (true) {
+    if (!cursor_->moveNext()) {
+      return nullptr;
     }
+    RowVectorPtr vector = cursor_->current();
+    GLUTEN_CHECK(vector != nullptr, "Cursor returned null vector.");
+    uint64_t numRows = vector->size();
+    if (numRows == 0) {
+      continue;
+    }
+    {
+      ScopedTimer timer(&loadLazyVectorTime_);
+      for (auto& child : vector->children()) {
+        child->loadedVector();
+      }
+    }
+    return std::make_shared<VeloxColumnarBatch>(vector);
   }
-
-  return std::make_shared<VeloxColumnarBatch>(vector);
 }
 
 int64_t WholeStageResultIterator::spillFixedSize(int64_t size) {
@@ -356,7 +351,6 @@ void WholeStageResultIterator::getOrderedNodeIds(
   if (isLocalExchangeNode) {
     // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in SubstraitToVeloxPlan.
     // So we only fetch metrics from the root node.
-    std::vector<std::shared_ptr<const velox::core::PlanNode>> unionChildren{};
     for (const auto& source : planNode->sources()) {
       const auto projectedChild = std::dynamic_pointer_cast<const velox::core::ProjectNode>(source);
       GLUTEN_CHECK(projectedChild != nullptr, "Illegal state");
@@ -365,7 +359,10 @@ void WholeStageResultIterator::getOrderedNodeIds(
       const auto projectSource = projectSources.at(0);
       getOrderedNodeIds(projectSource, nodeIds);
     }
-    nodeIds.emplace_back(planNode->id());
+    if (planNode->sources().size() == 2) {
+      // The LocalPartition maps to a concrete Spark native union transformer operator.
+      nodeIds.emplace_back(planNode->id());
+    }
     return;
   }
 
