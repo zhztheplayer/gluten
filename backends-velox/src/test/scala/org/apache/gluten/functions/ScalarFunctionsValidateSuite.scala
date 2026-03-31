@@ -1529,4 +1529,36 @@ abstract class ScalarFunctionsValidateSuite extends FunctionsValidateSuite {
         }
     }
   }
+  test("current_timestamp") {
+    withSQLConf(
+      "spark.sql.optimizer.excludedRules" ->
+        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
+      runQueryAndCompare("SELECT l_orderkey, current_timestamp() from lineitem limit 1") {
+        df =>
+          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+          assert(
+            optimizedPlan.contains("CurrentTimestamp"),
+            s"Expected CurrentTimestamp in plan when ConstantFolding is disabled, " +
+              s"but got: $optimizedPlan"
+          )
+          checkGlutenPlan[ProjectExecTransformer](df)
+      }
+    }
+  }
+
+  test("now") {
+    withSQLConf(
+      "spark.sql.optimizer.excludedRules" ->
+        "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
+      runQueryAndCompare("SELECT l_orderkey, now() from lineitem limit 1") {
+        df =>
+          val optimizedPlan = df.queryExecution.optimizedPlan.toString()
+          assert(
+            optimizedPlan.contains("Now"),
+            s"Expected Now in plan when ConstantFolding is disabled, but got: $optimizedPlan"
+          )
+          checkGlutenPlan[ProjectExecTransformer](df)
+      }
+    }
+  }
 }
