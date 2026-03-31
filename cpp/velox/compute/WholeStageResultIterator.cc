@@ -397,15 +397,18 @@ void WholeStageResultIterator::getOrderedNodeIds(
   }
 
   if (isLocalExchangeNode) {
-    // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects as children in SubstraitToVeloxPlan.
-    // So we only fetch metrics from the root node.
+    // LocalPartition was interpreted as LocalPartition + LocalExchange + 2 fake projects (optional) as children
+    // in SubstraitToVeloxPlan. So we only fetch metrics from the root node.
     for (const auto& source : planNode->sources()) {
       const auto projectedChild = std::dynamic_pointer_cast<const velox::core::ProjectNode>(source);
-      GLUTEN_CHECK(projectedChild != nullptr, "Illegal state");
-      const auto projectSources = projectedChild->sources();
-      GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
-      const auto projectSource = projectSources.at(0);
-      getOrderedNodeIds(projectSource, nodeIds);
+      if (projectedChild != nullptr) {
+        const auto projectSources = projectedChild->sources();
+        GLUTEN_CHECK(projectSources.size() == 1, "Illegal state");
+        const auto projectSource = projectSources.at(0);
+        getOrderedNodeIds(projectSource, nodeIds);
+      } else {
+        getOrderedNodeIds(source, nodeIds);
+      }
     }
     if (planNode->sources().size() == 2) {
       // The LocalPartition maps to a concrete Spark native union transformer operator.

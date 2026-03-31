@@ -267,7 +267,7 @@ object MetricsUtil extends Logging {
           metrics.getSingleMetrics,
           joinParamsMap.get(operatorIdx))
       case u: UnionMetricsUpdater =>
-        // JoinRel outputs two suites of metrics respectively for hash build and hash probe.
+        // Union outputs two suites of metrics respectively.
         // Therefore, fetch one more suite of metrics here.
         operatorMetrics.add(metrics.getOperatorMetrics(curMetricsIdx))
         curMetricsIdx -= 1
@@ -364,7 +364,7 @@ object MetricsUtil extends Logging {
         }
       } catch {
         case e: Exception =>
-          logWarning(s"Updating native metrics failed due to ${e.getCause}.")
+          logWarning(s"Updating native metrics failed: ${e.getMessage}", e)
           ()
       }
   }

@@ -1247,30 +1247,33 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::createLocalPartitionNode(
     const std::vector<core::PlanNodePtr>& sources) {
   GLUTEN_CHECK(!sources.empty(), "At least one source is required for Velox LocalPartition");
 
+  std::vector<core::PlanNodePtr> newChildren;
+  newChildren.reserve(sources.size());
+  const bool isSingleSource = sources.size() == 1;
   const RowTypePtr outRowType = asRowType(sources[0]->outputType());
   std::vector<std::string> outNames;
   outNames.reserve(outRowType->size());
   for (int32_t colIdx = 0; colIdx < outRowType->size(); ++colIdx) {
     outNames.push_back(outRowType->nameOf(colIdx));
   }
-
-  std::vector<core::PlanNodePtr> projectedChildren;
-  projectedChildren.reserve(sources.size());
   for (const auto& child : sources) {
     const RowTypePtr& childRowType = child->outputType();
     std::vector<core::TypedExprPtr> expressions;
     expressions.reserve(outNames.size());
     for (int32_t colIdx = 0; colIdx < outNames.size(); ++colIdx) {
-      const auto fieldAccess =
+      core::TypedExprPtr expr =
           std::make_shared<core::FieldAccessTypedExpr>(childRowType->childAt(colIdx), childRowType->nameOf(colIdx));
-      expressions.push_back(
-          std::make_shared<core::CastTypedExpr>(outRowType->childAt(colIdx), fieldAccess, false));
+      if (!isSingleSource) {
+        // Unifies children types for multi-children case (e.g., union).
+        expr = std::make_shared<core::CastTypedExpr>(outRowType->childAt(colIdx), expr, false);
+      }
+      expressions.push_back(expr);
     }
-    projectedChildren.push_back(std::make_shared<core::ProjectNode>(nextPlanNodeId(), outNames, expressions, child));
+    newChildren.push_back(std::make_shared<core::ProjectNode>(nextPlanNodeId(), outNames, expressions, child));
   }
 
   return std::make_shared<core::LocalPartitionNode>(
-      nextPlanNodeId(), type, false, std::move(partitionFunctionSpec), std::move(projectedChildren));
+      nextPlanNodeId(), type, false, std::move(partitionFunctionSpec), std::move(newChildren));
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::addHashPartitionForParallelExecution(
