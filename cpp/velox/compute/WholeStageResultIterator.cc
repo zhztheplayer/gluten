@@ -301,8 +301,10 @@ WholeStageResultIterator::~WholeStageResultIterator() {
     // calling .wait() may take no effect in single thread execution mode
     task_->requestCancel().wait();
   }
-  auto hookedExecutor = dynamic_cast<HookedExecutor*>(taskExecutor_.get());
-  hookedExecutor->join();
+  if (taskExecutor_ != nullptr) {
+    auto* hookedExecutor = dynamic_cast<HookedExecutor*>(taskExecutor_.get());
+    hookedExecutor->join();
+  }
   taskExecutor_.reset();
 #ifdef GLUTEN_ENABLE_GPU
   if (enableCudf_) {
