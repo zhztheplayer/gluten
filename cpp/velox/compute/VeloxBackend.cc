@@ -214,14 +214,13 @@ void VeloxBackend::init(
       numTaskSlotsPerExecutor >= 0,
       kNumTaskSlotsPerExecutor + " was set to negative number " + std::to_string(numTaskSlotsPerExecutor) + ", this should not happen.");
 
-  const auto numParallelExecutionThreads = backendConf_->get<int32_t>(kNumParallelExecutionThreads, 0);
-  const bool serialExecution = numParallelExecutionThreads <= 1;
-  if (!serialExecution) {
-    const auto numParallelExecutionThreadsOnExecutor = numParallelExecutionThreads * numTaskSlotsPerExecutor;
-    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(numParallelExecutionThreadsOnExecutor);
-    LOG(INFO) << "Initialized CPUThreadPoolExecutor for parallel execution with thread num: " << numParallelExecutionThreadsOnExecutor
-              << " (numParallelExecutionThreads: " << numParallelExecutionThreads
-              << ", numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
+  const bool parallelExecutionEnabled = backendConf_->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
+  if (parallelExecutionEnabled) {
+    // Default: 2 * task slots.
+    int32_t threadPoolSize = backendConf_->get<int32_t>(kParallelExecutionThreadPoolSize, 2 * numTaskSlotsPerExecutor);
+    executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(threadPoolSize);
+    LOG(INFO) << "Initialized CPUThreadPoolExecutor for parallel execution with thread num: " << threadPoolSize
+              << " (numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
   }
 
   initJolFilesystem();

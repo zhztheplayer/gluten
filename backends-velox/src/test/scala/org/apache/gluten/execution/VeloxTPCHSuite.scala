@@ -435,7 +435,7 @@ class VeloxTPCHV1ParallelExecutionSuite extends VeloxTPCHSuite {
     super.sparkConf
       .set("spark.sql.sources.useV1SourceList", "parquet")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set(VeloxConfig.NUM_PARALLEL_EXECUTION_THREADS.key, "2")
+      .set(VeloxConfig.PARALLEL_EXECUTION_ENABLED.key, "true")
   }
 }
 
@@ -446,7 +446,7 @@ class VeloxTPCHV1ParallelExecutionBhjSuite extends VeloxTPCHSuite {
     super.sparkConf
       .set("spark.sql.sources.useV1SourceList", "parquet")
       .set("spark.sql.autoBroadcastJoinThreshold", "-1")
-      .set(VeloxConfig.NUM_PARALLEL_EXECUTION_THREADS.key, "2")
+      .set(VeloxConfig.PARALLEL_EXECUTION_ENABLED.key, "true")
       .set("spark.sql.autoBroadcastJoinThreshold", "30M")
   }
 }

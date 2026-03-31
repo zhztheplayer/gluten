@@ -82,8 +82,16 @@ const std::string kHashProbeDynamicFilterPushdownEnabled =
 const std::string kHashProbeBloomFilterPushdownMaxSize =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterPushdown.maxSize";
 
-const std::string kNumParallelExecutionThreads =
-    "spark.gluten.sql.columnar.backend.velox.numParallelExecutionThreads";
+const std::string kParallelExecutionEnabled =
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.enabled";
+const bool kParallelExecutionEnabledDefault = false;
+
+const std::string kParallelExecutionThreadPoolSize =
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.threadPoolSize";
+
+const std::string kParallelExecutionMaxDrivers =
+    "spark.gluten.sql.columnar.backend.velox.parallelExecution.maxDrivers";
+const int32_t kParallelExecutionMaxDriversDefault = 4;
 
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";

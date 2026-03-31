@@ -177,8 +177,8 @@ WholeStageResultIterator::WholeStageResultIterator(
   fileSystem->mkdir(spillDir);
 
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  const auto numParallelExecutionThreads = VeloxBackend::get()->getBackendConf()->get<int32_t>(kNumParallelExecutionThreads, 0);
-  const bool serialExecution = numParallelExecutionThreads <= 1;
+  const bool parallelExecutionEnabled = VeloxBackend::get()->getBackendConf()->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
+  const bool serialExecution = !parallelExecutionEnabled;
   if (!serialExecution) {
     auto globalExecutor = VeloxBackend::get()->executor();
     GLUTEN_CHECK(globalExecutor != nullptr, "VeloxBackend is null!");
@@ -194,7 +194,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   facebook::velox::exec::CursorParameters params;
   params.planNode = planNode;
   params.destination = 0;
-  params.maxDrivers = serialExecution ? 1 : numParallelExecutionThreads;
+  params.maxDrivers = serialExecution ? 1 : veloxCfg_->get<int32_t>(kParallelExecutionMaxDrivers, kParallelExecutionMaxDriversDefault);
   params.queryCtx = createNewVeloxQueryCtx(taskExecutor_.get());
   params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
   params.groupedExecutionLeafNodeIds = std::move(emptySet);

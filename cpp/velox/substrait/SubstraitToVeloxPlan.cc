@@ -1238,7 +1238,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
 }
 
 bool SubstraitToVeloxPlanConverter::isParallelExecutionEnabled() const {
-  return VeloxBackend::get()->getBackendConf()->get<int32_t>(kNumParallelExecutionThreads, 0) > 1;
+  return VeloxBackend::get()->getBackendConf()->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::createLocalPartitionNode(

@@ -604,7 +604,8 @@ object GlutenConfig extends ConfigRegistry {
       (SPARK_S3_RETRY_MAX_ATTEMPTS, "20"),
       (SPARK_S3_CONNECTION_MAXIMUM, "15"),
       ("spark.gluten.velox.fs.s3a.retry.mode", "legacy"),
-      (GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
+      (
+        GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.key,
         GlutenCoreConfig.NUM_TASK_SLOTS_PER_EXECUTOR.defaultValueString),
       (COLUMNAR_SHUFFLE_CODEC.key, ""),
       (COLUMNAR_SHUFFLE_CODEC_BACKEND.key, ""),
