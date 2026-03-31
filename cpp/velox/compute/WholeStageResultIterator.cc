@@ -177,7 +177,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   fileSystem->mkdir(spillDir);
 
   std::unordered_set<velox::core::PlanNodeId> emptySet;
-  const auto numParallelExecutionThreads = veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0);
+  const auto numParallelExecutionThreads = VeloxBackend::get()->getBackendConf()->get<int32_t>(kNumParallelExecutionThreads, 0);
   const bool serialExecution = numParallelExecutionThreads <= 1;
   if (!serialExecution) {
     auto globalExecutor = VeloxBackend::get()->executor();

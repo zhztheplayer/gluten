@@ -32,6 +32,7 @@
 #include "utils/ObjectStore.h"
 #include "utils/VeloxWriterUtils.h"
 
+#include "compute/VeloxBackend.h"
 #include "config.pb.h"
 #include "config/GlutenConfig.h"
 #include "config/VeloxConfig.h"
@@ -1237,7 +1238,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
 }
 
 bool SubstraitToVeloxPlanConverter::isParallelExecutionEnabled() const {
-  return veloxCfg_->get<int32_t>(kNumParallelExecutionThreads, 0) > 1;
+  return VeloxBackend::get()->getBackendConf()->get<int32_t>(kNumParallelExecutionThreads, 0) > 1;
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::createLocalPartitionNode(
