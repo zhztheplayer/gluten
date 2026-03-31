@@ -127,6 +127,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
 
   /// Spill.
   std::string spillStrategy_;
+  std::shared_ptr<folly::CPUThreadPoolExecutor> spillExecutor_;
 
   /// Metrics
   std::unique_ptr<Metrics> metrics_{};

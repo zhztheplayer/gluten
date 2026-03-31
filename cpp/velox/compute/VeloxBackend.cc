@@ -224,15 +224,6 @@ void VeloxBackend::init(
               << ", numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
   }
 
-  const auto spillThreadNum = backendConf_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
-  if (spillThreadNum > 0) {
-    const auto spillThreadNumOnExecutor = spillThreadNum * numTaskSlotsPerExecutor;
-    spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNumOnExecutor);
-    LOG(INFO) << "Initialized CPUThreadPoolExecutor for spill with thread num: " << spillThreadNumOnExecutor
-              << " (spillThreadNum: " << spillThreadNum
-              << ", numTaskSlotsPerExecutor: " << numTaskSlotsPerExecutor << ")";
-  }
-
   initJolFilesystem();
   initConnector(hiveConf);
 

@@ -474,7 +474,7 @@ object VeloxConfig extends ConfigRegistry {
       .createWithDefault(true)
 
   val NUM_PARALLEL_EXECUTION_THREADS =
-    buildConf("spark.gluten.sql.columnar.backend.velox.numParallelExecutionThreads")
+    buildStaticConf("spark.gluten.sql.columnar.backend.velox.numParallelExecutionThreads")
       .doc(
         "Number of Velox task drivers to use for whole-stage execution. " +
           "Values 0 or 1 keep serial execution; values greater than 1 enable parallel task cursor execution.")
