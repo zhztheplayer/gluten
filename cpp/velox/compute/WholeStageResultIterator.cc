@@ -191,7 +191,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   params.planNode = planNode;
   params.destination = 0;
   params.maxDrivers = serialExecution ? 1 : veloxCfg_->get<int32_t>(kParallelExecutionMaxDrivers, kParallelExecutionMaxDriversDefault);
-  params.queryCtx = createNewVeloxQueryCtx(taskExecutor_.get());
+  params.queryCtx = createNewVeloxQueryCtx();
   params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
   params.groupedExecutionLeafNodeIds = std::move(emptySet);
   params.numSplitGroups = 1;
@@ -309,11 +309,11 @@ WholeStageResultIterator::~WholeStageResultIterator() {
 #endif
 }
 
-std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx(folly::Executor* executor) {
+std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx() {
   std::unordered_map<std::string, std::shared_ptr<velox::config::ConfigBase>> connectorConfigs;
   connectorConfigs[kHiveConnectorId] = createHiveConnectorSessionConfig(veloxCfg_);
   std::shared_ptr<velox::core::QueryCtx> ctx = velox::core::QueryCtx::create(
-      executor,
+      taskExecutor_.get(),
       facebook::velox::core::QueryConfig{getQueryContextConf()},
       connectorConfigs,
       gluten::VeloxBackend::get()->getAsyncDataCache(),

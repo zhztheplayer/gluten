@@ -89,7 +89,7 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   std::unordered_map<std::string, std::string> getQueryContextConf();
 
   /// Create QueryCtx.
-  std::shared_ptr<facebook::velox::core::QueryCtx> createNewVeloxQueryCtx(folly::Executor* executor);
+  std::shared_ptr<facebook::velox::core::QueryCtx> createNewVeloxQueryCtx();
 
   /// Get all the children plan node ids with postorder traversal.
   void getOrderedNodeIds(
