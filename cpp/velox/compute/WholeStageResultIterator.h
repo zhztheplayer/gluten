@@ -16,7 +16,9 @@
  */
 #pragma once
 
+#include <folly/Executor.h>
 #include "compute/Runtime.h"
+#include "compute/VeloxConnectorIds.h"
 #include "iceberg/IcebergPlanConverter.h"
 #include "memory/SplitAwareColumnarBatchIterator.h"
 #include "memory/VeloxColumnarBatch.h"
@@ -41,6 +43,9 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
       const std::vector<facebook::velox::core::PlanNodeId>& scanNodeIds,
       const std::vector<std::shared_ptr<SplitInfo>>& scanInfos,
       const std::vector<facebook::velox::core::PlanNodeId>& streamIds,
+      folly::Executor* executor,
+      folly::Executor* spillExecutor,
+      VeloxConnectorIds connectorIds,
       const std::string spillDir,
       const std::shared_ptr<facebook::velox::config::ConfigBase>& veloxCfg,
       const SparkTaskInfo& taskInfo);
@@ -126,12 +131,14 @@ class WholeStageResultIterator : public SplitAwareColumnarBatchIterator {
   const bool enableCudf_;
 #endif
   const SparkTaskInfo taskInfo_;
+  folly::Executor* executor_;
   std::shared_ptr<facebook::velox::exec::Task> task_;
   std::shared_ptr<const facebook::velox::core::PlanNode> veloxPlan_;
 
   /// Spill.
   std::string spillStrategy_;
-  std::shared_ptr<folly::Executor> spillExecutor_ = nullptr;
+  folly::Executor* spillExecutor_ = nullptr;
+  VeloxConnectorIds connectorIds_;
 
   /// Metrics
   std::unique_ptr<Metrics> metrics_{};

@@ -20,19 +20,26 @@
 #include <operators/plannodes/RowVectorStream.h>
 
 #include <algorithm>
+#include <condition_variable>
 #include <filesystem>
+#include <mutex>
+#include <unordered_map>
+
+#include <folly/ScopeGuard.h>
 
 #include "VeloxBackend.h"
 #include "compute/ResultIterator.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxPlanConverter.h"
 #include "config/VeloxConfig.h"
+#include "operators/plannodes/IteratorSplit.h"
 #include "operators/serializer/VeloxRowToColumnarConverter.h"
 #include "shuffle/VeloxShuffleReader.h"
 #include "shuffle/VeloxShuffleWriter.h"
 #include "utils/ConfigExtractor.h"
 #include "utils/VeloxArrowUtils.h"
 #include "utils/VeloxWholeStageDumper.h"
+#include "velox/common/process/StackTrace.h"
 
 DECLARE_bool(velox_exception_user_stacktrace_enabled);
 DECLARE_bool(velox_memory_use_hugepages);
@@ -62,6 +69,133 @@ using namespace facebook;
 
 namespace gluten {
 
+namespace {
+
+class HookedExecutor final : public folly::Executor {
+ public:
+  HookedExecutor(folly::Executor* parent, std::string name, bool debug)
+      : parent_(parent), name_(std::move(name)), debug_(debug) {}
+
+  void add(folly::Func func) override {
+    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
+    parent_->add(wrap(std::move(func), 0));
+  }
+
+  void addWithPriority(folly::Func func, int8_t priority) override {
+    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
+    parent_->addWithPriority(wrap(std::move(func), priority), priority);
+  }
+
+  uint8_t getNumPriorities() const override {
+    return parent_ == nullptr ? 1 : parent_->getNumPriorities();
+  }
+
+  bool join(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(lock, timeout, [&] { return inFlight_.load(std::memory_order_acquire) == 0; });
+  }
+
+  void dumpOutstandingTasks() const {
+    if (!debug_) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(taskMutex_);
+    if (inFlightTasks_.empty()) {
+      LOG(WARNING) << "Hooked executor " << name_ << " timed out with no tracked in-flight tasks.";
+      return;
+    }
+    for (const auto& [taskId, info] : inFlightTasks_) {
+      const auto elapsedMs =
+          std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - info.enqueueTime)
+              .count();
+      LOG(WARNING) << "Outstanding task in hooked executor " << name_ << ": taskId=" << taskId
+                   << ", elapsedMs=" << elapsedMs << ", priority=" << static_cast<int32_t>(info.priority)
+                   << ", submitStacktrace:\n"
+                   << info.submitStacktrace;
+    }
+  }
+
+ private:
+  struct TaskInfo {
+    std::chrono::steady_clock::time_point enqueueTime;
+    int8_t priority;
+    std::string submitStacktrace;
+  };
+
+  folly::Func wrap(folly::Func func, int8_t priority) {
+    auto* self = this;
+    const auto taskId = nextTaskId_.fetch_add(1, std::memory_order_relaxed);
+    if (debug_) {
+      TaskInfo info{
+          .enqueueTime = std::chrono::steady_clock::now(),
+          .priority = priority,
+          .submitStacktrace = velox::process::StackTrace().toString()};
+      std::lock_guard<std::mutex> lock(taskMutex_);
+      inFlightTasks_[taskId] = std::move(info);
+    }
+    return [func = std::move(func), self, taskId]() mutable {
+      auto done = folly::makeGuard([&] {
+        if (self->debug_) {
+          std::lock_guard<std::mutex> lock(self->taskMutex_);
+          self->inFlightTasks_.erase(taskId);
+        }
+        if (self->inFlight_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          std::lock_guard<std::mutex> lock(self->mutex_);
+          self->cv_.notify_all();
+        }
+      });
+      func();
+    };
+  }
+
+  folly::Executor* parent_;
+  std::string name_;
+  bool debug_;
+  std::atomic<uint64_t> nextTaskId_{0};
+  std::atomic<size_t> inFlight_{0};
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  mutable std::mutex taskMutex_;
+  std::unordered_map<uint64_t, TaskInfo> inFlightTasks_;
+};
+
+std::unique_ptr<folly::Executor> makeHookedExecutor(folly::Executor* parent, const std::string& name, bool debug) {
+  if (parent == nullptr) {
+    return nullptr;
+  }
+  return std::make_unique<HookedExecutor>(parent, name, debug);
+}
+
+void joinHookedExecutor(std::unique_ptr<folly::Executor>& executor, std::chrono::milliseconds timeout, bool debug) {
+  if (executor == nullptr) {
+    return;
+  }
+  auto* hookedExecutor = dynamic_cast<HookedExecutor*>(executor.get());
+  GLUTEN_CHECK(hookedExecutor != nullptr, "Expected HookedExecutor");
+  if (!hookedExecutor->join(timeout)) {
+    LOG(WARNING) << "Timed out waiting for hooked executor to finish after " << timeout.count() << " ms.";
+    if (debug) {
+      hookedExecutor->dumpOutstandingTasks();
+    }
+  }
+  executor.reset();
+}
+
+std::string makeScopedConnectorId(const std::string& base, uint64_t runtimeId) {
+  return fmt::format("{}-runtime-{}", base, runtimeId);
+}
+
+VeloxConnectorIds makeScopedConnectorIds(uint64_t runtimeId) {
+  return VeloxConnectorIds{
+      .hive = makeScopedConnectorId(kHiveConnectorId, runtimeId),
+      .iterator = makeScopedConnectorId(kIteratorConnectorId, runtimeId),
+      .cudfHive = makeScopedConnectorId(kCudfHiveConnectorId, runtimeId)};
+}
+
+} // namespace
+
 VeloxRuntime::VeloxRuntime(
     const std::string& kind,
     VeloxMemoryManager* vmm,
@@ -80,6 +214,78 @@ VeloxRuntime::VeloxRuntime(
   FLAGS_velox_memory_use_hugepages = veloxCfg_->get<bool>(kMemoryUseHugePages, FLAGS_velox_memory_use_hugepages);
   FLAGS_velox_memory_pool_capacity_transfer_across_tasks = veloxCfg_->get<bool>(
       kMemoryPoolCapacityTransferAcrossTasks, FLAGS_velox_memory_pool_capacity_transfer_across_tasks);
+
+  static std::atomic<uint64_t> runtimeId{0};
+  connectorIds_ = makeScopedConnectorIds(runtimeId++);
+
+  initializeExecutors();
+  registerConnectors();
+}
+
+VeloxRuntime::~VeloxRuntime() {
+  const auto timeoutMs =
+      veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
+  const auto timeout = std::chrono::milliseconds(timeoutMs);
+  joinHookedExecutor(executor_, timeout, debugModeEnabled_);
+  joinHookedExecutor(spillExecutor_, timeout, debugModeEnabled_);
+  joinHookedExecutor(ioExecutor_, timeout, debugModeEnabled_);
+  unregisterConnectors();
+}
+
+void VeloxRuntime::initializeExecutors() {
+  executor_ = makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", debugModeEnabled_);
+  spillExecutor_ = makeHookedExecutor(VeloxBackend::get()->spillExecutor(), kind_ + ".spill", debugModeEnabled_);
+  ioExecutor_ = makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", debugModeEnabled_);
+}
+
+void VeloxRuntime::registerConnectors() {
+  auto* backend = VeloxBackend::get();
+  connectorIds_.hiveRegistered =
+      velox::connector::registerConnector(backend->createHiveConnector(connectorIds_.hive, ioExecutor_.get()));
+  GLUTEN_CHECK(connectorIds_.hiveRegistered, "Failed to register scoped hive connector: " + connectorIds_.hive);
+  GLUTEN_CHECK(
+      velox::connector::hasConnector(connectorIds_.hive),
+      "Scoped hive connector not found after registration: " + connectorIds_.hive);
+
+  const auto valueStreamDynamicFilterEnabled =
+      veloxCfg_->get<bool>(kValueStreamDynamicFilterEnabled, kValueStreamDynamicFilterEnabledDefault);
+  connectorIds_.iteratorRegistered = velox::connector::registerConnector(
+      backend->createValueStreamConnector(connectorIds_.iterator, valueStreamDynamicFilterEnabled));
+  GLUTEN_CHECK(
+      connectorIds_.iteratorRegistered, "Failed to register scoped iterator connector: " + connectorIds_.iterator);
+  GLUTEN_CHECK(
+      velox::connector::hasConnector(connectorIds_.iterator),
+      "Scoped iterator connector not found after registration: " + connectorIds_.iterator);
+
+#ifdef GLUTEN_ENABLE_GPU
+  if (veloxCfg_->get<bool>(kCudfEnableTableScan, kCudfEnableTableScanDefault) &&
+      veloxCfg_->get<bool>(kCudfEnabled, kCudfEnabledDefault)) {
+    connectorIds_.cudfHiveRegistered = velox::connector::registerConnector(
+        backend->createCudfHiveConnector(connectorIds_.cudfHive, ioExecutor_.get()));
+    GLUTEN_CHECK(
+        connectorIds_.cudfHiveRegistered, "Failed to register scoped cudf hive connector: " + connectorIds_.cudfHive);
+    GLUTEN_CHECK(
+        velox::connector::hasConnector(connectorIds_.cudfHive),
+        "Scoped cudf hive connector not found after registration: " + connectorIds_.cudfHive);
+  }
+#endif
+}
+
+void VeloxRuntime::unregisterConnectors() {
+#ifdef GLUTEN_ENABLE_GPU
+  if (connectorIds_.cudfHiveRegistered) {
+    velox::connector::unregisterConnector(connectorIds_.cudfHive);
+    connectorIds_.cudfHiveRegistered = false;
+  }
+#endif
+  if (connectorIds_.iteratorRegistered) {
+    velox::connector::unregisterConnector(connectorIds_.iterator);
+    connectorIds_.iteratorRegistered = false;
+  }
+  if (connectorIds_.hiveRegistered) {
+    velox::connector::unregisterConnector(connectorIds_.hive);
+    connectorIds_.hiveRegistered = false;
+  }
 }
 
 void VeloxRuntime::parsePlan(const uint8_t* data, int32_t size) {
@@ -153,7 +359,8 @@ void VeloxRuntime::getInfoAndIds(
 
 std::string VeloxRuntime::planString(bool details, const std::unordered_map<std::string, std::string>& sessionConf) {
   auto veloxMemoryPool = gluten::defaultLeafVeloxMemoryPool();
-  VeloxPlanConverter veloxPlanConverter(veloxMemoryPool.get(), veloxCfg_.get(), {}, std::nullopt, std::nullopt, true);
+  VeloxPlanConverter veloxPlanConverter(
+      veloxMemoryPool.get(), veloxCfg_.get(), {}, connectorIds_, std::nullopt, std::nullopt, true);
   auto veloxPlan = veloxPlanConverter.toVeloxPlan(substraitPlan_, localFiles_);
   return veloxPlan->toString(details, true);
 }
@@ -173,6 +380,7 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
       memoryManager()->getLeafMemoryPool().get(),
       veloxCfg_.get(),
       inputs,
+      connectorIds_,
       *localWriteFilesTempPath(),
       *localWriteFileName());
   veloxPlan_ = veloxPlanConverter.toVeloxPlan(substraitPlan_, std::move(localFiles_));
@@ -194,6 +402,9 @@ std::shared_ptr<ResultIterator> VeloxRuntime::createResultIterator(
       scanIds,
       scanInfos,
       streamIds,
+      executor_.get(),
+      spillExecutor_.get(),
+      connectorIds_,
       spillDir,
       veloxCfg_,
       taskInfo_.has_value() ? taskInfo_.value() : SparkTaskInfo{});
