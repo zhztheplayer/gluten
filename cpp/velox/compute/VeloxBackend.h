@@ -27,6 +27,7 @@
 #include "velox/common/caching/AsyncDataCache.h"
 #include "velox/common/config/Config.h"
 #include "velox/common/memory/MmapAllocator.h"
+#include "velox/connectors/Connector.h"
 
 #include "jni/JniHashTable.h"
 #include "memory/VeloxMemoryManager.h"
@@ -58,8 +59,30 @@ class VeloxBackend {
   }
 
   folly::Executor* executor() const {
+    return executor_.get();
+  }
+
+  folly::Executor* spillExecutor() const {
+    return spillExecutor_.get();
+  }
+
+  folly::Executor* ioExecutor() const {
     return ioExecutor_.get();
   }
+
+  std::shared_ptr<facebook::velox::connector::Connector> createHiveConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+
+  std::shared_ptr<facebook::velox::connector::Connector> createValueStreamConnector(
+      const std::string& connectorId,
+      bool dynamicFilterEnabled) const;
+
+#ifdef GLUTEN_ENABLE_GPU
+  std::shared_ptr<facebook::velox::connector::Connector> createCudfHiveConnector(
+      const std::string& connectorId,
+      folly::Executor* ioExecutor) const;
+#endif
 
   void tearDown();
 
@@ -90,8 +113,11 @@ class VeloxBackend {
   std::shared_ptr<facebook::velox::cache::AsyncDataCache> asyncDataCache_;
 
   std::unique_ptr<folly::Executor> ssdCacheExecutor_;
+  std::unique_ptr<folly::Executor> executor_;
+  std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
+  std::shared_ptr<facebook::velox::config::ConfigBase> hiveConnectorConfig_;
 
   std::string cachePathPrefix_;
   std::string cacheFilePrefix_;
