@@ -663,7 +663,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenDataSourceScanExecRedactionSuite]  // 2 failures
   // TODO: 4.x enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]  // 2 failures
   enableSuite[GlutenExecuteImmediateEndToEndSuite]
-  // TODO: 4.x enableSuite[GlutenExternalAppendOnlyUnsafeRowArraySuite]  // 14 failures
+  enableSuite[GlutenExternalAppendOnlyUnsafeRowArraySuite]
   enableSuite[GlutenGlobalTempViewSuite]
   enableSuite[GlutenGlobalTempViewTestSuite]
   enableSuite[GlutenGroupedIteratorSuite]
@@ -679,10 +679,10 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenRemoveRedundantProjectsSuite]  // 14 failures
   // TODO: 4.x enableSuite[GlutenRemoveRedundantSortsSuite]  // 1 failure
   enableSuite[GlutenRowToColumnConverterSuite]
-  // TODO: 4.x enableSuite[GlutenSQLExecutionSuite]  // 1 failure
+  enableSuite[GlutenSQLExecutionSuite]
   enableSuite[GlutenSQLFunctionSuite]
-  // TODO: 4.x enableSuite[GlutenSQLJsonProtocolSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenShufflePartitionsUtilSuite]  // 1 failure
+  enableSuite[GlutenSQLJsonProtocolSuite]
+  enableSuite[GlutenShufflePartitionsUtilSuite]
   // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 2 failures
   // TODO: 4.x enableSuite[GlutenSparkPlanSuite]  // 1 failure
   enableSuite[GlutenSparkPlannerSuite]
@@ -690,7 +690,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSparkSqlParserSuite]
   enableSuite[GlutenUnsafeFixedWidthAggregationMapSuite]
   enableSuite[GlutenUnsafeKVExternalSorterSuite]
-  // TODO: 4.x enableSuite[GlutenUnsafeRowSerializerSuite]  // 1 failure
+  enableSuite[GlutenUnsafeRowSerializerSuite]
   // TODO: 4.x enableSuite[GlutenWholeStageCodegenSparkSubmitSuite]  // 1 failure
   // TODO: 4.x enableSuite[GlutenWholeStageCodegenSuite]  // 24 failures
   enableSuite[GlutenBroadcastExchangeSuite]
@@ -775,14 +775,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSaveLoadSuite]
   enableSuite[GlutenTableScanSuite]
   // Generated suites for org.apache.spark.sql.sources
-  // TODO: 4.x enableSuite[GlutenBucketedReadWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenBucketedWriteWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenCommitFailureTestRelationSuite]  // 2 failures
   enableSuite[GlutenDataSourceAnalysisSuite]
-  // TODO: 4.x enableSuite[GlutenDisableUnnecessaryBucketedScanWithHiveSupportSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenJsonHadoopFsRelationSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenParquetHadoopFsRelationSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenSimpleTextHadoopFsRelationSuite]  // 2 failures
   // Generated suites for org.apache.spark.sql
   enableSuite[GlutenCacheManagerSuite]
   enableSuite[GlutenDataFrameShowSuite]
@@ -807,6 +800,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenSetCommandSuite]  // 1 failure
   enableSuite[GlutenSparkSessionBuilderSuite]
   enableSuite[GlutenSparkSessionJobTaggingAndCancellationSuite]
+    .exclude("Tags set from session are prefixed with session UUID")
   enableSuite[GlutenTPCDSCollationQueryTestSuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilitySuite]
   enableSuite[GlutenTPCDSModifiedPlanStabilityWithStatsSuite]
