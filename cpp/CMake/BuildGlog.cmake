@@ -25,7 +25,7 @@ message(STATUS "Building glog from source")
 FetchContent_Declare(
   glog
   URL ${GLUTEN_GLOG_SOURCE_URL}
-  URL_HASH SHA256=${GLUTEN_GLOG_BUILD_SHA256_CHECKSUM}
+  URL_HASH ${GLUTEN_GLOG_BUILD_SHA256_CHECKSUM}
   PATCH_COMMAND git apply ${CMAKE_CURRENT_LIST_DIR}/glog/glog-no-export.patch
                 && git apply ${CMAKE_CURRENT_LIST_DIR}/glog/glog-config.patch)
 

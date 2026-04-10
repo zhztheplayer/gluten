@@ -15,6 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+include_guard(GLOBAL)
+include(FetchContent)
+
 set(GLUTEN_GLOG_MINIMUM_VERSION 0.4.0)
 set(GLUTEN_GLOG_VERSION 0.6.0)
 
