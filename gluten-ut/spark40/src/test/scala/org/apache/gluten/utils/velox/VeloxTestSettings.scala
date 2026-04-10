@@ -222,7 +222,7 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenCodeGeneratorWithInterpretedFallbackSuite]
   enableSuite[GlutenCollationExpressionSuite]
   enableSuite[GlutenCollationRegexpExpressionsSuite]
-  // TODO: 4.x enableSuite[GlutenCsvExpressionsSuite]  // failures with GlutenPlugin
+  enableSuite[GlutenCsvExpressionsSuite]
   enableSuite[GlutenDynamicPruningSubquerySuite]
   enableSuite[GlutenExprIdSuite]
   // TODO: 4.x enableSuite[GlutenExpressionEvalHelperSuite]  // 2 failures
@@ -371,8 +371,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("unsupported parquet conversion ShortType -> DecimalType(6,1)")
   enableSuite[GlutenParquetVariantShreddingSuite]
   // Generated suites for org.apache.spark.sql.execution.datasources.text
-  // TODO: 4.x enableSuite[GlutenWholeTextFileV1Suite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenWholeTextFileV2Suite]  // 1 failure
+  enableSuite[GlutenWholeTextFileV1Suite]
+  enableSuite[GlutenWholeTextFileV2Suite]
   // Generated suites for org.apache.spark.sql.execution.datasources.v2
   enableSuite[GlutenFileWriterFactorySuite]
   enableSuite[GlutenV2SessionCatalogNamespaceSuite]
@@ -675,15 +675,25 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenAggregatingAccumulatorSuite]
   enableSuite[GlutenCoGroupedIteratorSuite]
   enableSuite[GlutenColumnarRulesSuite]
-  // TODO: 4.x enableSuite[GlutenDataSourceScanExecRedactionSuite]  // 2 failures
-  // TODO: 4.x enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]  // 2 failures
+  enableSuite[GlutenDataSourceScanExecRedactionSuite]
+    .exclude("explain is redacted using SQLConf")
+    .exclude("SPARK-31793: FileSourceScanExec metadata should contain limited file paths")
+  enableSuite[GlutenDataSourceV2ScanExecRedactionSuite]
+    .exclude("explain is redacted using SQLConf")
+    .exclude("FileScan description")
   enableSuite[GlutenExecuteImmediateEndToEndSuite]
   enableSuite[GlutenExternalAppendOnlyUnsafeRowArraySuite]
   enableSuite[GlutenGlobalTempViewSuite]
   enableSuite[GlutenGlobalTempViewTestSuite]
   enableSuite[GlutenGroupedIteratorSuite]
   enableSuite[GlutenHiveResultSuite]
-  // TODO: 4.x enableSuite[GlutenInsertSortForLimitAndOffsetSuite]  // 6 failures
+  enableSuite[GlutenInsertSortForLimitAndOffsetSuite]
+    .exclude("root LIMIT preserves data ordering with top-K sort")
+    .exclude("middle LIMIT preserves data ordering with top-K sort")
+    .exclude("root LIMIT preserves data ordering with CollectLimitExec")
+    .exclude("middle LIMIT preserves data ordering with the extra sort")
+    .exclude("root OFFSET preserves data ordering with CollectLimitExec")
+    .exclude("middle OFFSET preserves data ordering with the extra sort")
   enableSuite[GlutenLocalTempViewTestSuite]
   enableSuite[GlutenLogicalPlanTagInSparkPlanSuite]
   enableSuite[GlutenOptimizeMetadataOnlyQuerySuite]
@@ -699,7 +709,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenSQLJsonProtocolSuite]
   enableSuite[GlutenShufflePartitionsUtilSuite]
   // TODO: 4.x enableSuite[GlutenSimpleSQLViewSuite]  // 1 failure
-  // TODO: 4.x enableSuite[GlutenSparkPlanSuite]  // 1 failure
+  enableSuite[GlutenSparkPlanSuite]
+    .exclude("SPARK-37779: ColumnarToRowExec should be canonicalizable after being (de)serialized")
   enableSuite[GlutenSparkPlannerSuite]
   enableSuite[GlutenSparkScriptTransformationSuite]
   enableSuite[GlutenSparkSqlParserSuite]
@@ -800,7 +811,8 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenExplainSuite]  // 1 failure
   enableSuite[GlutenICUCollationsMapSuite]
   enableSuite[GlutenInlineTableParsingImprovementsSuite]
-  // TODO: 4.x enableSuite[GlutenJoinHintSuite]  // 1 failure
+  enableSuite[GlutenJoinHintSuite]
+    .exclude("join strategy hint - shuffle-replicate-nl")
   enableSuite[GlutenLogQuerySuite]
     // Overridden
     .exclude("Query Spark logs with exception using SQL")
@@ -1192,7 +1204,7 @@ class VeloxTestSettings extends BackendTestSettings {
   // TODO: 4.x enableSuite[GlutenStreamingInnerJoinSuite]
   enableSuite[GlutenStreamingLeftSemiJoinSuite]
   // TODO: 4.x enableSuite[GlutenStreamingOuterJoinSuite]
-  enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
+  // TODO: 4.x enableSuite[GlutenStreamingQueryHashPartitionVerifySuite]
   enableSuite[GlutenStreamingQueryListenerSuite]
   enableSuite[GlutenStreamingQueryListenersConfSuite]
   enableSuite[GlutenStreamingQueryManagerSuite]
