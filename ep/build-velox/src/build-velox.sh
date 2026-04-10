@@ -28,6 +28,8 @@ ENABLE_HDFS=OFF
 ENABLE_ABFS=OFF
 # Enable GPU support
 ENABLE_GPU=OFF
+# Enable LTO/IPO support.
+ENABLE_LTO=OFF
 # CMake build type for Velox.
 BUILD_TYPE=release
 # May be deprecated in Gluten build.
@@ -70,6 +72,10 @@ for arg in "$@"; do
     ENABLE_GPU=("${arg#*=}")
     shift # Remove argument name from processing
     ;;
+  --enable_lto=*)
+    ENABLE_LTO=("${arg#*=}")
+    shift # Remove argument name from processing
+    ;;
   --build_type=*)
     BUILD_TYPE=("${arg#*=}")
     shift # Remove argument name from processing
@@ -107,6 +113,9 @@ function compile {
   COMPILE_OPTION="-DCMAKE_CXX_FLAGS=\"$CXX_FLAGS\" -DVELOX_ENABLE_PARQUET=ON -DVELOX_BUILD_TESTING=OFF \
       -DVELOX_MONO_LIBRARY=ON -DVELOX_BUILD_RUNNER=OFF -DVELOX_SIMDJSON_SKIPUTF8VALIDATION=ON \
       -DVELOX_ENABLE_GEO=ON"
+  if [ $ENABLE_LTO == "ON" ]; then
+    COMPILE_OPTION="$COMPILE_OPTION -DVELOX_ENABLE_LTO=ON"
+  fi
   if [ $BUILD_TEST_UTILS == "ON" ]; then
     COMPILE_OPTION="$COMPILE_OPTION -DVELOX_BUILD_TEST_UTILS=ON"
   fi
@@ -202,6 +211,7 @@ echo "ENABLE_GCS=${ENABLE_GCS}"
 echo "ENABLE_HDFS=${ENABLE_HDFS}"
 echo "ENABLE_ABFS=${ENABLE_ABFS}"
 echo "ENABLE_GPU=${ENABLE_GPU}"
+echo "ENABLE_LTO=${ENABLE_LTO}"
 echo "BUILD_TYPE=${BUILD_TYPE}"
 
 cd ${VELOX_HOME}
