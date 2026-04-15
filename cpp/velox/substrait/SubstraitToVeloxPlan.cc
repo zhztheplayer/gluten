@@ -480,6 +480,7 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         rightNode,
         getJoinOutputType(leftNode, rightNode, joinType),
         false,
+        false,
         joinHasNullKeys,
         opaqueSharedHashTable);
   } else {
