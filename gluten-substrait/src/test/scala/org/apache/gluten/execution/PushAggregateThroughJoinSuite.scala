@@ -20,6 +20,7 @@ import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.joinagg.ImplementJoinAggregate
 import org.apache.gluten.extension.joinagg.PushAggregateThroughJoin
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.Aggregate
@@ -27,6 +28,7 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSparkSession
 
 import java.sql.Date
@@ -36,6 +38,14 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
   private val debugMode: Boolean = true
 
   private case class PushdownCase(inputSql: String, expectedAggCount: Int)
+
+  override protected def sparkConf: SparkConf = {
+    // Avoid Janino projection codegen here because Spark 4's QueryExecutionErrors
+    // has Arrow-typed methods, which breaks test runs as arrow-vector is excluded.
+    super.sparkConf
+      .set(SQLConf.CODEGEN_FACTORY_MODE.key, "NO_CODEGEN")
+      .set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "false")
+  }
 
   override def beforeAll(): Unit = {
     super.beforeAll()
