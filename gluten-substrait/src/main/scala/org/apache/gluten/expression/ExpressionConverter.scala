@@ -968,7 +968,8 @@ object ExpressionConverter extends SQLConfHelper with Logging {
         }
       })
     if (newOrdinal == -1) {
-      throw new IllegalStateException(s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")
+      throw new IllegalStateException(
+        s"Couldn't find $structField in ${input.attrs.mkString("[", ",", "]")}")
     } else {
       BoundReference(newOrdinal, structField.dataType, structField.nullable)
     }
