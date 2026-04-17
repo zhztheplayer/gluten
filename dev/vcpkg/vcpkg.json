@@ -20,6 +20,7 @@
         "snappy",
         "libdwarf",
         "fmt",
+        "abseil",
         {
           "name": "folly",
           "features": ["zstd", "lz4", "lzma", "snappy"]
@@ -51,6 +52,7 @@
         "thrift",
         "libstemmer",
         "geos",
+        "s2geometry",
         "grpc"
       ]
     },

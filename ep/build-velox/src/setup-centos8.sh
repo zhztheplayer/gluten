@@ -201,6 +201,15 @@ function install_geos {
   fi
 }
 
+function install_abseil {
+  wget_and_untar https://github.com/abseil/abseil-cpp/archive/refs/tags/20230802.1.tar.gz abseil-cpp
+  cmake_install_dir abseil-cpp \
+    -DABSL_BUILD_TESTING=OFF \
+    -DCMAKE_CXX_STANDARD=17 \
+    -DABSL_PROPAGATE_CXX_STD=ON \
+    -DABSL_ENABLE_INSTALL=ON
+}
+
 function install_velox_deps {
   run_and_time install_velox_deps_from_dnf
   run_and_time install_git
@@ -219,6 +228,7 @@ function install_velox_deps {
   run_and_time install_wangle
   run_and_time install_mvfst
   run_and_time install_fbthrift
+  run_and_time install_abseil
   run_and_time install_duckdb
   run_and_time install_geos
 }
