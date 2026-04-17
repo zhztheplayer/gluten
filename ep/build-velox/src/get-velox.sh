@@ -140,6 +140,21 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_local_velox_patches {
+  local patch_file="${CURRENT_DIR}/velox-memory-usecount.patch"
+  if [[ ! -f "$patch_file" ]]; then
+    echo "Local Velox patch not found: $patch_file"
+    exit 1
+  fi
+
+  pushd "$VELOX_HOME"
+  (git apply --check "$patch_file" && git apply "$patch_file") || {
+    echo "Failed to apply local Velox patch: $patch_file"
+    exit 1
+  }
+  popd
+}
+
 function apply_compilation_fixes {
   sudo cp ${CURRENT_DIR}/modify_arrow.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
   sudo cp ${CURRENT_DIR}/modify_arrow_dataset_scan_option.patch ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/
@@ -227,6 +242,7 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+apply_local_velox_patches
 
 apply_compilation_fixes
 

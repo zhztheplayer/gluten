@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -euf
+set -euo pipefail
 
 BASEDIR=$(dirname $0)
 
@@ -24,9 +24,10 @@ if [[ ! -d $LIB_DIR ]]; then
   exit 1
 fi
 
-JAR_PATH=$LIB_DIR/*
+JAR_PATH=$(printf ':%s' "$LIB_DIR"/*.jar)
+JAR_PATH=${JAR_PATH#:}
 
-SPARK_JVM_OPTIONS=$($JAVA_HOME/bin/java -cp $JAR_PATH org.apache.gluten.integration.SparkJvmOptions)
+SPARK_JVM_OPTIONS=$($JAVA_HOME/bin/java -cp "$JAR_PATH" org.apache.gluten.integration.SparkJvmOptions)
 
 EMBEDDED_SPARK_HOME=$BASEDIR/../spark-home
 
@@ -43,10 +44,19 @@ echo "SPARK_SCALA_VERSION set at [$SPARK_SCALA_VERSION]."
 
 GLUTEN_IT_JVM_ARGS=${GLUTEN_IT_JVM_ARGS:-"-Xmx2G"}
 
-$JAVA_HOME/bin/java \
-    $SPARK_JVM_OPTIONS \
-    $GLUTEN_IT_JVM_ARGS \
-    -XX:ErrorFile=/var/log/java/hs_err_pid%p.log \
-    -Dio.netty.tryReflectionSetAccessible=true \
-    -cp $JAR_PATH \
-    org.apache.gluten.integration.Cli "$@"
+run_gluten_it() {
+  $JAVA_HOME/bin/java \
+      $SPARK_JVM_OPTIONS \
+      $GLUTEN_IT_JVM_ARGS \
+      -XX:ErrorFile=/var/log/java/hs_err_pid%p.log \
+      -Dio.netty.tryReflectionSetAccessible=true \
+      -cp "$JAR_PATH" \
+      org.apache.gluten.integration.Cli "$@"
+}
+
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  run_gluten_it "$@" 2>&1 | tail -n 10000
+  exit ${PIPESTATUS[0]}
+fi
+
+run_gluten_it "$@"

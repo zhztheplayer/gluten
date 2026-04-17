@@ -1,0 +1,214 @@
+diff --git a/velox/common/caching/AsyncDataCache.h b/velox/common/caching/AsyncDataCache.h
+index 8d61e2a0d..6ace12efb 100644
+--- a/velox/common/caching/AsyncDataCache.h
++++ b/velox/common/caching/AsyncDataCache.h
+@@ -471,6 +471,10 @@ class CoalescedLoad {
+   /// storage.
+   virtual bool isSsdLoad() const = 0;
+ 
++  virtual memory::MemoryPool* memoryPool() const {
++    return nullptr;
++  }
++
+  protected:
+   // Makes entries for 'keys_' and loads their content. Elements of 'keys_' that
+   // are already loaded or loading are expected to be left out. The returned
+diff --git a/velox/dwio/common/DirectBufferedInput.cpp b/velox/dwio/common/DirectBufferedInput.cpp
+index 45d148c32..b0534695a 100644
+--- a/velox/dwio/common/DirectBufferedInput.cpp
++++ b/velox/dwio/common/DirectBufferedInput.cpp
+@@ -20,6 +20,12 @@
+ #include "velox/common/testutil/TestValue.h"
+ #include "velox/dwio/common/DirectInputStream.h"
+ 
++#include <pthread.h>
++#include <mutex>
++#include <sstream>
++#include <thread>
++#include <unordered_map>
++
+ DECLARE_int32(cache_prefetch_min_pct);
+ 
+ using ::facebook::velox::common::Region;
+@@ -31,6 +37,107 @@ using cache::CoalescedLoad;
+ using cache::ScanTracker;
+ using cache::TrackingId;
+ 
++namespace {
++
++bool shouldLogTableScanPool(const memory::MemoryPool* pool);
++
++std::mutex& tableScanPoolThreadOwnersMutex() {
++  static std::mutex mutex;
++  return mutex;
++}
++
++auto& tableScanPoolThreadOwners() {
++  static std::unordered_map<std::string, std::unordered_map<std::string, int32_t>>
++      owners;
++  return owners;
++}
++
++std::string currentThreadLabel() {
++  char name[64];
++  if (pthread_getname_np(pthread_self(), name, sizeof(name)) == 0 &&
++      name[0] != '\0') {
++    return std::string{name};
++  }
++
++  std::ostringstream out;
++  out << "tid=" << std::this_thread::get_id();
++  return out.str();
++}
++
++std::string formatThreadOwnersLocked(std::string_view poolName) {
++  const auto poolIt = tableScanPoolThreadOwners().find(std::string(poolName));
++  if (poolIt == tableScanPoolThreadOwners().end() || poolIt->second.empty()) {
++    return "[]";
++  }
++
++  std::ostringstream out;
++  out << "[";
++  bool first = true;
++  for (const auto& [threadName, count] : poolIt->second) {
++    if (!first) {
++      out << ", ";
++    }
++    first = false;
++    out << threadName << ":" << count;
++  }
++  out << "]";
++  return out.str();
++}
++
++void trackAsyncLoadHolderRefChange(
++    const char* where,
++    const std::shared_ptr<memory::MemoryPool>& pool,
++    int32_t delta) {
++  if (!shouldLogTableScanPool(pool.get())) {
++    return;
++  }
++
++  const auto threadName = currentThreadLabel();
++  std::string owners;
++  {
++    std::lock_guard<std::mutex> lock(tableScanPoolThreadOwnersMutex());
++    auto& poolOwners = tableScanPoolThreadOwners()[pool->name()];
++    auto& count = poolOwners[threadName];
++    count += delta;
++    if (count <= 0) {
++      poolOwners.erase(threadName);
++    }
++    if (poolOwners.empty()) {
++      tableScanPoolThreadOwners().erase(pool->name());
++    }
++    owners = formatThreadOwnersLocked(pool->name());
++  }
++
++  LOG(WARNING) << where << " pool=" << pool->name()
++               << " poolUseCount=" << pool.use_count()
++               << " delta=" << delta
++               << " thread=" << threadName
++               << " ownerThreads=" << owners;
++}
++
++bool shouldLogTableScanPool(const memory::MemoryPool* pool) {
++  return pool != nullptr &&
++      pool->name().find("TableScan#tspool") != std::string::npos;
++}
++
++} // namespace
++
++void debugTrackAsyncLoadHolderRefDecrement(
++    const std::shared_ptr<memory::MemoryPool>& pool) {
++  trackAsyncLoadHolderRefChange(
++      "AsyncLoadHolder pool ref decrement", pool, -1);
++}
++
++DirectBufferedInput::AsyncLoadHolder::AsyncLoadHolder(
++    std::shared_ptr<cache::CoalescedLoad> load,
++    std::shared_ptr<memory::MemoryPool> pool)
++    : load(std::move(load)), pool(std::move(pool)) {
++  if (this->pool != nullptr) {
++    trackAsyncLoadHolderRefChange(
++        "AsyncLoadHolder pool ref increment", this->pool, 1);
++  }
++}
++
+ std::unique_ptr<SeekableInputStream> DirectBufferedInput::enqueue(
+     Region region,
+     const StreamIdentifier* sid = nullptr) {
+@@ -208,6 +315,8 @@ void DirectBufferedInput::readRegion(
+   });
+ }
+ 
++DirectCoalescedLoad::~DirectCoalescedLoad() = default;
++
+ void DirectBufferedInput::readRegions(
+     const std::vector<LoadRequest*>& requests,
+     bool prefetch,
+@@ -225,8 +334,7 @@ void DirectBufferedInput::readRegions(
+     for (auto i = 0; i < coalescedLoads_.size(); ++i) {
+       auto& load = coalescedLoads_[i];
+       if (load->state() == CoalescedLoad::State::kPlanned) {
+-        AsyncLoadHolder loadHolder{
+-            .load = load, .pool = pool_->shared_from_this()};
++        AsyncLoadHolder loadHolder{load, pool_->shared_from_this()};
+         executor_->add([asyncLoad = std::move(loadHolder)]() {
+           process::TraceContext trace("Read Ahead");
+           VELOX_CHECK_NOT_NULL(asyncLoad.load);
+diff --git a/velox/dwio/common/DirectBufferedInput.h b/velox/dwio/common/DirectBufferedInput.h
+index c23e104e9..1b6ff4517 100644
+--- a/velox/dwio/common/DirectBufferedInput.h
++++ b/velox/dwio/common/DirectBufferedInput.h
+@@ -30,6 +30,9 @@
+ 
+ namespace facebook::velox::dwio::common {
+ 
++void debugTrackAsyncLoadHolderRefDecrement(
++    const std::shared_ptr<memory::MemoryPool>& pool);
++
+ struct LoadRequest {
+   LoadRequest() = default;
+   LoadRequest(velox::common::Region& _region, cache::TrackingId _trackingId)
+@@ -92,6 +95,10 @@ class DirectCoalescedLoad : public cache::CoalescedLoad {
+     return false;
+   }
+ 
++  memory::MemoryPool* memoryPool() const override {
++    return pool_;
++  }
++
+   /// Returns the buffer for 'region' in either 'data' or 'tinyData'. 'region'
+   /// must match a region given to DirectBufferedInput::enqueue().
+   int32_t
+@@ -109,6 +116,8 @@ class DirectCoalescedLoad : public cache::CoalescedLoad {
+     return size;
+   }
+ 
++  ~DirectCoalescedLoad() override;
++
+  private:
+   const std::shared_ptr<IoStatistics> ioStatistics_;
+   const std::shared_ptr<velox::IoStats> ioStats_;
+@@ -295,6 +304,10 @@ class DirectBufferedInput : public BufferedInput {
+   // Holds the reference on the memory pool for async load in case of early task
+   // terminate.
+   struct AsyncLoadHolder {
++    AsyncLoadHolder(
++        std::shared_ptr<cache::CoalescedLoad> load,
++        std::shared_ptr<memory::MemoryPool> pool);
++
+     std::shared_ptr<cache::CoalescedLoad> load;
+     std::shared_ptr<memory::MemoryPool> pool;
+ 
+@@ -306,6 +319,9 @@ class DirectBufferedInput : public BufferedInput {
+       // destroyed before the async load is done. The async load holds
+       // the last reference to the memory pool in that case.
+       load.reset();
++      if (pool != nullptr) {
++        debugTrackAsyncLoadHolderRefDecrement(pool);
++      }
+       pool.reset();
+     }
+   };
