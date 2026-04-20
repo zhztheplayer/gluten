@@ -133,6 +133,10 @@ macro(find_azure)
   find_package(azure-identity-cpp CONFIG REQUIRED)
 endmacro()
 
+macro(find_s2geometry)
+  find_package(s2geometry CONFIG REQUIRED)
+endmacro()
+
 # Set up Proto
 set(PROTO_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto")
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)
@@ -326,6 +330,9 @@ target_link_libraries(velox PUBLIC Folly::folly)
 
 find_re2()
 target_link_libraries(velox PUBLIC ${RE2_LIBRARY})
+
+find_s2geometry()
+target_link_libraries(velox PUBLIC S2::s2geometry)
 
 set(CMAKE_FIND_LIBRARY_SUFFIXES_BCK ${CMAKE_FIND_LIBRARY_SUFFIXES})
 set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
