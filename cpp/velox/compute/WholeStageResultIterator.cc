@@ -510,6 +510,8 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric("sum", second->customStats, kIoWaitTime);
       metrics_->get(Metrics::kStorageReadBytes)[metricIndex] =
           runtimeMetric("sum", second->customStats, kStorageReadBytes);
+      metrics_->get(Metrics::kStorageReads)[metricIndex] =
+          runtimeMetric("count", second->customStats, kStorageReadBytes);
       metrics_->get(Metrics::kLocalReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kLocalReadBytes);
       metrics_->get(Metrics::kRamReadBytes)[metricIndex] = runtimeMetric("sum", second->customStats, kRamReadBytes);
       metrics_->get(Metrics::kPreloadSplits)[metricIndex] =
