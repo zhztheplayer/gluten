@@ -117,6 +117,6 @@
     { "name": "gflags", "version": "2.2.2"},
     { "name": "azure-identity-cpp", "version": "1.11.0"},
     { "name": "grpc", "version": "1.49.0"},
-    { "name": "s2geometry", "version": "0.12.0" }
+    { "name": "s2geometry", "version": "0.11.1" }
   ]
 }
