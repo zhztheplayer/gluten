@@ -19,7 +19,6 @@
 #include "VeloxPlanConverter.h"
 #include "VeloxRuntime.h"
 #include "config/VeloxConfig.h"
-#include "jni/JniCommon.h"
 #include "utils/ConfigExtractor.h"
 #include "velox/connectors/hive/HiveConfig.h"
 #include "velox/connectors/hive/HiveConnectorSplit.h"
@@ -92,13 +91,7 @@ WholeStageResultIterator::WholeStageResultIterator(
   spillStrategy_ = veloxCfg_->get<std::string>(kSpillStrategy, kSpillStrategyDefaultValue);
   auto spillThreadNum = veloxCfg_->get<uint32_t>(kSpillThreadNum, kSpillThreadNumDefaultValue);
   if (spillThreadNum > 0) {
-    // INVARIANT: spillExecutor_ threads must never call libhdfs.
-    // JniAwareThreadFactory calls DetachCurrentThread at thread exit (inside the
-    // thread fn body, before any pthread_key destructor). If libhdfs were used on
-    // these threads, hdfsThreadDestructor would fire afterward with a stale JNIEnv*,
-    // causing SIGSEGV. Spill always uses local or heap-over-local filesystem.
-    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(
-        spillThreadNum, std::make_shared<gluten::JniAwareThreadFactory>());
+    spillExecutor_ = std::make_shared<folly::CPUThreadPoolExecutor>(spillThreadNum);
   }
   getOrderedNodeIds(veloxPlan_, orderedNodeIds_);
 
