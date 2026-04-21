@@ -70,14 +70,13 @@ index 66ba6804c..fcfacea21 100644
    }
  
 diff --git a/velox/dwio/common/DirectBufferedInput.cpp b/velox/dwio/common/DirectBufferedInput.cpp
-index 45d148c32..5adcf546b 100644
+index 45d148c32..8c8b1c8fc 100644
 --- a/velox/dwio/common/DirectBufferedInput.cpp
 +++ b/velox/dwio/common/DirectBufferedInput.cpp
-@@ -20,6 +20,12 @@
+@@ -20,6 +20,11 @@
  #include "velox/common/testutil/TestValue.h"
  #include "velox/dwio/common/DirectInputStream.h"
  
-+#include <pthread.h>
 +#include <mutex>
 +#include <sstream>
 +#include <thread>
@@ -86,7 +85,7 @@ index 45d148c32..5adcf546b 100644
  DECLARE_int32(cache_prefetch_min_pct);
  
  using ::facebook::velox::common::Region;
-@@ -31,6 +37,107 @@ using cache::CoalescedLoad;
+@@ -31,6 +36,101 @@ using cache::CoalescedLoad;
  using cache::ScanTracker;
  using cache::TrackingId;
  
@@ -106,12 +105,6 @@ index 45d148c32..5adcf546b 100644
 +}
 +
 +std::string currentThreadLabel() {
-+  char name[64];
-+  if (pthread_getname_np(pthread_self(), name, sizeof(name)) == 0 &&
-+      name[0] != '\0') {
-+    return std::string{name};
-+  }
-+
 +  std::ostringstream out;
 +  out << "tid=" << std::this_thread::get_id();
 +  return out.str();
@@ -194,7 +187,7 @@ index 45d148c32..5adcf546b 100644
  std::unique_ptr<SeekableInputStream> DirectBufferedInput::enqueue(
      Region region,
      const StreamIdentifier* sid = nullptr) {
-@@ -208,6 +315,8 @@ void DirectBufferedInput::readRegion(
+@@ -208,6 +308,8 @@ void DirectBufferedInput::readRegion(
    });
  }
  
@@ -203,7 +196,7 @@ index 45d148c32..5adcf546b 100644
  void DirectBufferedInput::readRegions(
      const std::vector<LoadRequest*>& requests,
      bool prefetch,
-@@ -225,8 +334,8 @@ void DirectBufferedInput::readRegions(
+@@ -225,8 +327,8 @@ void DirectBufferedInput::readRegions(
      for (auto i = 0; i < coalescedLoads_.size(); ++i) {
        auto& load = coalescedLoads_[i];
        if (load->state() == CoalescedLoad::State::kPlanned) {
