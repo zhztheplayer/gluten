@@ -210,6 +210,41 @@ WholeStageResultIterator::WholeStageResultIterator(
     }
     splits_.emplace_back(scanSplits);
   }
+
+  LOG(WARNING) << "WholeStageResultIterator ctor this=" << static_cast<const void*>(this)
+               << " task=" << static_cast<const void*>(task_.get())
+               << " memoryManager=" << static_cast<const void*>(memoryManager_)
+               << " stageId=" << taskInfo_.stageId
+               << " taskId=" << taskInfo_.taskId
+               << " vId=" << taskInfo_.vId;
+}
+
+WholeStageResultIterator::~WholeStageResultIterator() {
+  LOG(WARNING) << "WholeStageResultIterator dtor begin this=" << static_cast<const void*>(this)
+               << " task=" << static_cast<const void*>(task_.get())
+               << " memoryManager=" << static_cast<const void*>(memoryManager_)
+               << " stageId=" << taskInfo_.stageId
+               << " taskId=" << taskInfo_.taskId
+               << " vId=" << taskInfo_.vId;
+  if (task_ != nullptr) {
+    if (task_->isRunning()) {
+      // calling .wait() may take no effect in single thread execution mode
+      task_->requestCancel().wait();
+    }
+    auto deletionFuture = task_->taskDeletionFuture();
+    task_.reset();
+    deletionFuture.wait();
+  }
+#ifdef GLUTEN_ENABLE_GPU
+  if (enableCudf_) {
+    unlockGpu();
+  }
+#endif
+  LOG(WARNING) << "WholeStageResultIterator dtor end this=" << static_cast<const void*>(this)
+               << " memoryManager=" << static_cast<const void*>(memoryManager_)
+               << " stageId=" << taskInfo_.stageId
+               << " taskId=" << taskInfo_.taskId
+               << " vId=" << taskInfo_.vId;
 }
 
 std::shared_ptr<velox::core::QueryCtx> WholeStageResultIterator::createNewVeloxQueryCtx() {

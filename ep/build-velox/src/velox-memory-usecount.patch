@@ -13,6 +13,62 @@ index 8d61e2a0d..6ace12efb 100644
   protected:
    // Makes entries for 'keys_' and loads their content. Elements of 'keys_' that
    // are already loaded or loading are expected to be left out. The returned
+diff --git a/velox/common/memory/MemoryPool.cpp b/velox/common/memory/MemoryPool.cpp
+index 66ba6804c..fcfacea21 100644
+--- a/velox/common/memory/MemoryPool.cpp
++++ b/velox/common/memory/MemoryPool.cpp
+@@ -70,6 +70,7 @@ struct MemoryUsage {
+   uint64_t currentUsage;
+   uint64_t reservedUsage;
+   uint64_t peakUsage;
++  int64_t useCount;
+ 
+   bool operator>(const MemoryUsage& other) const {
+     return std::tie(reservedUsage, currentUsage, peakUsage, name) >
+@@ -82,11 +83,12 @@ struct MemoryUsage {
+ 
+   std::string toString() const {
+     return fmt::format(
+-        "{} usage {} reserved {} peak {}",
++        "{} usage {} reserved {} peak {} useCount {}",
+         name,
+         succinctBytes(currentUsage),
+         succinctBytes(reservedUsage),
+-        succinctBytes(peakUsage));
++        succinctBytes(peakUsage),
++        useCount);
+   }
+ };
+ 
+@@ -124,11 +126,13 @@ void treeMemoryUsageVisitor(
+   if (stats.empty() && skipEmptyPool) {
+     return;
+   }
++  const auto self = pool->shared_from_this();
+   const MemoryUsage usage{
+       .name = pool->name(),
+       .currentUsage = stats.usedBytes,
+       .reservedUsage = stats.reservedBytes,
+       .peakUsage = stats.peakBytes,
++      .useCount = static_cast<int64_t>(self.use_count() - 1),
+   };
+   out << std::string(indent, ' ') << usage.toString() << "\n";
+ 
+@@ -1042,11 +1046,13 @@ std::string MemoryPoolImpl::treeMemoryUsage(bool skipEmptyPool) const {
+   {
+     std::lock_guard<std::mutex> l(mutex_);
+     const Stats stats = statsLocked();
++    const auto self = shared_from_this();
+     const MemoryUsage usage{
+         .name = name(),
+         .currentUsage = stats.usedBytes,
+         .reservedUsage = stats.reservedBytes,
+-        .peakUsage = stats.peakBytes};
++        .peakUsage = stats.peakBytes,
++        .useCount = static_cast<int64_t>(self.use_count() - 1)};
+     out << usage.toString() << "\n";
+   }
+ 
 diff --git a/velox/dwio/common/DirectBufferedInput.cpp b/velox/dwio/common/DirectBufferedInput.cpp
 index 45d148c32..b0534695a 100644
 --- a/velox/dwio/common/DirectBufferedInput.cpp
@@ -212,3 +268,77 @@ index c23e104e9..1b6ff4517 100644
        pool.reset();
      }
    };
+diff --git a/velox/exec/Task.cpp b/velox/exec/Task.cpp
+index fce8c7eb2..0d98bbd05 100644
+--- a/velox/exec/Task.cpp
++++ b/velox/exec/Task.cpp
+@@ -18,6 +18,7 @@
+ #include <boost/lexical_cast.hpp>
+ #include <boost/uuid/uuid_generators.hpp>
+ #include <boost/uuid/uuid_io.hpp>
++#include <atomic>
+ #include <string>
+ 
+ #include "velox/common/base/Counters.h"
+@@ -45,6 +46,26 @@ using facebook::velox::common::testutil::TestValue;
+ namespace facebook::velox::exec {
+ namespace {
+ 
++std::atomic<uint64_t> tableScanPoolDebugId{0};
++
++std::string maybeAppendTableScanPoolDebugId(const std::string& poolName) {
++  if (poolName.find(".TableScan") == std::string::npos) {
++    return poolName;
++  }
++  return fmt::format(
++      "{}#tspool.{}", poolName, tableScanPoolDebugId.fetch_add(1));
++}
++
++std::string maybeAppendTableScanConnectorPoolDebugId(
++    const std::string& poolName,
++    const std::string& operatorType) {
++  if (operatorType != "TableScan") {
++    return poolName;
++  }
++  return fmt::format(
++      "{}#tsconnector.{}", poolName, tableScanPoolDebugId.fetch_add(1));
++}
++
+ // RAII helper class to satisfy given promises and notify listeners of an event
+ // connected to the promises outside of the mutex that guards the promises.
+ // Inactive on creation. Must be activated explicitly by calling 'activate'.
+@@ -769,9 +790,9 @@ velox::memory::MemoryPool* Task::addOperatorPool(
+   } else {
+     nodePool = getOrAddNodePool(planNodeId);
+   }
+-  childPools_.push_back(nodePool->addLeafChild(
++  childPools_.push_back(nodePool->addLeafChild(maybeAppendTableScanPoolDebugId(
+       fmt::format(
+-          "op.{}.{}.{}.{}", planNodeId, pipelineId, driverId, operatorType)));
++          "op.{}.{}.{}.{}", planNodeId, pipelineId, driverId, operatorType))));
+   return childPools_.back().get();
+ }
+ 
+@@ -783,13 +804,15 @@ velox::memory::MemoryPool* Task::addConnectorPoolLocked(
+     const std::string& connectorId) {
+   auto* nodePool = getOrAddNodePool(planNodeId);
+   childPools_.push_back(nodePool->addAggregateChild(
+-      fmt::format(
+-          "op.{}.{}.{}.{}.{}",
+-          planNodeId,
+-          pipelineId,
+-          driverId,
+-          operatorType,
+-          connectorId)));
++      maybeAppendTableScanConnectorPoolDebugId(
++          fmt::format(
++              "op.{}.{}.{}.{}.{}",
++              planNodeId,
++              pipelineId,
++              driverId,
++              operatorType,
++              connectorId),
++          operatorType)));
+   return childPools_.back().get();
+ }
+ 

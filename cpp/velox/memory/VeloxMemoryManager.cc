@@ -248,6 +248,10 @@ VeloxMemoryManager::VeloxMemoryManager(
       facebook::velox::memory::MemoryReclaimer::create());
 
   veloxLeafPool_ = veloxAggregatePool_->addLeafChild("default_leaf");
+  LOG(WARNING) << "VeloxMemoryManager ctor this=" << static_cast<const void*>(this)
+               << " aggregatePool=" << static_cast<const void*>(veloxAggregatePool_.get())
+               << " leafPool=" << static_cast<const void*>(veloxLeafPool_.get())
+               << " checkUsageLeak=" << checkUsageLeak;
 }
 
 namespace {
@@ -441,10 +445,15 @@ bool VeloxMemoryManager::tryDestructSafe() {
 }
 
 VeloxMemoryManager::~VeloxMemoryManager() {
+  LOG(WARNING) << "VeloxMemoryManager dtor begin this=" << static_cast<const void*>(this)
+               << " aggregatePool=" << static_cast<const void*>(veloxAggregatePool_.get())
+               << " leafPool=" << static_cast<const void*>(veloxLeafPool_.get());
   bool destructed = tryDestructSafe();
   if (!destructed) {
     LOG(ERROR) << "Failed to release Velox memory manager as there are still outstanding memory resources. ";
   }
+  LOG(WARNING) << "VeloxMemoryManager dtor end this=" << static_cast<const void*>(this)
+               << " destructed=" << destructed;
 #ifdef ENABLE_JEMALLOC_STATS
   malloc_stats_print(nullptr, nullptr, nullptr);
 #endif

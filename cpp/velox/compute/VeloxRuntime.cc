@@ -220,9 +220,17 @@ VeloxRuntime::VeloxRuntime(
 
   initializeExecutors();
   registerConnectors();
+  LOG(WARNING) << "VeloxRuntime ctor this=" << static_cast<const void*>(this)
+               << " memoryManager=" << static_cast<const void*>(memoryManager())
+               << " kind=" << kind_
+               << " connectorHive=" << connectorIds_.hive
+               << " connectorIterator=" << connectorIds_.iterator;
 }
 
 VeloxRuntime::~VeloxRuntime() {
+  LOG(WARNING) << "VeloxRuntime dtor begin this=" << static_cast<const void*>(this)
+               << " memoryManager=" << static_cast<const void*>(memoryManager())
+               << " kind=" << kind_;
   const auto timeoutMs =
       veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
   const auto timeout = std::chrono::milliseconds(timeoutMs);
@@ -230,6 +238,9 @@ VeloxRuntime::~VeloxRuntime() {
   joinHookedExecutor(spillExecutor_, timeout, debugModeEnabled_);
   joinHookedExecutor(ioExecutor_, timeout, debugModeEnabled_);
   unregisterConnectors();
+  LOG(WARNING) << "VeloxRuntime dtor end this=" << static_cast<const void*>(this)
+               << " memoryManager=" << static_cast<const void*>(memoryManager())
+               << " kind=" << kind_;
 }
 
 void VeloxRuntime::initializeExecutors() {
