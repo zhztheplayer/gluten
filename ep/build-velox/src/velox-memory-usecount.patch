@@ -70,7 +70,7 @@ index 66ba6804c..fcfacea21 100644
    }
  
 diff --git a/velox/dwio/common/DirectBufferedInput.cpp b/velox/dwio/common/DirectBufferedInput.cpp
-index 45d148c32..b0534695a 100644
+index 45d148c32..5adcf546b 100644
 --- a/velox/dwio/common/DirectBufferedInput.cpp
 +++ b/velox/dwio/common/DirectBufferedInput.cpp
 @@ -20,6 +20,12 @@
@@ -203,13 +203,14 @@ index 45d148c32..b0534695a 100644
  void DirectBufferedInput::readRegions(
      const std::vector<LoadRequest*>& requests,
      bool prefetch,
-@@ -225,8 +334,7 @@ void DirectBufferedInput::readRegions(
+@@ -225,8 +334,8 @@ void DirectBufferedInput::readRegions(
      for (auto i = 0; i < coalescedLoads_.size(); ++i) {
        auto& load = coalescedLoads_[i];
        if (load->state() == CoalescedLoad::State::kPlanned) {
 -        AsyncLoadHolder loadHolder{
 -            .load = load, .pool = pool_->shared_from_this()};
-+        AsyncLoadHolder loadHolder{load, pool_->shared_from_this()};
++        auto thisPool = pool_->shared_from_this();
++        AsyncLoadHolder loadHolder{load, std::move(thisPool)};
          executor_->add([asyncLoad = std::move(loadHolder)]() {
            process::TraceContext trace("Read Ahead");
            VELOX_CHECK_NOT_NULL(asyncLoad.load);
