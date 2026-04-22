@@ -73,28 +73,32 @@ namespace {
 
 class HookedExecutor final : public folly::Executor {
  public:
-  HookedExecutor(folly::Executor* parent, std::string name, bool debug)
-      : parent_(parent), name_(std::move(name)), debug_(debug) {}
+  HookedExecutor(
+      folly::Executor* parent,
+      std::string name,
+      bool debug,
+      std::chrono::milliseconds joinTimeout)
+      : parent_(parent),
+        name_(std::move(name)),
+        debug_(debug),
+        joinTimeout_(joinTimeout) {}
 
-  void add(folly::Func func) override {
-    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
-    inFlight_.fetch_add(1, std::memory_order_relaxed);
-    parent_->add(wrap(std::move(func), 0));
-  }
-
-  void addWithPriority(folly::Func func, int8_t priority) override {
-    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
-    inFlight_.fetch_add(1, std::memory_order_relaxed);
-    parent_->addWithPriority(wrap(std::move(func), priority), priority);
+  ~HookedExecutor() override {
+    if (!join()) {
+      LOG(WARNING) << "Timed out waiting for hooked executor " << name_
+                   << " to finish after " << joinTimeout_.count() << " ms.";
+      if (debug_) {
+        dumpOutstandingTasks();
+      }
+    }
   }
 
   uint8_t getNumPriorities() const override {
     return parent_ == nullptr ? 1 : parent_->getNumPriorities();
   }
 
-  bool join(std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return cv_.wait_for(lock, timeout, [&] { return inFlight_.load(std::memory_order_acquire) == 0; });
+  const std::string& name() const {
+    return name_;
   }
 
   void dumpOutstandingTasks() const {
@@ -118,6 +122,26 @@ class HookedExecutor final : public folly::Executor {
   }
 
  private:
+  bool join() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return cv_.wait_for(lock, joinTimeout_, [&] {
+      return inFlight_.load(std::memory_order_acquire) == 0;
+    });
+  }
+
+ public:
+  void add(folly::Func func) override {
+    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
+    parent_->add(wrap(std::move(func), 0));
+  }
+
+  void addWithPriority(folly::Func func, int8_t priority) override {
+    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    inFlight_.fetch_add(1, std::memory_order_relaxed);
+    parent_->addWithPriority(wrap(std::move(func), priority), priority);
+  }
+
   struct TaskInfo {
     std::chrono::steady_clock::time_point enqueueTime;
     int8_t priority;
@@ -136,7 +160,7 @@ class HookedExecutor final : public folly::Executor {
       inFlightTasks_[taskId] = std::move(info);
     }
     return [func = std::move(func), self, taskId]() mutable {
-      auto done = folly::makeGuard([&] {
+      auto markDone = folly::makeGuard([&] {
         if (self->debug_) {
           std::lock_guard<std::mutex> lock(self->taskMutex_);
           self->inFlightTasks_.erase(taskId);
@@ -146,13 +170,22 @@ class HookedExecutor final : public folly::Executor {
           self->cv_.notify_all();
         }
       });
-      func();
+      // Destroy the submitted callable and all of its captures before
+      // decrementing inFlight_. Some async tasks capture AsyncLoadHolder,
+      // which keeps a MemoryPool alive until the callable itself is
+      // destroyed. If we decrement inFlight_ first, HookedExecutor can
+      // appear drained and let VeloxRuntime teardown proceed while the
+      // holder is still alive, causing MemoryManager destruction to race
+      // with outstanding task-owned resources.
+      auto localFunc = std::move(func);
+      localFunc();
     };
   }
 
   folly::Executor* parent_;
   std::string name_;
   bool debug_;
+  std::chrono::milliseconds joinTimeout_;
   std::atomic<uint64_t> nextTaskId_{0};
   std::atomic<size_t> inFlight_{0};
   std::mutex mutex_;
@@ -161,26 +194,15 @@ class HookedExecutor final : public folly::Executor {
   std::unordered_map<uint64_t, TaskInfo> inFlightTasks_;
 };
 
-std::unique_ptr<folly::Executor> makeHookedExecutor(folly::Executor* parent, const std::string& name, bool debug) {
+std::unique_ptr<folly::Executor> makeHookedExecutor(
+    folly::Executor* parent,
+    const std::string& name,
+    bool debug,
+    std::chrono::milliseconds joinTimeout) {
   if (parent == nullptr) {
     return nullptr;
   }
-  return std::make_unique<HookedExecutor>(parent, name, debug);
-}
-
-void joinHookedExecutor(std::unique_ptr<folly::Executor>& executor, std::chrono::milliseconds timeout, bool debug) {
-  if (executor == nullptr) {
-    return;
-  }
-  auto* hookedExecutor = dynamic_cast<HookedExecutor*>(executor.get());
-  GLUTEN_CHECK(hookedExecutor != nullptr, "Expected HookedExecutor");
-  if (!hookedExecutor->join(timeout)) {
-    LOG(WARNING) << "Timed out waiting for hooked executor to finish after " << timeout.count() << " ms.";
-    if (debug) {
-      hookedExecutor->dumpOutstandingTasks();
-    }
-  }
-  executor.reset();
+  return std::make_unique<HookedExecutor>(parent, name, debug, joinTimeout);
 }
 
 std::string makeScopedConnectorId(const std::string& base, uint64_t runtimeId) {
@@ -224,18 +246,21 @@ VeloxRuntime::VeloxRuntime(
 
 VeloxRuntime::~VeloxRuntime() {
   unregisterConnectors();
-  const auto timeoutMs =
-      veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
-  const auto timeout = std::chrono::milliseconds(timeoutMs);
-  joinHookedExecutor(executor_, timeout, debugModeEnabled_);
-  joinHookedExecutor(spillExecutor_, timeout, debugModeEnabled_);
-  joinHookedExecutor(ioExecutor_, timeout, debugModeEnabled_);
+  executor_.reset();
+  spillExecutor_.reset();
+  ioExecutor_.reset();
 }
 
 void VeloxRuntime::initializeExecutors() {
-  executor_ = makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", debugModeEnabled_);
-  spillExecutor_ = makeHookedExecutor(VeloxBackend::get()->spillExecutor(), kind_ + ".spill", debugModeEnabled_);
-  ioExecutor_ = makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", debugModeEnabled_);
+  const auto timeoutMs =
+      veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
+  const auto timeout = std::chrono::milliseconds(timeoutMs);
+  executor_ =
+      makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", debugModeEnabled_, timeout);
+  spillExecutor_ =
+      makeHookedExecutor(VeloxBackend::get()->spillExecutor(), kind_ + ".spill", debugModeEnabled_, timeout);
+  ioExecutor_ =
+      makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", debugModeEnabled_, timeout);
 }
 
 void VeloxRuntime::registerConnectors() {
