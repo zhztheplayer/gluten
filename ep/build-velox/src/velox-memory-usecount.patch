@@ -70,7 +70,7 @@ index 66ba6804c..fcfacea21 100644
    }
  
 diff --git a/velox/dwio/common/DirectBufferedInput.cpp b/velox/dwio/common/DirectBufferedInput.cpp
-index 45d148c32..340f900cd 100644
+index 45d148c32..67187dab8 100644
 --- a/velox/dwio/common/DirectBufferedInput.cpp
 +++ b/velox/dwio/common/DirectBufferedInput.cpp
 @@ -20,6 +20,12 @@
@@ -86,7 +86,7 @@ index 45d148c32..340f900cd 100644
  DECLARE_int32(cache_prefetch_min_pct);
  
  using ::facebook::velox::common::Region;
-@@ -31,6 +37,207 @@ using cache::CoalescedLoad;
+@@ -31,6 +37,191 @@ using cache::CoalescedLoad;
  using cache::ScanTracker;
  using cache::TrackingId;
  
@@ -244,29 +244,13 @@ index 45d148c32..340f900cd 100644
 +      pool(std::move(other.pool)),
 +      holderId(other.holderId),
 +      ownerThread(currentThreadLabel()) {
-+  if (pool != nullptr) {
-+    debugTrackAsyncLoadHolderRefChangeForThread(
-+        "AsyncLoadHolder move ref decrement",
-+        pool,
-+        other.ownerThread,
-+        -1,
-+        holderId,
-+        &other);
-+    debugTrackAsyncLoadHolderRefChangeForThread(
-+        "AsyncLoadHolder move ref increment",
-+        pool,
-+        ownerThread,
-+        1,
-+        holderId,
-+        this);
-+  }
-+  LOG(WARNING) << "AsyncLoadHolder move holderId=" << holderId
-+               << " from=" << static_cast<const void*>(&other)
-+               << " to=" << static_cast<const void*>(this)
-+               << " pool="
-+               << (pool == nullptr ? std::string("null") : pool->name())
-+               << " oldThread=" << other.ownerThread
-+               << " newThread=" << ownerThread;
++  VELOX_CHECK_EQ(
++      other.ownerThread,
++      ownerThread,
++      "AsyncLoadHolder moved across threads for holderId {} from {} to {}",
++      holderId,
++      other.ownerThread,
++      ownerThread);
 +  other.holderId = 0;
 +  other.ownerThread.clear();
 +}
@@ -294,7 +278,7 @@ index 45d148c32..340f900cd 100644
  std::unique_ptr<SeekableInputStream> DirectBufferedInput::enqueue(
      Region region,
      const StreamIdentifier* sid = nullptr) {
-@@ -208,6 +415,8 @@ void DirectBufferedInput::readRegion(
+@@ -208,6 +399,8 @@ void DirectBufferedInput::readRegion(
    });
  }
  
@@ -303,7 +287,7 @@ index 45d148c32..340f900cd 100644
  void DirectBufferedInput::readRegions(
      const std::vector<LoadRequest*>& requests,
      bool prefetch,
-@@ -225,9 +434,18 @@ void DirectBufferedInput::readRegions(
+@@ -225,9 +418,18 @@ void DirectBufferedInput::readRegions(
      for (auto i = 0; i < coalescedLoads_.size(); ++i) {
        auto& load = coalescedLoads_[i];
        if (load->state() == CoalescedLoad::State::kPlanned) {
