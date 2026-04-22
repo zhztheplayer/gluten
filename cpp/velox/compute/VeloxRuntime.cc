@@ -73,20 +73,13 @@ namespace {
 
 class HookedExecutor final : public folly::Executor {
  public:
-  HookedExecutor(
-      folly::Executor* parent,
-      std::string name,
-      bool debug,
-      std::chrono::milliseconds joinTimeout)
-      : parent_(parent),
-        name_(std::move(name)),
-        debug_(debug),
-        joinTimeout_(joinTimeout) {}
+  HookedExecutor(folly::Executor* parent, std::string name, bool debug, std::chrono::milliseconds joinTimeout)
+      : parent_(parent), name_(std::move(name)), debug_(debug), joinTimeout_(joinTimeout) {}
 
   ~HookedExecutor() override {
     if (!join()) {
-      LOG(WARNING) << "Timed out waiting for hooked executor " << name_
-                   << " to finish after " << joinTimeout_.count() << " ms.";
+      LOG(WARNING) << "Timed out waiting for hooked executor " << name_ << " to finish after " << joinTimeout_.count()
+                   << " ms.";
       if (debug_) {
         dumpOutstandingTasks();
       }
@@ -124,9 +117,7 @@ class HookedExecutor final : public folly::Executor {
  private:
   bool join() {
     std::unique_lock<std::mutex> lock(mutex_);
-    return cv_.wait_for(lock, joinTimeout_, [&] {
-      return inFlight_.load(std::memory_order_acquire) == 0;
-    });
+    return cv_.wait_for(lock, joinTimeout_, [&] { return inFlight_.load(std::memory_order_acquire) == 0; });
   }
 
  public:
@@ -255,12 +246,10 @@ void VeloxRuntime::initializeExecutors() {
   const auto timeoutMs =
       veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
   const auto timeout = std::chrono::milliseconds(timeoutMs);
-  executor_ =
-      makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", debugModeEnabled_, timeout);
+  executor_ = makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", debugModeEnabled_, timeout);
   spillExecutor_ =
       makeHookedExecutor(VeloxBackend::get()->spillExecutor(), kind_ + ".spill", debugModeEnabled_, timeout);
-  ioExecutor_ =
-      makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", debugModeEnabled_, timeout);
+  ioExecutor_ = makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", debugModeEnabled_, timeout);
 }
 
 void VeloxRuntime::registerConnectors() {
