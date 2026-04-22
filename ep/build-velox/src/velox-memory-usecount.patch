@@ -70,13 +70,14 @@ index 66ba6804c..fcfacea21 100644
    }
  
 diff --git a/velox/dwio/common/DirectBufferedInput.cpp b/velox/dwio/common/DirectBufferedInput.cpp
-index 45d148c32..1b4bce2a2 100644
+index 45d148c32..340f900cd 100644
 --- a/velox/dwio/common/DirectBufferedInput.cpp
 +++ b/velox/dwio/common/DirectBufferedInput.cpp
-@@ -20,6 +20,11 @@
+@@ -20,6 +20,12 @@
  #include "velox/common/testutil/TestValue.h"
  #include "velox/dwio/common/DirectInputStream.h"
  
++#include <atomic>
 +#include <mutex>
 +#include <sstream>
 +#include <thread>
@@ -85,7 +86,7 @@ index 45d148c32..1b4bce2a2 100644
  DECLARE_int32(cache_prefetch_min_pct);
  
  using ::facebook::velox::common::Region;
-@@ -31,6 +36,143 @@ using cache::CoalescedLoad;
+@@ -31,6 +37,207 @@ using cache::CoalescedLoad;
  using cache::ScanTracker;
  using cache::TrackingId;
  
@@ -108,6 +109,11 @@ index 45d148c32..1b4bce2a2 100644
 +  std::ostringstream out;
 +  out << "tid=" << std::this_thread::get_id();
 +  return out.str();
++}
++
++uint64_t nextAsyncLoadHolderId() {
++  static std::atomic<uint64_t> nextId{1};
++  return nextId.fetch_add(1, std::memory_order_relaxed);
 +}
 +
 +std::string formatThreadOwnersLocked(std::string_view poolName) {
@@ -134,7 +140,9 @@ index 45d148c32..1b4bce2a2 100644
 +    const char* where,
 +    const std::shared_ptr<memory::MemoryPool>& pool,
 +    std::string_view threadName,
-+    int32_t delta) {
++    int32_t delta,
++    uint64_t holderId,
++    const void* holder) {
 +  if (!shouldLogTableScanPool(pool.get())) {
 +    return;
 +  }
@@ -143,10 +151,30 @@ index 45d148c32..1b4bce2a2 100644
 +  {
 +    std::lock_guard<std::mutex> lock(tableScanPoolThreadOwnersMutex());
 +    auto& poolOwners = tableScanPoolThreadOwners()[pool->name()];
-+    auto& count = poolOwners[std::string(threadName)];
++    const auto threadKey = std::string(threadName);
++    auto it = poolOwners.find(threadKey);
++    if (it == poolOwners.end()) {
++      VELOX_CHECK_GE(
++          delta,
++          0,
++          "AsyncLoadHolder tracking underflow for pool {} thread {} delta {}",
++          pool->name(),
++          threadName,
++          delta);
++      it = poolOwners.emplace(threadKey, 0).first;
++    }
++    auto& count = it->second;
 +    count += delta;
-+    if (count <= 0) {
-+      poolOwners.erase(std::string(threadName));
++    VELOX_CHECK_GE(
++        count,
++        0,
++        "AsyncLoadHolder tracking underflow for pool {} thread {} count {} delta {}",
++        pool->name(),
++        threadName,
++        count,
++        delta);
++    if (count == 0) {
++      poolOwners.erase(it);
 +    }
 +    if (poolOwners.empty()) {
 +      tableScanPoolThreadOwners().erase(pool->name());
@@ -157,6 +185,8 @@ index 45d148c32..1b4bce2a2 100644
 +  LOG(WARNING) << where << " pool=" << pool->name()
 +               << " poolUseCount=" << pool.use_count()
 +               << " delta=" << delta
++               << " holderId=" << holderId
++               << " holder=" << holder
 +               << " thread=" << threadName
 +               << " ownerThreads=" << owners;
 +}
@@ -171,15 +201,23 @@ index 45d148c32..1b4bce2a2 100644
 +void debugTrackAsyncLoadHolderRefDecrement(
 +    const std::shared_ptr<memory::MemoryPool>& pool) {
 +  trackAsyncLoadHolderRefChange(
-+      "AsyncLoadHolder pool ref decrement", pool, currentThreadLabel(), -1);
++      "AsyncLoadHolder dtor ref decrement",
++      pool,
++      currentThreadLabel(),
++      -1,
++      0,
++      nullptr);
 +}
 +
 +void debugTrackAsyncLoadHolderRefChangeForThread(
 +    const char* where,
 +    const std::shared_ptr<memory::MemoryPool>& pool,
 +    std::string_view threadName,
-+    int32_t delta) {
-+  trackAsyncLoadHolderRefChange(where, pool, threadName, delta);
++    int32_t delta,
++    uint64_t holderId,
++    const void* holder) {
++  trackAsyncLoadHolderRefChange(
++      where, pool, threadName, delta, holderId, holder);
 +}
 +
 +DirectBufferedInput::AsyncLoadHolder::AsyncLoadHolder(
@@ -187,13 +225,16 @@ index 45d148c32..1b4bce2a2 100644
 +    std::shared_ptr<memory::MemoryPool> pool)
 +    : load(std::move(load)),
 +      pool(std::move(pool)),
++      holderId(nextAsyncLoadHolderId()),
 +      ownerThread(currentThreadLabel()) {
 +  if (this->pool != nullptr) {
 +    debugTrackAsyncLoadHolderRefChangeForThread(
-+        "AsyncLoadHolder pool ref increment",
++        "AsyncLoadHolder ctor ref increment",
 +        this->pool,
 +        ownerThread,
-+        1);
++        1,
++        holderId,
++        this);
 +  }
 +}
 +
@@ -201,13 +242,32 @@ index 45d148c32..1b4bce2a2 100644
 +    AsyncLoadHolder&& other) noexcept
 +    : load(std::move(other.load)),
 +      pool(std::move(other.pool)),
++      holderId(other.holderId),
 +      ownerThread(currentThreadLabel()) {
 +  if (pool != nullptr) {
 +    debugTrackAsyncLoadHolderRefChangeForThread(
-+        "AsyncLoadHolder pool ref decrement", pool, other.ownerThread, -1);
++        "AsyncLoadHolder move ref decrement",
++        pool,
++        other.ownerThread,
++        -1,
++        holderId,
++        &other);
 +    debugTrackAsyncLoadHolderRefChangeForThread(
-+        "AsyncLoadHolder pool ref increment", pool, ownerThread, 1);
++        "AsyncLoadHolder move ref increment",
++        pool,
++        ownerThread,
++        1,
++        holderId,
++        this);
 +  }
++  LOG(WARNING) << "AsyncLoadHolder move holderId=" << holderId
++               << " from=" << static_cast<const void*>(&other)
++               << " to=" << static_cast<const void*>(this)
++               << " pool="
++               << (pool == nullptr ? std::string("null") : pool->name())
++               << " oldThread=" << other.ownerThread
++               << " newThread=" << ownerThread;
++  other.holderId = 0;
 +  other.ownerThread.clear();
 +}
 +
@@ -221,7 +281,12 @@ index 45d148c32..1b4bce2a2 100644
 +  load.reset();
 +  if (pool != nullptr) {
 +    debugTrackAsyncLoadHolderRefChangeForThread(
-+        "AsyncLoadHolder pool ref decrement", pool, ownerThread, -1);
++        "AsyncLoadHolder dtor ref decrement",
++        pool,
++        ownerThread,
++        -1,
++        holderId,
++        this);
 +  }
 +  pool.reset();
 +}
@@ -229,7 +294,7 @@ index 45d148c32..1b4bce2a2 100644
  std::unique_ptr<SeekableInputStream> DirectBufferedInput::enqueue(
      Region region,
      const StreamIdentifier* sid = nullptr) {
-@@ -208,6 +350,8 @@ void DirectBufferedInput::readRegion(
+@@ -208,6 +415,8 @@ void DirectBufferedInput::readRegion(
    });
  }
  
@@ -238,7 +303,7 @@ index 45d148c32..1b4bce2a2 100644
  void DirectBufferedInput::readRegions(
      const std::vector<LoadRequest*>& requests,
      bool prefetch,
-@@ -225,8 +369,8 @@ void DirectBufferedInput::readRegions(
+@@ -225,9 +434,18 @@ void DirectBufferedInput::readRegions(
      for (auto i = 0; i < coalescedLoads_.size(); ++i) {
        auto& load = coalescedLoads_[i];
        if (load->state() == CoalescedLoad::State::kPlanned) {
@@ -246,14 +311,24 @@ index 45d148c32..1b4bce2a2 100644
 -            .load = load, .pool = pool_->shared_from_this()};
 +        auto thisPool = pool_->shared_from_this();
 +        AsyncLoadHolder loadHolder{load, std::move(thisPool)};
++        LOG(WARNING) << "AsyncLoadHolder submit executor=" << static_cast<const void*>(executor_)
++                     << " holderId=" << loadHolder.holderId
++                     << " holder=" << static_cast<const void*>(&loadHolder)
++                     << " pool="
++                     << (loadHolder.pool == nullptr ? std::string("null") : loadHolder.pool->name());
          executor_->add([asyncLoad = std::move(loadHolder)]() {
++          LOG(WARNING) << "AsyncLoadHolder run holderId=" << asyncLoad.holderId
++                       << " holder=" << static_cast<const void*>(&asyncLoad)
++                       << " pool="
++                       << (asyncLoad.pool == nullptr ? std::string("null") : asyncLoad.pool->name());
            process::TraceContext trace("Read Ahead");
            VELOX_CHECK_NOT_NULL(asyncLoad.load);
+           asyncLoad.load->loadOrFuture(nullptr);
 diff --git a/velox/dwio/common/DirectBufferedInput.h b/velox/dwio/common/DirectBufferedInput.h
-index c23e104e9..7f1500d25 100644
+index c23e104e9..2c398c0c1 100644
 --- a/velox/dwio/common/DirectBufferedInput.h
 +++ b/velox/dwio/common/DirectBufferedInput.h
-@@ -30,6 +30,14 @@
+@@ -30,6 +30,16 @@
  
  namespace facebook::velox::dwio::common {
  
@@ -263,12 +338,14 @@ index c23e104e9..7f1500d25 100644
 +    const char* where,
 +    const std::shared_ptr<memory::MemoryPool>& pool,
 +    std::string_view threadName,
-+    int32_t delta);
++    int32_t delta,
++    uint64_t holderId,
++    const void* holder);
 +
  struct LoadRequest {
    LoadRequest() = default;
    LoadRequest(velox::common::Region& _region, cache::TrackingId _trackingId)
-@@ -92,6 +100,10 @@ class DirectCoalescedLoad : public cache::CoalescedLoad {
+@@ -92,6 +102,10 @@ class DirectCoalescedLoad : public cache::CoalescedLoad {
      return false;
    }
  
@@ -279,7 +356,7 @@ index c23e104e9..7f1500d25 100644
    /// Returns the buffer for 'region' in either 'data' or 'tinyData'. 'region'
    /// must match a region given to DirectBufferedInput::enqueue().
    int32_t
-@@ -109,6 +121,8 @@ class DirectCoalescedLoad : public cache::CoalescedLoad {
+@@ -109,6 +123,8 @@ class DirectCoalescedLoad : public cache::CoalescedLoad {
      return size;
    }
  
@@ -288,7 +365,7 @@ index c23e104e9..7f1500d25 100644
   private:
    const std::shared_ptr<IoStatistics> ioStatistics_;
    const std::shared_ptr<velox::IoStats> ioStats_;
-@@ -295,19 +309,19 @@ class DirectBufferedInput : public BufferedInput {
+@@ -295,19 +311,20 @@ class DirectBufferedInput : public BufferedInput {
    // Holds the reference on the memory pool for async load in case of early task
    // terminate.
    struct AsyncLoadHolder {
@@ -302,6 +379,7 @@ index c23e104e9..7f1500d25 100644
 +
      std::shared_ptr<cache::CoalescedLoad> load;
      std::shared_ptr<memory::MemoryPool> pool;
++    uint64_t holderId{0};
 +    std::string ownerThread;
  
 -    ~AsyncLoadHolder() {

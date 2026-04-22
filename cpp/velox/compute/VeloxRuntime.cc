@@ -74,7 +74,10 @@ namespace {
 class HookedExecutor final : public folly::Executor {
  public:
   HookedExecutor(folly::Executor* parent, std::string name, bool debug)
-      : parent_(parent), name_(std::move(name)), debug_(debug) {}
+      : parent_(parent),
+        name_(std::move(name)),
+        debug_(debug),
+        executorId_(nextExecutorId().fetch_add(1, std::memory_order_relaxed)) {}
 
   void add(folly::Func func) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
@@ -90,6 +93,14 @@ class HookedExecutor final : public folly::Executor {
 
   uint8_t getNumPriorities() const override {
     return parent_ == nullptr ? 1 : parent_->getNumPriorities();
+  }
+
+  uint64_t executorId() const {
+    return executorId_;
+  }
+
+  const std::string& name() const {
+    return name_;
   }
 
   bool join(std::chrono::milliseconds timeout) {
@@ -118,6 +129,11 @@ class HookedExecutor final : public folly::Executor {
   }
 
  private:
+  static std::atomic<uint64_t>& nextExecutorId() {
+    static std::atomic<uint64_t> nextId{1};
+    return nextId;
+  }
+
   struct TaskInfo {
     std::chrono::steady_clock::time_point enqueueTime;
     int8_t priority;
@@ -153,6 +169,7 @@ class HookedExecutor final : public folly::Executor {
   folly::Executor* parent_;
   std::string name_;
   bool debug_;
+  uint64_t executorId_;
   std::atomic<uint64_t> nextTaskId_{0};
   std::atomic<size_t> inFlight_{0};
   std::mutex mutex_;
@@ -168,11 +185,30 @@ std::unique_ptr<folly::Executor> makeHookedExecutor(folly::Executor* parent, con
   return std::make_unique<HookedExecutor>(parent, name, debug);
 }
 
+HookedExecutor* asHookedExecutor(folly::Executor* executor) {
+  return dynamic_cast<HookedExecutor*>(executor);
+}
+
+std::string describeExecutor(folly::Executor* executor) {
+  if (executor == nullptr) {
+    return "null";
+  }
+  auto* hookedExecutor = asHookedExecutor(executor);
+  if (hookedExecutor == nullptr) {
+    return fmt::format("ptr={} type=unknown", static_cast<const void*>(executor));
+  }
+  return fmt::format(
+      "ptr={} id={} name={}",
+      static_cast<const void*>(executor),
+      hookedExecutor->executorId(),
+      hookedExecutor->name());
+}
+
 void joinHookedExecutor(std::unique_ptr<folly::Executor>& executor, std::chrono::milliseconds timeout, bool debug) {
   if (executor == nullptr) {
     return;
   }
-  auto* hookedExecutor = dynamic_cast<HookedExecutor*>(executor.get());
+  auto* hookedExecutor = asHookedExecutor(executor.get());
   GLUTEN_CHECK(hookedExecutor != nullptr, "Expected HookedExecutor");
   if (!hookedExecutor->join(timeout)) {
     LOG(WARNING) << "Timed out waiting for hooked executor to finish after " << timeout.count() << " ms.";
@@ -223,6 +259,9 @@ VeloxRuntime::VeloxRuntime(
   LOG(WARNING) << "VeloxRuntime ctor this=" << static_cast<const void*>(this)
                << " memoryManager=" << static_cast<const void*>(memoryManager())
                << " kind=" << kind_
+               << " executor={" << describeExecutor(executor_.get()) << "}"
+               << " spillExecutor={" << describeExecutor(spillExecutor_.get()) << "}"
+               << " ioExecutor={" << describeExecutor(ioExecutor_.get()) << "}"
                << " connectorHive=" << connectorIds_.hive
                << " connectorIterator=" << connectorIds_.iterator;
 }
@@ -230,7 +269,10 @@ VeloxRuntime::VeloxRuntime(
 VeloxRuntime::~VeloxRuntime() {
   LOG(WARNING) << "VeloxRuntime dtor begin this=" << static_cast<const void*>(this)
                << " memoryManager=" << static_cast<const void*>(memoryManager())
-               << " kind=" << kind_;
+               << " kind=" << kind_
+               << " executor={" << describeExecutor(executor_.get()) << "}"
+               << " spillExecutor={" << describeExecutor(spillExecutor_.get()) << "}"
+               << " ioExecutor={" << describeExecutor(ioExecutor_.get()) << "}";
   unregisterConnectors();
   const auto timeoutMs =
       veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
@@ -240,7 +282,10 @@ VeloxRuntime::~VeloxRuntime() {
   joinHookedExecutor(ioExecutor_, timeout, debugModeEnabled_);
   LOG(WARNING) << "VeloxRuntime dtor end this=" << static_cast<const void*>(this)
                << " memoryManager=" << static_cast<const void*>(memoryManager())
-               << " kind=" << kind_;
+               << " kind=" << kind_
+               << " executor={" << describeExecutor(executor_.get()) << "}"
+               << " spillExecutor={" << describeExecutor(spillExecutor_.get()) << "}"
+               << " ioExecutor={" << describeExecutor(ioExecutor_.get()) << "}";
 }
 
 void VeloxRuntime::initializeExecutors() {
