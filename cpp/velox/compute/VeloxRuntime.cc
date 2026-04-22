@@ -231,13 +231,13 @@ VeloxRuntime::~VeloxRuntime() {
   LOG(WARNING) << "VeloxRuntime dtor begin this=" << static_cast<const void*>(this)
                << " memoryManager=" << static_cast<const void*>(memoryManager())
                << " kind=" << kind_;
+  unregisterConnectors();
   const auto timeoutMs =
       veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
   const auto timeout = std::chrono::milliseconds(timeoutMs);
   joinHookedExecutor(executor_, timeout, debugModeEnabled_);
   joinHookedExecutor(spillExecutor_, timeout, debugModeEnabled_);
   joinHookedExecutor(ioExecutor_, timeout, debugModeEnabled_);
-  unregisterConnectors();
   LOG(WARNING) << "VeloxRuntime dtor end this=" << static_cast<const void*>(this)
                << " memoryManager=" << static_cast<const void*>(memoryManager())
                << " kind=" << kind_;
