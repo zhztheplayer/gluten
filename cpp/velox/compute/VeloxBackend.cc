@@ -187,9 +187,16 @@ void VeloxBackend::init(
   if (spillThreadNum > 0) {
     spillExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(spillThreadNum);
   }
+  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
+  GLUTEN_CHECK(
+      ioThreads >= 0,
+      kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
+  if (ioThreads > 0) {
+    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
+  }
 
   initJolFilesystem();
-  initConnector(hiveConnectorConfig_);
 
   velox::dwio::common::registerFileSinks();
   velox::parquet::registerParquetReaderFactory();
@@ -310,18 +317,6 @@ void VeloxBackend::initCache() {
   }
 }
 
-void VeloxBackend::initConnector(const std::shared_ptr<velox::config::ConfigBase>& hiveConf) {
-  (void)hiveConf;
-  auto ioThreads = backendConf_->get<int32_t>(kVeloxIOThreads, kVeloxIOThreadsDefault);
-  GLUTEN_CHECK(
-      ioThreads >= 0,
-      kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
-  if (ioThreads > 0) {
-    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
-        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
-  }
-}
-
 std::shared_ptr<facebook::velox::connector::Connector> VeloxBackend::createHiveConnector(
     const std::string& connectorId,
     folly::Executor* ioExecutor) const {
@@ -384,6 +379,7 @@ void VeloxBackend::tearDown() {
   executor_.reset();
   spillExecutor_.reset();
   ioExecutor_.reset();
+  ssdCacheExecutor_.reset();
   globalMemoryManager_.reset();
 
   // dump cache stats on exit if enabled
