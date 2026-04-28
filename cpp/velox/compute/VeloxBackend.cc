@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <chrono>
 #include <filesystem>
 
 #include "VeloxBackend.h"
@@ -92,6 +93,31 @@ Runtime* veloxRuntimeFactory(
 
 void veloxRuntimeReleaser(Runtime* runtime) {
   delete runtime;
+}
+
+void logThreadPoolExecutorState(const std::string& name, folly::Executor* executor) {
+  if (executor == nullptr) {
+    LOG(WARNING) << "VeloxBackend::tearDown " << name << " is null";
+    return;
+  }
+
+  auto* threadPool = dynamic_cast<folly::ThreadPoolExecutor*>(executor);
+  if (threadPool == nullptr) {
+    LOG(WARNING) << "VeloxBackend::tearDown " << name << " is not a ThreadPoolExecutor, ptr="
+                 << static_cast<const void*>(executor);
+    return;
+  }
+
+  LOG(WARNING) << "VeloxBackend::tearDown " << name << " state before reset: ptr="
+               << static_cast<const void*>(executor) << ", threads=" << threadPool->numThreads()
+               << ", activeThreads=" << threadPool->numActiveThreads()
+               << ", pendingTasks=" << threadPool->getPendingTaskCount();
+
+  const auto stats = threadPool->getPoolStats();
+  LOG(WARNING) << "VeloxBackend::tearDown " << name << " pool stats before reset: threadCount="
+               << stats.threadCount << ", activeThreadCount=" << stats.activeThreadCount
+               << ", idleThreadCount=" << stats.idleThreadCount << ", pendingTaskCount=" << stats.pendingTaskCount
+               << ", totalTaskCount=" << stats.totalTaskCount;
 }
 } // namespace
 
@@ -364,35 +390,87 @@ VeloxBackend* VeloxBackend::get() {
 }
 
 void VeloxBackend::tearDown() {
+  using Clock = std::chrono::steady_clock;
+
+  const auto tearDownStart = Clock::now();
+  auto logStepDuration = [&](const char* stepName, Clock::time_point stepStart) {
+    const auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - stepStart).count();
+    LOG(WARNING) << "VeloxBackend::tearDown completed step [" << stepName << "] in " << elapsedMs << " ms";
+  };
+
+  LOG(WARNING) << "VeloxBackend::tearDown start";
+  LOG(WARNING) << "VeloxBackend::tearDown active VeloxRuntime count: " << getActiveVeloxRuntimeCount();
+
 #ifdef ENABLE_HDFS
+  LOG(WARNING) << "VeloxBackend::tearDown closing registered filesystems";
+  const auto filesystemCloseStart = Clock::now();
   for (const auto& [_, filesystem] : facebook::velox::filesystems::registeredFilesystems) {
+    LOG(WARNING) << "VeloxBackend::tearDown closing filesystem at " << static_cast<const void*>(filesystem.get());
     filesystem->close();
   }
+  logStepDuration("close registered filesystems", filesystemCloseStart);
 #endif
 #ifdef ENABLE_S3
+  LOG(WARNING) << "VeloxBackend::tearDown finalizing S3 filesystem";
+  const auto s3FinalizeStart = Clock::now();
   velox::filesystems::finalizeS3FileSystem();
+  logStepDuration("finalize S3 filesystem", s3FinalizeStart);
 #endif
 
   // Destruct IOThreadPoolExecutor will join all threads.
   // On threads exit, thread local variables can be constructed with referencing global variables.
   // So, we need to destruct IOThreadPoolExecutor and stop the threads before global variables get destructed.
+  LOG(WARNING) << "VeloxBackend::tearDown resetting executor_";
+  auto stepStart = Clock::now();
   executor_.reset();
+  logStepDuration("reset executor_", stepStart);
+
+  LOG(WARNING) << "VeloxBackend::tearDown resetting spillExecutor_";
+  stepStart = Clock::now();
   spillExecutor_.reset();
+  logStepDuration("reset spillExecutor_", stepStart);
+
+  logThreadPoolExecutorState("ioExecutor_", ioExecutor_.get());
+  LOG(WARNING) << "VeloxBackend::tearDown resetting ioExecutor_";
+  stepStart = Clock::now();
   ioExecutor_.reset();
+  logStepDuration("reset ioExecutor_", stepStart);
+
+  LOG(WARNING) << "VeloxBackend::tearDown resetting ssdCacheExecutor_";
+  stepStart = Clock::now();
   ssdCacheExecutor_.reset();
+  logStepDuration("reset ssdCacheExecutor_", stepStart);
+
+  LOG(WARNING) << "VeloxBackend::tearDown resetting globalMemoryManager_";
+  stepStart = Clock::now();
   globalMemoryManager_.reset();
+  logStepDuration("reset globalMemoryManager_", stepStart);
 
   // dump cache stats on exit if enabled
   if (dynamic_cast<facebook::velox::cache::AsyncDataCache*>(asyncDataCache_.get())) {
-    LOG(INFO) << asyncDataCache_->toString();
+    LOG(WARNING) << "VeloxBackend::tearDown dumping async data cache stats";
+    LOG(WARNING) << asyncDataCache_->toString();
+
+    LOG(WARNING) << "VeloxBackend::tearDown removing cache files from " << cachePathPrefix_
+                 << " with prefix " << cacheFilePrefix_;
+    stepStart = Clock::now();
     for (const auto& entry : std::filesystem::directory_iterator(cachePathPrefix_)) {
       if (entry.path().filename().string().find(cacheFilePrefix_) != std::string::npos) {
-        LOG(INFO) << "Removing cache file " << entry.path().filename().string();
+        LOG(WARNING) << "Removing cache file " << entry.path().filename().string();
         std::filesystem::remove(cachePathPrefix_ + "/" + entry.path().filename().string());
       }
     }
+    logStepDuration("remove cache files", stepStart);
+
+    LOG(WARNING) << "VeloxBackend::tearDown shutting down async data cache";
+    stepStart = Clock::now();
     asyncDataCache_->shutdown();
+    logStepDuration("shutdown async data cache", stepStart);
   }
+
+  const auto totalElapsedMs =
+      std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - tearDownStart).count();
+  LOG(WARNING) << "VeloxBackend::tearDown finished in " << totalElapsedMs << " ms";
 }
 
 } // namespace gluten

@@ -71,6 +71,11 @@ namespace gluten {
 
 namespace {
 
+std::atomic<int64_t>& activeVeloxRuntimeCount() {
+  static std::atomic<int64_t> count{0};
+  return count;
+}
+
 class HookedExecutor final : public folly::Executor {
  public:
   HookedExecutor(folly::Executor* parent, std::string name, bool debug, std::chrono::milliseconds joinTimeout)
@@ -209,11 +214,17 @@ VeloxConnectorIds makeScopedConnectorIds(uint64_t runtimeId) {
 
 } // namespace
 
+int64_t getActiveVeloxRuntimeCount() {
+  return activeVeloxRuntimeCount().load(std::memory_order_acquire);
+}
+
 VeloxRuntime::VeloxRuntime(
     const std::string& kind,
     VeloxMemoryManager* vmm,
     const std::unordered_map<std::string, std::string>& confMap)
     : Runtime(kind, vmm, confMap) {
+  const auto activeCount = activeVeloxRuntimeCount().fetch_add(1, std::memory_order_acq_rel) + 1;
+  LOG(WARNING) << "VeloxRuntime created, active runtime count: " << activeCount;
   // Refresh session config.
   veloxCfg_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));
@@ -240,6 +251,8 @@ VeloxRuntime::~VeloxRuntime() {
   executor_.reset();
   spillExecutor_.reset();
   ioExecutor_.reset();
+  const auto activeCount = activeVeloxRuntimeCount().fetch_sub(1, std::memory_order_acq_rel) - 1;
+  LOG(WARNING) << "VeloxRuntime destroyed, active runtime count: " << activeCount;
 }
 
 void VeloxRuntime::initializeExecutors() {

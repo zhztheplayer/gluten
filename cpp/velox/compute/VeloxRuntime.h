@@ -37,6 +37,8 @@
 
 namespace gluten {
 
+int64_t getActiveVeloxRuntimeCount();
+
 class VeloxRuntime final : public Runtime {
  public:
   explicit VeloxRuntime(
