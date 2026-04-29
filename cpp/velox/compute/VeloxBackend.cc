@@ -14,12 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
 #include "VeloxBackend.h"
 
 #include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/thread_factory/NamedThreadFactory.h>
 #include <folly/executors/task_queue/UnboundedBlockingQueue.h>
 
 #include "operators/functions/RegistrationAllFunctions.h"
@@ -219,7 +221,9 @@ void VeloxBackend::init(
       kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
   if (ioThreads > 0) {
     ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
-        ioThreads, std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>());
+        ioThreads,
+        std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>(),
+        std::make_shared<folly::NamedThreadFactory>("gluten-io-"));
   }
 
   initJolFilesystem();
