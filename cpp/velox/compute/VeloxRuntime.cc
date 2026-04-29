@@ -77,7 +77,7 @@ std::atomic<int64_t>& activeVeloxRuntimeCount() {
 }
 
 int64_t getBackendIoExecutorActiveThreadCount() {
-  auto* backendExecutor = VeloxBackend::get()->ioExecutor();
+  auto* backendExecutor = VeloxBackend::get()->rawIoExecutor();
   auto* threadPool = dynamic_cast<folly::ThreadPoolExecutor*>(backendExecutor);
   if (threadPool == nullptr) {
     return -1;

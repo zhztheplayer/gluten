@@ -70,6 +70,10 @@ class VeloxBackend {
     return ioExecutor_.get();
   }
 
+  folly::Executor* rawIoExecutor() const {
+    return rawIoExecutor_.get();
+  }
+
   std::shared_ptr<facebook::velox::connector::Connector> createHiveConnector(
       const std::string& connectorId,
       folly::Executor* ioExecutor) const;
@@ -113,6 +117,7 @@ class VeloxBackend {
 
   std::unique_ptr<folly::Executor> executor_;
   std::unique_ptr<folly::Executor> spillExecutor_;
+  std::unique_ptr<folly::Executor> rawIoExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
   std::unique_ptr<folly::Executor> ssdCacheExecutor_;
   std::shared_ptr<facebook::velox::memory::MmapAllocator> cacheAllocator_;
