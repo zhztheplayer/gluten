@@ -98,9 +98,15 @@ int64_t getBackendIoExecutorActiveThreadCount() {
 
 class HookedExecutor final : public folly::Executor {
  public:
-  HookedExecutor(folly::Executor* parent, std::string name, bool debug, std::chrono::milliseconds joinTimeout)
+  HookedExecutor(
+      folly::Executor* parent,
+      std::string name,
+      uint64_t runtimeId,
+      bool debug,
+      std::chrono::milliseconds joinTimeout)
       : parent_(parent),
         name_(std::move(name)),
+        runtimeId_(runtimeId),
         debug_(debug),
         joinTimeout_(joinTimeout),
         logTaskLifecycle_(name_.find(".io") != std::string::npos) {}
@@ -153,7 +159,7 @@ class HookedExecutor final : public folly::Executor {
   void add(folly::Func func) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
     if (logTaskLifecycle_) {
-      LOG(WARNING) << name_ << " submit: callerThreadId=" << currentThreadIdString()
+      LOG(WARNING) << name_ << " runtimeId=" << runtimeId_ << " submit: callerThreadId=" << currentThreadIdString()
                    << ", activeThreadCount=" << getThreadPoolActiveThreadCount(parent_);
     }
     inFlight_.fetch_add(1, std::memory_order_relaxed);
@@ -163,7 +169,7 @@ class HookedExecutor final : public folly::Executor {
   void addWithPriority(folly::Func func, int8_t priority) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
     if (logTaskLifecycle_) {
-      LOG(WARNING) << name_ << " submit priority=" << static_cast<int32_t>(priority)
+      LOG(WARNING) << name_ << " runtimeId=" << runtimeId_ << " submit priority=" << static_cast<int32_t>(priority)
                    << ", callerThreadId=" << currentThreadIdString()
                    << ", activeThreadCount=" << getThreadPoolActiveThreadCount(parent_);
     }
@@ -190,12 +196,14 @@ class HookedExecutor final : public folly::Executor {
     }
     return [func = std::move(func), self, taskId]() mutable {
       if (self->logTaskLifecycle_) {
-        LOG(WARNING) << self->name_ << " task start: workerThreadId=" << currentThreadIdString()
+        LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_
+                     << " task start: workerThreadId=" << currentThreadIdString()
                      << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
       }
       auto markDone = folly::makeGuard([&] {
         if (self->logTaskLifecycle_) {
-          LOG(WARNING) << self->name_ << " task exit: workerThreadId=" << currentThreadIdString()
+          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_
+                       << " task exit: workerThreadId=" << currentThreadIdString()
                        << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
         }
         if (self->debug_) {
@@ -221,6 +229,7 @@ class HookedExecutor final : public folly::Executor {
 
   folly::Executor* parent_;
   std::string name_;
+  uint64_t runtimeId_;
   bool debug_;
   std::chrono::milliseconds joinTimeout_;
   bool logTaskLifecycle_;
@@ -235,12 +244,13 @@ class HookedExecutor final : public folly::Executor {
 std::unique_ptr<folly::Executor> makeHookedExecutor(
     folly::Executor* parent,
     const std::string& name,
+    uint64_t runtimeId,
     bool debug,
     std::chrono::milliseconds joinTimeout) {
   if (parent == nullptr) {
     return nullptr;
   }
-  return std::make_unique<HookedExecutor>(parent, name, debug, joinTimeout);
+  return std::make_unique<HookedExecutor>(parent, name, runtimeId, debug, joinTimeout);
 }
 
 std::string makeScopedConnectorId(const std::string& base, uint64_t runtimeId) {
@@ -305,10 +315,13 @@ void VeloxRuntime::initializeExecutors() {
   const auto timeoutMs =
       veloxCfg_->get<int32_t>(kVeloxAsyncTimeoutOnTaskStopping, kVeloxAsyncTimeoutOnTaskStoppingDefault);
   const auto timeout = std::chrono::milliseconds(timeoutMs);
-  executor_ = makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", debugModeEnabled_, timeout);
+  executor_ =
+      makeHookedExecutor(VeloxBackend::get()->executor(), kind_ + ".executor", runtimeId_, debugModeEnabled_, timeout);
   spillExecutor_ =
-      makeHookedExecutor(VeloxBackend::get()->spillExecutor(), kind_ + ".spill", debugModeEnabled_, timeout);
-  ioExecutor_ = makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", debugModeEnabled_, timeout);
+      makeHookedExecutor(
+          VeloxBackend::get()->spillExecutor(), kind_ + ".spill", runtimeId_, debugModeEnabled_, timeout);
+  ioExecutor_ =
+      makeHookedExecutor(VeloxBackend::get()->ioExecutor(), kind_ + ".io", runtimeId_, debugModeEnabled_, timeout);
 }
 
 void VeloxRuntime::registerConnectors() {
