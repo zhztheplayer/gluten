@@ -17,15 +17,12 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <sstream>
-#include <thread>
 
 #include "VeloxBackend.h"
 
 #include <folly/executors/CPUThreadPoolExecutor.h>
 #include <folly/executors/thread_factory/NamedThreadFactory.h>
 #include <folly/executors/task_queue/UnboundedBlockingQueue.h>
-#include <folly/ScopeGuard.h>
 
 #include "operators/functions/RegistrationAllFunctions.h"
 #include "operators/plannodes/RowVectorStream.h"
@@ -79,65 +76,6 @@ using namespace facebook;
 namespace gluten {
 
 namespace {
-int64_t getThreadPoolActiveThreadCount(folly::Executor* executor) {
-  auto* threadPool = dynamic_cast<folly::ThreadPoolExecutor*>(executor);
-  if (threadPool == nullptr) {
-    return -1;
-  }
-  return threadPool->getPoolStats().activeThreadCount;
-}
-
-std::string currentThreadIdString() {
-  std::ostringstream out;
-  out << std::this_thread::get_id();
-  return out.str();
-}
-
-class LoggingExecutor final : public folly::Executor {
- public:
-  LoggingExecutor(folly::Executor* parent, folly::Executor* tracedThreadPool, std::string name)
-      : parent_(parent), tracedThreadPool_(tracedThreadPool), name_(std::move(name)) {}
-
-  uint8_t getNumPriorities() const override {
-    return parent_ == nullptr ? 1 : parent_->getNumPriorities();
-  }
-
-  void add(folly::Func func) override {
-    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
-    LOG(WARNING) << name_ << " submit: callerThreadId=" << currentThreadIdString()
-                 << ", activeThreadCount=" << getThreadPoolActiveThreadCount(tracedThreadPool_);
-    parent_->add(wrap(std::move(func)));
-  }
-
-  void addWithPriority(folly::Func func, int8_t priority) override {
-    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
-    LOG(WARNING) << name_ << " submit priority=" << static_cast<int32_t>(priority)
-                 << ", callerThreadId=" << currentThreadIdString()
-                 << ": activeThreadCount=" << getThreadPoolActiveThreadCount(tracedThreadPool_);
-    parent_->addWithPriority(wrap(std::move(func)), priority);
-  }
-
- private:
-  folly::Func wrap(folly::Func func) {
-    auto* tracedThreadPool = tracedThreadPool_;
-    auto name = name_;
-    return [func = std::move(func), tracedThreadPool, name = std::move(name)]() mutable {
-      LOG(WARNING) << name << " task start: workerThreadId=" << currentThreadIdString()
-                   << ", activeThreadCount=" << getThreadPoolActiveThreadCount(tracedThreadPool);
-      auto logExit = folly::makeGuard([&] {
-        LOG(WARNING) << name << " task exit: workerThreadId=" << currentThreadIdString()
-                     << ", activeThreadCount=" << getThreadPoolActiveThreadCount(tracedThreadPool);
-      });
-      auto localFunc = std::move(func);
-      localFunc();
-    };
-  }
-
-  folly::Executor* parent_;
-  folly::Executor* tracedThreadPool_;
-  std::string name_;
-};
-
 MemoryManager* veloxMemoryManagerFactory(const std::string& kind, std::unique_ptr<AllocationListener> listener) {
   return new VeloxMemoryManager(kind, std::move(listener), *VeloxBackend::get()->getBackendConf());
 }
@@ -282,11 +220,10 @@ void VeloxBackend::init(
       ioThreads >= 0,
       kVeloxIOThreads + " was set to negative number " + std::to_string(ioThreads) + ", this should not happen.");
   if (ioThreads > 0) {
-    rawIoExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
+    ioExecutor_ = std::make_unique<folly::CPUThreadPoolExecutor>(
         ioThreads,
         std::make_unique<folly::UnboundedBlockingQueue<folly::CPUThreadPoolExecutor::CPUTask>>(),
         std::make_shared<folly::NamedThreadFactory>("gluten-io-"));
-    ioExecutor_ = std::make_unique<LoggingExecutor>(rawIoExecutor_.get(), rawIoExecutor_.get(), "VeloxBackend.io");
   }
 
   initJolFilesystem();
@@ -497,16 +434,11 @@ void VeloxBackend::tearDown() {
   spillExecutor_.reset();
   logStepDuration("reset spillExecutor_", stepStart);
 
-  logThreadPoolExecutorState("rawIoExecutor_", rawIoExecutor_.get());
+  logThreadPoolExecutorState("ioExecutor_", ioExecutor_.get());
   LOG(WARNING) << "VeloxBackend::tearDown resetting ioExecutor_";
   stepStart = Clock::now();
   ioExecutor_.reset();
   logStepDuration("reset ioExecutor_", stepStart);
-
-  LOG(WARNING) << "VeloxBackend::tearDown resetting rawIoExecutor_";
-  stepStart = Clock::now();
-  rawIoExecutor_.reset();
-  logStepDuration("reset rawIoExecutor_", stepStart);
 
   LOG(WARNING) << "VeloxBackend::tearDown resetting ssdCacheExecutor_";
   stepStart = Clock::now();

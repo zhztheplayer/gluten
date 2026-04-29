@@ -23,6 +23,8 @@
 #include <condition_variable>
 #include <filesystem>
 #include <mutex>
+#include <sstream>
+#include <thread>
 #include <unordered_map>
 
 #include <folly/ScopeGuard.h>
@@ -76,19 +78,32 @@ std::atomic<int64_t>& activeVeloxRuntimeCount() {
   return count;
 }
 
-int64_t getBackendIoExecutorActiveThreadCount() {
-  auto* backendExecutor = VeloxBackend::get()->rawIoExecutor();
-  auto* threadPool = dynamic_cast<folly::ThreadPoolExecutor*>(backendExecutor);
+int64_t getThreadPoolActiveThreadCount(folly::Executor* executor) {
+  auto* threadPool = dynamic_cast<folly::ThreadPoolExecutor*>(executor);
   if (threadPool == nullptr) {
     return -1;
   }
   return threadPool->getPoolStats().activeThreadCount;
 }
 
+std::string currentThreadIdString() {
+  std::ostringstream out;
+  out << std::this_thread::get_id();
+  return out.str();
+}
+
+int64_t getBackendIoExecutorActiveThreadCount() {
+  return getThreadPoolActiveThreadCount(VeloxBackend::get()->ioExecutor());
+}
+
 class HookedExecutor final : public folly::Executor {
  public:
   HookedExecutor(folly::Executor* parent, std::string name, bool debug, std::chrono::milliseconds joinTimeout)
-      : parent_(parent), name_(std::move(name)), debug_(debug), joinTimeout_(joinTimeout) {}
+      : parent_(parent),
+        name_(std::move(name)),
+        debug_(debug),
+        joinTimeout_(joinTimeout),
+        logTaskLifecycle_(name_.find(".io") != std::string::npos) {}
 
   ~HookedExecutor() override {
     if (!join()) {
@@ -137,12 +152,21 @@ class HookedExecutor final : public folly::Executor {
  public:
   void add(folly::Func func) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    if (logTaskLifecycle_) {
+      LOG(WARNING) << name_ << " submit: callerThreadId=" << currentThreadIdString()
+                   << ", activeThreadCount=" << getThreadPoolActiveThreadCount(parent_);
+    }
     inFlight_.fetch_add(1, std::memory_order_relaxed);
     parent_->add(wrap(std::move(func), 0));
   }
 
   void addWithPriority(folly::Func func, int8_t priority) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    if (logTaskLifecycle_) {
+      LOG(WARNING) << name_ << " submit priority=" << static_cast<int32_t>(priority)
+                   << ", callerThreadId=" << currentThreadIdString()
+                   << ", activeThreadCount=" << getThreadPoolActiveThreadCount(parent_);
+    }
     inFlight_.fetch_add(1, std::memory_order_relaxed);
     parent_->addWithPriority(wrap(std::move(func), priority), priority);
   }
@@ -165,7 +189,15 @@ class HookedExecutor final : public folly::Executor {
       inFlightTasks_[taskId] = std::move(info);
     }
     return [func = std::move(func), self, taskId]() mutable {
+      if (self->logTaskLifecycle_) {
+        LOG(WARNING) << self->name_ << " task start: workerThreadId=" << currentThreadIdString()
+                     << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
+      }
       auto markDone = folly::makeGuard([&] {
+        if (self->logTaskLifecycle_) {
+          LOG(WARNING) << self->name_ << " task exit: workerThreadId=" << currentThreadIdString()
+                       << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
+        }
         if (self->debug_) {
           std::lock_guard<std::mutex> lock(self->taskMutex_);
           self->inFlightTasks_.erase(taskId);
@@ -191,6 +223,7 @@ class HookedExecutor final : public folly::Executor {
   std::string name_;
   bool debug_;
   std::chrono::milliseconds joinTimeout_;
+  bool logTaskLifecycle_;
   std::atomic<uint64_t> nextTaskId_{0};
   std::atomic<size_t> inFlight_{0};
   std::mutex mutex_;
@@ -233,8 +266,6 @@ VeloxRuntime::VeloxRuntime(
     const std::unordered_map<std::string, std::string>& confMap)
     : Runtime(kind, vmm, confMap) {
   const auto activeCount = activeVeloxRuntimeCount().fetch_add(1, std::memory_order_acq_rel) + 1;
-  LOG(WARNING) << "VeloxRuntime created, active runtime count: " << activeCount
-               << ", backend ioExecutor activeThreadCount: " << getBackendIoExecutorActiveThreadCount();
   // Refresh session config.
   veloxCfg_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));
@@ -250,7 +281,11 @@ VeloxRuntime::VeloxRuntime(
       kMemoryPoolCapacityTransferAcrossTasks, FLAGS_velox_memory_pool_capacity_transfer_across_tasks);
 
   static std::atomic<uint64_t> runtimeId{0};
-  connectorIds_ = makeScopedConnectorIds(runtimeId++);
+  runtimeId_ = runtimeId++;
+  connectorIds_ = makeScopedConnectorIds(runtimeId_);
+
+  LOG(WARNING) << "VeloxRuntime created, runtimeId=" << runtimeId_ << ", active runtime count: " << activeCount
+               << ", backend ioExecutor activeThreadCount: " << getBackendIoExecutorActiveThreadCount();
 
   initializeExecutors();
   registerConnectors();
@@ -262,7 +297,7 @@ VeloxRuntime::~VeloxRuntime() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   const auto activeCount = activeVeloxRuntimeCount().fetch_sub(1, std::memory_order_acq_rel) - 1;
-  LOG(WARNING) << "VeloxRuntime destroyed, active runtime count: " << activeCount
+  LOG(WARNING) << "VeloxRuntime destroyed, runtimeId=" << runtimeId_ << ", active runtime count: " << activeCount
                << ", backend ioExecutor activeThreadCount: " << getBackendIoExecutorActiveThreadCount();
 }
 

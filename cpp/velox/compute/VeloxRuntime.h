@@ -160,6 +160,7 @@ class VeloxRuntime final : public Runtime {
   std::unique_ptr<folly::Executor> executor_;
   std::unique_ptr<folly::Executor> spillExecutor_;
   std::unique_ptr<folly::Executor> ioExecutor_;
+  uint64_t runtimeId_{0};
   VeloxConnectorIds connectorIds_;
 
   std::unordered_map<int32_t, std::shared_ptr<VeloxColumnarBatch>> emptySchemaBatchLoopUp_;
