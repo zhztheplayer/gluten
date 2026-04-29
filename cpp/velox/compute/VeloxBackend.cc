@@ -108,12 +108,12 @@ void logThreadPoolExecutorState(const std::string& name, folly::Executor* execut
     return;
   }
 
+  const auto stats = threadPool->getPoolStats();
   LOG(WARNING) << "VeloxBackend::tearDown " << name << " state before reset: ptr="
                << static_cast<const void*>(executor) << ", threads=" << threadPool->numThreads()
                << ", activeThreads=" << threadPool->numActiveThreads()
-               << ", pendingTasks=" << threadPool->getPendingTaskCount();
-
-  const auto stats = threadPool->getPoolStats();
+               << ", pendingTasks=" << threadPool->getPendingTaskCount()
+               << ", activeThreadCount=" << stats.activeThreadCount;
   LOG(WARNING) << "VeloxBackend::tearDown " << name << " pool stats before reset: threadCount="
                << stats.threadCount << ", activeThreadCount=" << stats.activeThreadCount
                << ", idleThreadCount=" << stats.idleThreadCount << ", pendingTaskCount=" << stats.pendingTaskCount

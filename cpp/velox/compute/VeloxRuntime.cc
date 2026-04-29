@@ -76,6 +76,15 @@ std::atomic<int64_t>& activeVeloxRuntimeCount() {
   return count;
 }
 
+int64_t getBackendIoExecutorActiveThreadCount() {
+  auto* backendExecutor = VeloxBackend::get()->ioExecutor();
+  auto* threadPool = dynamic_cast<folly::ThreadPoolExecutor*>(backendExecutor);
+  if (threadPool == nullptr) {
+    return -1;
+  }
+  return threadPool->getPoolStats().activeThreadCount;
+}
+
 class HookedExecutor final : public folly::Executor {
  public:
   HookedExecutor(folly::Executor* parent, std::string name, bool debug, std::chrono::milliseconds joinTimeout)
@@ -224,7 +233,8 @@ VeloxRuntime::VeloxRuntime(
     const std::unordered_map<std::string, std::string>& confMap)
     : Runtime(kind, vmm, confMap) {
   const auto activeCount = activeVeloxRuntimeCount().fetch_add(1, std::memory_order_acq_rel) + 1;
-  LOG(WARNING) << "VeloxRuntime created, active runtime count: " << activeCount;
+  LOG(WARNING) << "VeloxRuntime created, active runtime count: " << activeCount
+               << ", backend ioExecutor activeThreadCount: " << getBackendIoExecutorActiveThreadCount();
   // Refresh session config.
   veloxCfg_ =
       std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(confMap_));
@@ -252,7 +262,8 @@ VeloxRuntime::~VeloxRuntime() {
   spillExecutor_.reset();
   ioExecutor_.reset();
   const auto activeCount = activeVeloxRuntimeCount().fetch_sub(1, std::memory_order_acq_rel) - 1;
-  LOG(WARNING) << "VeloxRuntime destroyed, active runtime count: " << activeCount;
+  LOG(WARNING) << "VeloxRuntime destroyed, active runtime count: " << activeCount
+               << ", backend ioExecutor activeThreadCount: " << getBackendIoExecutorActiveThreadCount();
 }
 
 void VeloxRuntime::initializeExecutors() {
