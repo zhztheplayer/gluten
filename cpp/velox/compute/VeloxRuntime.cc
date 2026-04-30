@@ -210,12 +210,20 @@ class HookedExecutor final : public folly::Executor {
                        << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
         }
         if (self->debug_) {
+          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_ << " taskId=" << taskId
+                       << " markDone before taskMutex_: workerThreadId=" << currentThreadIdString();
           std::lock_guard<std::mutex> lock(self->taskMutex_);
           self->inFlightTasks_.erase(taskId);
+          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_ << " taskId=" << taskId
+                       << " markDone after taskMutex_: workerThreadId=" << currentThreadIdString();
         }
         if (self->inFlight_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_ << " taskId=" << taskId
+                       << " markDone before notify mutex: workerThreadId=" << currentThreadIdString();
           std::lock_guard<std::mutex> lock(self->mutex_);
           self->cv_.notify_all();
+          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_ << " taskId=" << taskId
+                       << " markDone after notify mutex: workerThreadId=" << currentThreadIdString();
         }
       });
       // Destroy the submitted callable and all of its captures before
