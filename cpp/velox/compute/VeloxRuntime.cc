@@ -158,23 +158,27 @@ class HookedExecutor final : public folly::Executor {
  public:
   void add(folly::Func func) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    const auto taskId = nextTaskId_.fetch_add(1, std::memory_order_relaxed);
     if (logTaskLifecycle_) {
-      LOG(WARNING) << name_ << " runtimeId=" << runtimeId_ << " submit: callerThreadId=" << currentThreadIdString()
+      LOG(WARNING) << name_ << " runtimeId=" << runtimeId_ << " taskId=" << taskId
+                   << " submit: callerThreadId=" << currentThreadIdString()
                    << ", activeThreadCount=" << getThreadPoolActiveThreadCount(parent_);
     }
     inFlight_.fetch_add(1, std::memory_order_relaxed);
-    parent_->add(wrap(std::move(func), 0));
+    parent_->add(wrap(std::move(func), 0, taskId));
   }
 
   void addWithPriority(folly::Func func, int8_t priority) override {
     GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    const auto taskId = nextTaskId_.fetch_add(1, std::memory_order_relaxed);
     if (logTaskLifecycle_) {
-      LOG(WARNING) << name_ << " runtimeId=" << runtimeId_ << " submit priority=" << static_cast<int32_t>(priority)
+      LOG(WARNING) << name_ << " runtimeId=" << runtimeId_ << " taskId=" << taskId
+                   << " submit priority=" << static_cast<int32_t>(priority)
                    << ", callerThreadId=" << currentThreadIdString()
                    << ", activeThreadCount=" << getThreadPoolActiveThreadCount(parent_);
     }
     inFlight_.fetch_add(1, std::memory_order_relaxed);
-    parent_->addWithPriority(wrap(std::move(func), priority), priority);
+    parent_->addWithPriority(wrap(std::move(func), priority, taskId), priority);
   }
 
   struct TaskInfo {
@@ -183,9 +187,8 @@ class HookedExecutor final : public folly::Executor {
     std::string submitStacktrace;
   };
 
-  folly::Func wrap(folly::Func func, int8_t priority) {
+  folly::Func wrap(folly::Func func, int8_t priority, uint64_t taskId) {
     auto* self = this;
-    const auto taskId = nextTaskId_.fetch_add(1, std::memory_order_relaxed);
     if (debug_) {
       TaskInfo info{
           .enqueueTime = std::chrono::steady_clock::now(),
@@ -196,13 +199,13 @@ class HookedExecutor final : public folly::Executor {
     }
     return [func = std::move(func), self, taskId]() mutable {
       if (self->logTaskLifecycle_) {
-        LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_
+        LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_ << " taskId=" << taskId
                      << " task start: workerThreadId=" << currentThreadIdString()
                      << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
       }
       auto markDone = folly::makeGuard([&] {
         if (self->logTaskLifecycle_) {
-          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_
+          LOG(WARNING) << self->name_ << " runtimeId=" << self->runtimeId_ << " taskId=" << taskId
                        << " task exit: workerThreadId=" << currentThreadIdString()
                        << ", activeThreadCount=" << getThreadPoolActiveThreadCount(self->parent_);
         }
