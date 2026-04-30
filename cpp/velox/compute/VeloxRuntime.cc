@@ -74,7 +74,11 @@ namespace {
 class HookedExecutor final : public folly::Executor {
  public:
   HookedExecutor(folly::Executor* parent, std::string name, bool debug, std::chrono::milliseconds joinTimeout)
-      : parent_(parent), name_(std::move(name)), debug_(debug), joinTimeout_(joinTimeout) {}
+      : parent_(parent),
+        name_(std::move(name)),
+        debug_(debug),
+        joinTimeout_(joinTimeout),
+        state_(std::make_shared<State>()) {}
 
   ~HookedExecutor() override {
     if (!join()) {
@@ -98,12 +102,12 @@ class HookedExecutor final : public folly::Executor {
     if (!debug_) {
       return;
     }
-    std::lock_guard<std::mutex> lock(taskMutex_);
-    if (inFlightTasks_.empty()) {
+    std::lock_guard<std::mutex> lock(state_->taskMutex);
+    if (state_->inFlightTasks.empty()) {
       LOG(WARNING) << "Hooked executor " << name_ << " timed out with no tracked in-flight tasks.";
       return;
     }
-    for (const auto& [taskId, info] : inFlightTasks_) {
+    for (const auto& [taskId, info] : state_->inFlightTasks) {
       const auto elapsedMs =
           std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - info.enqueueTime)
               .count();
@@ -115,50 +119,61 @@ class HookedExecutor final : public folly::Executor {
   }
 
  private:
-  bool join() {
-    std::unique_lock<std::mutex> lock(mutex_);
-    return cv_.wait_for(lock, joinTimeout_, [&] { return inFlight_.load(std::memory_order_acquire) == 0; });
-  }
-
- public:
-  void add(folly::Func func) override {
-    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
-    inFlight_.fetch_add(1, std::memory_order_relaxed);
-    parent_->add(wrap(std::move(func), 0));
-  }
-
-  void addWithPriority(folly::Func func, int8_t priority) override {
-    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
-    inFlight_.fetch_add(1, std::memory_order_relaxed);
-    parent_->addWithPriority(wrap(std::move(func), priority), priority);
-  }
-
   struct TaskInfo {
     std::chrono::steady_clock::time_point enqueueTime;
     int8_t priority;
     std::string submitStacktrace;
   };
 
+  struct State {
+    std::atomic<uint64_t> nextTaskId{0};
+    std::atomic<size_t> inFlight{0};
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::mutex taskMutex;
+    std::unordered_map<uint64_t, TaskInfo> inFlightTasks;
+  };
+
+  bool join() {
+    std::unique_lock<std::mutex> lock(state_->mutex);
+    return state_->cv.wait_for(
+        lock, joinTimeout_, [&] { return state_->inFlight.load(std::memory_order_acquire) == 0; });
+  }
+
+ public:
+  void add(folly::Func func) override {
+    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    state_->inFlight.fetch_add(1, std::memory_order_relaxed);
+    parent_->add(wrap(std::move(func), 0));
+  }
+
+  void addWithPriority(folly::Func func, int8_t priority) override {
+    GLUTEN_CHECK(parent_ != nullptr, "Parent executor is null.");
+    state_->inFlight.fetch_add(1, std::memory_order_relaxed);
+    parent_->addWithPriority(wrap(std::move(func), priority), priority);
+  }
+
   folly::Func wrap(folly::Func func, int8_t priority) {
-    auto* self = this;
-    const auto taskId = nextTaskId_.fetch_add(1, std::memory_order_relaxed);
+    auto state = state_;
+    const auto taskId = state->nextTaskId.fetch_add(1, std::memory_order_relaxed);
     if (debug_) {
       TaskInfo info{
           .enqueueTime = std::chrono::steady_clock::now(),
           .priority = priority,
           .submitStacktrace = velox::process::StackTrace().toString()};
-      std::lock_guard<std::mutex> lock(taskMutex_);
-      inFlightTasks_[taskId] = std::move(info);
+      std::lock_guard<std::mutex> lock(state->taskMutex);
+      state->inFlightTasks[taskId] = std::move(info);
     }
-    return [func = std::move(func), self, taskId]() mutable {
+    const auto debug = debug_;
+    return [func = std::move(func), state, debug, taskId]() mutable {
       auto markDone = folly::makeGuard([&] {
-        if (self->debug_) {
-          std::lock_guard<std::mutex> lock(self->taskMutex_);
-          self->inFlightTasks_.erase(taskId);
+        if (debug) {
+          std::lock_guard<std::mutex> lock(state->taskMutex);
+          state->inFlightTasks.erase(taskId);
         }
-        if (self->inFlight_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-          std::lock_guard<std::mutex> lock(self->mutex_);
-          self->cv_.notify_all();
+        if (state->inFlight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+          std::lock_guard<std::mutex> lock(state->mutex);
+          state->cv.notify_all();
         }
       });
       // Destroy the submitted callable and all of its captures before
@@ -177,12 +192,7 @@ class HookedExecutor final : public folly::Executor {
   std::string name_;
   bool debug_;
   std::chrono::milliseconds joinTimeout_;
-  std::atomic<uint64_t> nextTaskId_{0};
-  std::atomic<size_t> inFlight_{0};
-  std::mutex mutex_;
-  std::condition_variable cv_;
-  mutable std::mutex taskMutex_;
-  std::unordered_map<uint64_t, TaskInfo> inFlightTasks_;
+  std::shared_ptr<State> state_;
 };
 
 std::unique_ptr<folly::Executor> makeHookedExecutor(
