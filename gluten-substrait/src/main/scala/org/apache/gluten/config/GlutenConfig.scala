@@ -703,6 +703,7 @@ object GlutenConfig extends ConfigRegistry {
     val authPrefix = HADOOP_PREFIX + ABFS_PREFIX + "account.auth.type."
     val DasSasProvider = "org.apache.hadoop.fs.azurebfs.sas.IbmlhcasSASTokenProvider"
     val accountSuffix = ".dfs.core.windows.net"
+    val SasAuthType = "SAS"
     val accounts = conf
       .filter(entry => entry._1.startsWith(sasProviderPrefix) && entry._2.equals(DasSasProvider))
       .map(
@@ -715,11 +716,23 @@ object GlutenConfig extends ConfigRegistry {
             suffix
           }
         })
-    // Remove the account.auth.type config for accounts using DAS SAS provider.
+
+    def accountAuthType(account: String): Option[String] = {
+      val authTypeWithSuffix = authPrefix + account + accountSuffix
+      val authTypeWithoutSuffix = authPrefix + account
+      conf
+        .get(authTypeWithSuffix)
+        .orElse(conf.get(authTypeWithoutSuffix))
+        .map(_.trim.toUpperCase(Locale.ROOT))
+    }
+
+    // Remove account.auth.type only for DAS SAS accounts. Keep explicit SharedKey and OAuth.
     accounts.foreach {
       account =>
-        nativeConfMap.remove(authPrefix + account)
-        nativeConfMap.remove(authPrefix + account + accountSuffix)
+        if (accountAuthType(account).forall(_ == SasAuthType)) {
+          nativeConfMap.remove(authPrefix + account)
+          nativeConfMap.remove(authPrefix + account + accountSuffix)
+        }
     }
   }
 

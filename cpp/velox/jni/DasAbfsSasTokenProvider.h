@@ -21,7 +21,10 @@
 #include "velox/connectors/hive/storage_adapters/abfs/DynamicSasTokenClientProvider.h"
 #include "velox/connectors/hive/storage_adapters/abfs/RegisterAbfsFileSystem.h"
 
+#include <algorithm>
+#include <cctype>
 #include <jni.h>
+#include <optional>
 #include <string>
 
 namespace gluten {
@@ -102,8 +105,37 @@ class DasAbfsSasTokenProvider : public facebook::velox::filesystems::SasTokenPro
   static void registerProvider(const facebook::velox::config::ConfigBase& conf) {
     // "spark.hadoop" prefix has been stripped.
     std::string_view kSasTokenProviderPrefix = "fs.azure.sas.token.provider.type.";
+    std::string_view kAuthTypePrefix = "fs.azure.account.auth.type.";
     std::string_view kAzureAccountSuffix = "dfs.core.windows.net";
     std::string_view kIbmlhcasSasTokenProvider = "org.apache.hadoop.fs.azurebfs.sas.IbmlhcasSASTokenProvider";
+    const std::string kSharedKeyAuthType = "SHAREDKEY";
+    const std::string kOAuthAuthType = "OAUTH";
+    const std::string kSasAuthType = "SAS";
+
+    auto normalizeAuthType = [](std::string authType) {
+      authType.erase(
+          std::remove_if(authType.begin(), authType.end(), [](unsigned char c) { return std::isspace(c); }),
+          authType.end());
+      std::transform(authType.begin(), authType.end(), authType.begin(), [](unsigned char c) {
+        return std::toupper(c);
+      });
+      return authType;
+    };
+
+    auto getAccountAuthType = [&](const std::string& accountName) -> std::optional<std::string> {
+      const std::string authTypeWithSuffix =
+          std::string(kAuthTypePrefix) + accountName + "." + std::string(kAzureAccountSuffix);
+      if (conf.valueExists(authTypeWithSuffix)) {
+        return conf.get<std::string>(authTypeWithSuffix);
+      }
+
+      const std::string authTypeWithoutSuffix = std::string(kAuthTypePrefix) + accountName;
+      if (conf.valueExists(authTypeWithoutSuffix)) {
+        return conf.get<std::string>(authTypeWithoutSuffix);
+      }
+      return std::nullopt;
+    };
+
     for (const auto& [key, value] : conf.rawConfigsCopy()) {
       if (key.find(kSasTokenProviderPrefix) == 0) {
         std::string_view skey = key;
@@ -115,6 +147,18 @@ class DasAbfsSasTokenProvider : public facebook::velox::filesystems::SasTokenPro
         LOG(INFO) << "Found SAS token provider for account: " << accountName << ", suffix: " << suffix
                   << ", value: " << value;
         if (suffix == kAzureAccountSuffix && value == kIbmlhcasSasTokenProvider) {
+          auto authType = getAccountAuthType(accountName);
+          if (authType.has_value()) {
+            authType = normalizeAuthType(authType.value());
+          }
+          if (authType.has_value() &&
+              (authType.value() == kSharedKeyAuthType || authType.value() == kOAuthAuthType)) {
+            LOG(INFO) << "Skipping DAS SAS key generator for account: " << accountName
+                      << ", auth type: " << authType.value();
+            continue;
+          }
+          LOG_IF(INFO, authType.has_value() && authType.value() == kSasAuthType)
+              << "Account " << accountName << " uses SAS auth type with DAS token provider.";
           LOG(INFO) << "Registering DAS SAS key generator for account: " << accountName;
           facebook::velox::filesystems::registerAzureClientProviderFactory(accountName, [](const std::string& account) {
             auto sasTokenProvider = std::make_shared<DasAbfsSasTokenProvider>();
