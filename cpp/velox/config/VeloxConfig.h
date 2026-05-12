@@ -96,6 +96,9 @@ const bool kParallelExecutionEnabledDefault = false;
 const std::string kParallelExecutionThreadPoolSize =
     "spark.gluten.sql.columnar.backend.velox.parallelExecution.threadPoolSize";
 
+const std::string kParallelExecutionMaxDrivers = "spark.gluten.sql.columnar.backend.velox.parallelExecution.maxDrivers";
+const int32_t kParallelExecutionMaxDriversDefault = 4;
+
 const std::string kValueStreamDynamicFilterEnabled =
     "spark.gluten.sql.columnar.backend.velox.valueStream.dynamicFilter.enabled";
 const bool kValueStreamDynamicFilterEnabledDefault = false;

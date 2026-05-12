@@ -280,6 +280,19 @@ class SubstraitToVeloxPlanConverter {
       const ::substrait::WindowType& type,
       const RowTypePtr& inputType);
 
+  bool isParallelExecutionEnabled() const;
+
+  core::PlanNodePtr createLocalPartitionNode(
+      core::LocalPartitionNode::Type type,
+      core::PartitionFunctionSpecPtr partitionFunctionSpec,
+      const std::vector<core::PlanNodePtr>& sources);
+
+  core::PlanNodePtr addHashPartitionForParallelExecution(
+      const core::PlanNodePtr& source,
+      const std::vector<core::TypedExprPtr>& keys);
+  core::PlanNodePtr addRoundRobinPartitionForParallelExecution(const core::PlanNodePtr& source);
+  core::PlanNodePtr addGatherForParallelExecution(const core::PlanNodePtr& source);
+
   /// The unique identification for each PlanNode.
   int planNodeId_ = 0;
 

@@ -112,7 +112,8 @@ WholeStageResultIterator::WholeStageResultIterator(
   facebook::velox::exec::CursorParameters params;
   params.planNode = planNode;
   params.destination = 0;
-  params.maxDrivers = 1;
+  params.maxDrivers =
+      serialExecution ? 1 : veloxCfg_->get<int32_t>(kParallelExecutionMaxDrivers, kParallelExecutionMaxDriversDefault);
   params.queryCtx = createNewVeloxQueryCtx();
   params.executionStrategy = velox::core::ExecutionStrategy::kUngrouped;
   params.groupedExecutionLeafNodeIds = std::move(emptySet);

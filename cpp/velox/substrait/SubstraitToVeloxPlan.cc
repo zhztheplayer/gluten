@@ -23,6 +23,8 @@
 #include "operators/hashjoin/HashTableBuilder.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "velox/connectors/hive/HiveDataSink.h"
+#include "velox/exec/HashPartitionFunction.h"
+#include "velox/exec/RoundRobinPartitionFunction.h"
 #include "velox/exec/TableWriter.h"
 #include "velox/type/Type.h"
 
@@ -30,6 +32,7 @@
 #include "utils/ObjectStore.h"
 #include "utils/VeloxWriterUtils.h"
 
+#include "compute/VeloxBackend.h"
 #include "config.pb.h"
 #include "config/GlutenConfig.h"
 #include "config/VeloxConfig.h"
@@ -468,8 +471,11 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
       opaqueSharedHashTable = nullptr;
     }
 
+    // BHJ left side can be round-robin parallelized.
+    leftNode = addRoundRobinPartitionForParallelExecution(leftNode);
+
     // Create HashJoinNode node
-    return std::make_shared<core::HashJoinNode>(
+    auto hashJoinNode = std::make_shared<core::HashJoinNode>(
         nextPlanNodeId(),
         joinType,
         isNullAwareAntiJoin,
@@ -483,6 +489,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         false,
         joinHasNullKeys,
         opaqueSharedHashTable);
+    auto gatheredHashJoinNode = addGatherForParallelExecution(hashJoinNode);
+    return gatheredHashJoinNode;
   } else {
     // Create HashJoinNode node
     return std::make_shared<core::HashJoinNode>(
@@ -1280,6 +1288,95 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(
       childNode);
 }
 
+bool SubstraitToVeloxPlanConverter::isParallelExecutionEnabled() const {
+  return veloxCfg_->get<bool>(kParallelExecutionEnabled, kParallelExecutionEnabledDefault);
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::createLocalPartitionNode(
+    core::LocalPartitionNode::Type type,
+    core::PartitionFunctionSpecPtr partitionFunctionSpec,
+    const std::vector<core::PlanNodePtr>& sources) {
+  GLUTEN_CHECK(!sources.empty(), "At least one source is required for Velox LocalPartition");
+
+  std::vector<core::PlanNodePtr> newChildren;
+  newChildren.reserve(sources.size());
+  const bool isSingleSource = sources.size() == 1;
+  const RowTypePtr outRowType = asRowType(sources[0]->outputType());
+  std::vector<std::string> outNames;
+  outNames.reserve(outRowType->size());
+  for (int32_t colIdx = 0; colIdx < outRowType->size(); ++colIdx) {
+    outNames.push_back(outRowType->nameOf(colIdx));
+  }
+  for (const auto& child : sources) {
+    const RowTypePtr& childRowType = child->outputType();
+    std::vector<core::TypedExprPtr> expressions;
+    expressions.reserve(outNames.size());
+    for (int32_t colIdx = 0; colIdx < outNames.size(); ++colIdx) {
+      core::TypedExprPtr expr =
+          std::make_shared<core::FieldAccessTypedExpr>(childRowType->childAt(colIdx), childRowType->nameOf(colIdx));
+      if (!isSingleSource) {
+        // Unifies children types for multi-children case (e.g., union).
+        expr = std::make_shared<core::CastTypedExpr>(outRowType->childAt(colIdx), expr, false);
+      }
+      expressions.push_back(expr);
+    }
+    newChildren.push_back(std::make_shared<core::ProjectNode>(nextPlanNodeId(), outNames, expressions, child));
+  }
+
+  return std::make_shared<core::LocalPartitionNode>(
+      nextPlanNodeId(), type, false, std::move(partitionFunctionSpec), std::move(newChildren));
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::addHashPartitionForParallelExecution(
+    const core::PlanNodePtr& source,
+    const std::vector<core::TypedExprPtr>& keys) {
+  GLUTEN_CHECK(!keys.empty(), "Keys are expected for adding local partition for parallel execution.");
+  if (!isParallelExecutionEnabled()) {
+    return source;
+  }
+
+  core::PartitionFunctionSpecPtr partitionFunctionSpec;
+  std::vector<column_index_t> keyChannels;
+  keyChannels.reserve(keys.size());
+  std::vector<VectorPtr> constValues;
+  constValues.reserve(keys.size());
+  const auto& outputType = source->outputType();
+  for (const auto& key : keys) {
+    if (auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(key)) {
+      keyChannels.emplace_back(outputType->getChildIdx(field->name()));
+    } else if (auto constant = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(key)) {
+      keyChannels.emplace_back(kConstantChannel);
+      constValues.push_back(constant->toConstantVector(pool_));
+    } else {
+      VELOX_UNREACHABLE();
+    }
+  }
+  partitionFunctionSpec =
+      std::make_shared<exec::HashPartitionFunctionSpec>(outputType, std::move(keyChannels), std::move(constValues));
+
+  return createLocalPartitionNode(
+      core::LocalPartitionNode::Type::kRepartition, std::move(partitionFunctionSpec), {source});
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::addRoundRobinPartitionForParallelExecution(
+    const core::PlanNodePtr& source) {
+  if (!isParallelExecutionEnabled()) {
+    return source;
+  }
+  return createLocalPartitionNode(
+      core::LocalPartitionNode::Type::kRepartition,
+      std::make_shared<exec::RoundRobinPartitionFunctionSpec>(),
+      {source});
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::addGatherForParallelExecution(const core::PlanNodePtr& source) {
+  if (!isParallelExecutionEnabled()) {
+    return source;
+  }
+  return createLocalPartitionNode(
+      core::LocalPartitionNode::Type::kGather, std::make_shared<core::GatherPartitionFunctionSpec>(), {source});
+}
+
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::SetRel& setRel) {
   switch (setRel.op()) {
     case ::substrait::SetRel_SetOp::SetRel_SetOp_SET_OP_UNION_ALL: {
@@ -1289,37 +1386,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         children.push_back(toVeloxPlan(input));
       }
       GLUTEN_CHECK(!children.empty(), "At least one source is required for Velox LocalPartition");
-
-      // Velox doesn't allow different field names in schemas of LocalPartitionNode's children.
-      // Add project nodes to unify the schemas.
-      const RowTypePtr outRowType = asRowType(children[0]->outputType());
-      std::vector<std::string> outNames;
-      for (int32_t colIdx = 0; colIdx < outRowType->size(); ++colIdx) {
-        // Using field names from the unified output row type instead child type names
-        const auto name = outRowType->nameOf(colIdx);
-        outNames.push_back(name);
-      }
-
-      std::vector<core::PlanNodePtr> projectedChildren;
-      for (int32_t i = 0; i < children.size(); ++i) {
-        const auto& child = children[i];
-        const RowTypePtr& childRowType = child->outputType();
-        std::vector<core::TypedExprPtr> expressions;
-        for (int32_t colIdx = 0; colIdx < outNames.size(); ++colIdx) {
-          const auto fa =
-              std::make_shared<core::FieldAccessTypedExpr>(childRowType->childAt(colIdx), childRowType->nameOf(colIdx));
-          const auto cast = std::make_shared<core::CastTypedExpr>(outRowType->childAt(colIdx), fa, false);
-          expressions.push_back(cast);
-        }
-        auto project = std::make_shared<core::ProjectNode>(nextPlanNodeId(), outNames, expressions, child);
-        projectedChildren.push_back(project);
-      }
-      return std::make_shared<core::LocalPartitionNode>(
-          nextPlanNodeId(),
-          core::LocalPartitionNode::Type::kGather,
-          false,
-          std::make_shared<core::GatherPartitionFunctionSpec>(),
-          projectedChildren);
+      return createLocalPartitionNode(
+          core::LocalPartitionNode::Type::kGather, std::make_shared<core::GatherPartitionFunctionSpec>(), children);
     }
     default:
       throw GlutenException("Unsupported SetRel op: " + std::to_string(setRel.op()));
@@ -1426,7 +1494,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::constructValueStreamNode(
   splitInfo->leafType = SplitInfo::LeafType::SPLIT_AWARE_STREAM;
   splitInfoMap_[tableScanNode->id()] = splitInfo;
 
-  return tableScanNode;
+  auto gatheredTableScanNode = addGatherForParallelExecution(tableScanNode);
+  return gatheredTableScanNode;
 }
 
 #ifdef GLUTEN_ENABLE_GPU
@@ -1604,7 +1673,8 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         nextPlanNodeId(), std::move(outputType), std::move(tableHandle), assignments);
     // Set split info map.
     splitInfoMap_[tableScanNode->id()] = splitInfo;
-    return tableScanNode;
+    auto gatheredTableScanNode = addGatherForParallelExecution(tableScanNode);
+    return gatheredTableScanNode;
   }
 }
 
