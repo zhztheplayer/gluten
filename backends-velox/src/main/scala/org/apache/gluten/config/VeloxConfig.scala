@@ -531,7 +531,7 @@ object VeloxConfig extends ConfigRegistry {
         "Whether to enable parallel execution of Velox task drivers for whole-stage execution. " +
           "Default is false (serial execution).")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val PARALLEL_EXECUTION_THREAD_POOL_SIZE =
     buildStaticConf("spark.gluten.sql.columnar.backend.velox.parallelExecution.threadPoolSize")

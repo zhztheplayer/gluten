@@ -232,7 +232,7 @@ void VeloxBackend::init(
   if (parallelExecutionEnabled) {
     // Default: 2 * task slots.
     const int32_t threadPoolSize =
-        backendConf_->get<int32_t>(kParallelExecutionThreadPoolSize, 2 * numTaskSlotsPerExecutor);
+        backendConf_->get<int32_t>(kParallelExecutionThreadPoolSize, 8 * numTaskSlotsPerExecutor);
     if (threadPoolSize > 0) {
       executor_ = std::make_unique<folly::CPUThreadPoolExecutor>(threadPoolSize);
       LOG(INFO) << "Initialized CPUThreadPoolExecutor for parallel execution with thread num: " << threadPoolSize
