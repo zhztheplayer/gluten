@@ -731,11 +731,14 @@ object GlutenConfig extends ConfigRegistry {
       account =>
         accountAuthType(account) match {
           case Some(SasAuthType) =>
-            // If auth type is SAS, remove auth type configs
+            // If the auth type is SAS, remove the auth type configuration to prevent the initial
+            // dynamic SAS token registration from being overridden when registerAzureClientProvider
+            // is called again.
             nativeConfMap.remove(authPrefix + account)
             nativeConfMap.remove(authPrefix + account + accountSuffix)
           case _ =>
-            // Otherwise, remove SAS provider configs
+            // Otherwise, remove SAS provider configs to avoid registering the dynamic SAS token
+            // provider.
             nativeConfMap.remove(sasProviderPrefix + account)
             nativeConfMap.remove(sasProviderPrefix + account + accountSuffix)
         }
