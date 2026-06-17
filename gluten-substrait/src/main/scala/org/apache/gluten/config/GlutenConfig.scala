@@ -726,12 +726,18 @@ object GlutenConfig extends ConfigRegistry {
         .map(_.trim.toUpperCase(Locale.ROOT))
     }
 
-    // Remove account.auth.type only for DAS SAS accounts. Keep explicit SharedKey and OAuth.
+    // For each account, remove the appropriate config based on auth type
     accounts.foreach {
       account =>
-        if (accountAuthType(account).forall(_ == SasAuthType)) {
-          nativeConfMap.remove(authPrefix + account)
-          nativeConfMap.remove(authPrefix + account + accountSuffix)
+        accountAuthType(account) match {
+          case Some(SasAuthType) =>
+            // If auth type is SAS, remove auth type configs
+            nativeConfMap.remove(authPrefix + account)
+            nativeConfMap.remove(authPrefix + account + accountSuffix)
+          case _ =>
+            // Otherwise, remove SAS provider configs
+            nativeConfMap.remove(sasProviderPrefix + account)
+            nativeConfMap.remove(sasProviderPrefix + account + accountSuffix)
         }
     }
   }
