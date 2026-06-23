@@ -1615,7 +1615,13 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
         nextPlanNodeId(), std::move(outputType), std::move(tableHandle), assignments);
     // Set split info map.
     splitInfoMap_[tableScanNode->id()] = splitInfo;
-    return tableScanNode;
+    // Gather all scanned data into a single partition.
+    return std::make_shared<core::LocalPartitionNode>(
+        nextPlanNodeId(),
+        core::LocalPartitionNode::Type::kGather,
+        false,
+        std::make_shared<core::GatherPartitionFunctionSpec>(),
+        std::vector<core::PlanNodePtr>{tableScanNode});
   }
 }
 
