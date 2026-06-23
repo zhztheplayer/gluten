@@ -29,16 +29,14 @@ using namespace facebook::velox::common;
 namespace gluten {
 namespace {
 
-class SparkExprToSubfieldFilterParserTest : public ::testing::Test,
-                                            public test::VectorTestBase {
+class SparkExprToSubfieldFilterParserTest : public ::testing::Test, public test::VectorTestBase {
  protected:
   static void SetUpTestCase() {
     memory::MemoryManager::testingSetInstance(memory::MemoryManager::Options{});
   }
 
   /// Builds a serialized Velox BloomFilter containing the given int64 values.
-  std::vector<char> makeSerializedBloomFilter(
-      const std::vector<int64_t>& values) {
+  std::vector<char> makeSerializedBloomFilter(const std::vector<int64_t>& values) {
     BloomFilter<> bf;
     bf.reset(std::max<int32_t>(100, values.size() * 4));
     for (auto v : values) {
@@ -51,9 +49,8 @@ class SparkExprToSubfieldFilterParserTest : public ::testing::Test,
 
   /// Creates a ConstantTypedExpr wrapping serialized bloom filter bytes.
   core::TypedExprPtr makeVarbinaryConstant(const std::vector<char>& data) {
-    auto vector = makeFlatVector<StringView>(
-        std::vector<StringView>{StringView(data.data(), data.size())},
-        VARBINARY());
+    auto vector =
+        makeFlatVector<StringView>(std::vector<StringView>{StringView(data.data(), data.size())}, VARBINARY());
     return std::make_shared<const core::ConstantTypedExpr>(vector);
   }
 
@@ -67,17 +64,13 @@ class SparkExprToSubfieldFilterParserTest : public ::testing::Test,
   core::CallTypedExprPtr makeMightContainCall(
       const core::TypedExprPtr& bloomFilterExpr,
       const core::TypedExprPtr& valueExpr) {
-    return std::make_shared<core::CallTypedExpr>(
-        BOOLEAN(), "might_contain", bloomFilterExpr, valueExpr);
+    return std::make_shared<core::CallTypedExpr>(BOOLEAN(), "might_contain", bloomFilterExpr, valueExpr);
   }
 
   /// Calls leafCallToSubfieldFilter on the parser. Returns (subfield, nullptr)
   /// when the parser cannot translate the expression.
-  std::pair<Subfield, std::unique_ptr<Filter>> parse(
-      const core::CallTypedExprPtr& call,
-      bool negated = false) {
-    if (auto result =
-            parser_.leafCallToSubfieldFilter(*call, &evaluator_, negated)) {
+  std::pair<Subfield, std::unique_ptr<Filter>> parse(const core::CallTypedExprPtr& call, bool negated = false) {
+    if (auto result = parser_.leafCallToSubfieldFilter(*call, &evaluator_, negated)) {
       return std::move(result.value());
     }
     return std::make_pair(Subfield(), nullptr);
@@ -94,8 +87,7 @@ TEST_F(SparkExprToSubfieldFilterParserTest, mightContainBasic) {
   auto serialized = makeSerializedBloomFilter(inserted);
 
   auto bloomExpr = makeVarbinaryConstant(serialized);
-  auto columnExpr =
-      std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
+  auto columnExpr = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
   auto call = makeMightContainCall(bloomExpr, columnExpr);
 
   auto [subfield, filter] = parse(call);
@@ -123,8 +115,7 @@ TEST_F(SparkExprToSubfieldFilterParserTest, mightContainBasic) {
 
 TEST_F(SparkExprToSubfieldFilterParserTest, mightContainNullBloomFilter) {
   auto nullExpr = makeNullVarbinaryConstant();
-  auto columnExpr =
-      std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
+  auto columnExpr = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
   auto call = makeMightContainCall(nullExpr, columnExpr);
 
   auto [subfield, filter] = parse(call);
@@ -134,8 +125,7 @@ TEST_F(SparkExprToSubfieldFilterParserTest, mightContainNullBloomFilter) {
 TEST_F(SparkExprToSubfieldFilterParserTest, mightContainNegated) {
   auto serialized = makeSerializedBloomFilter({42});
   auto bloomExpr = makeVarbinaryConstant(serialized);
-  auto columnExpr =
-      std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
+  auto columnExpr = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
   auto call = makeMightContainCall(bloomExpr, columnExpr);
 
   auto [subfield, filter] = parse(call, /*negated=*/true);
@@ -156,8 +146,7 @@ TEST_F(SparkExprToSubfieldFilterParserTest, mightContainNonColumnValue) {
 TEST_F(SparkExprToSubfieldFilterParserTest, mightContainInt64Range) {
   auto serialized = makeSerializedBloomFilter({42});
   auto bloomExpr = makeVarbinaryConstant(serialized);
-  auto columnExpr =
-      std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
+  auto columnExpr = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
   auto call = makeMightContainCall(bloomExpr, columnExpr);
 
   auto [subfield, filter] = parse(call);
@@ -172,8 +161,7 @@ TEST_F(SparkExprToSubfieldFilterParserTest, mightContainClone) {
   std::vector<int64_t> inserted = {42, 100};
   auto serialized = makeSerializedBloomFilter(inserted);
   auto bloomExpr = makeVarbinaryConstant(serialized);
-  auto columnExpr =
-      std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
+  auto columnExpr = std::make_shared<core::FieldAccessTypedExpr>(BIGINT(), "a");
   auto call = makeMightContainCall(bloomExpr, columnExpr);
 
   auto [subfield, filter] = parse(call);

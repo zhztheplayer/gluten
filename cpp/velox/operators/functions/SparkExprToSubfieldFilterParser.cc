@@ -46,25 +46,27 @@ VectorPtr toConstant(const core::TypedExprPtr& expr, core::ExpressionEvaluator* 
 }
 
 /// Subfield filter backed by Velox's BloomFilter from bloom_filter_agg / might_contain.
-class SparkMightContain final : public common::Filter {
+/// Stores the constant vector to keep the serialized bloom filter data alive, and uses
+/// BloomFilterView for zero-copy membership tests without deserializing the full filter.
+class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
  public:
-  SparkMightContain(const char* serializedData, bool nullAllowed)
-      : Filter(true, nullAllowed, common::FilterKind::kBigintValuesUsingBloomFilter) {
-    bloomFilter_.merge(serializedData);
+  SparkMightContain(VectorPtr constantVector, bool nullAllowed)
+      : common::BigintValuesUsingBloomFilter(0, nullAllowed),
+        constantVector_(std::move(constantVector)) {
+    auto sv = constantVector_->as<SimpleVector<StringView>>()->valueAt(0);
+    view_ = std::make_unique<BloomFilterView>(sv.data());
   }
 
-  bool testInt64(int64_t value) const final {
-    return bloomFilter_.mayContain(folly::hasher<int64_t>()(value));
+  bool testInt64(int64_t value) const override {
+    return view_->mayContain(folly::hasher<int64_t>()(value));
   }
 
-  bool testInt64Range(int64_t /*min*/, int64_t /*max*/, bool /*hasNull*/) const final {
+  bool testInt64Range(int64_t /*min*/, int64_t /*max*/, bool /*hasNull*/) const override {
     return true;
   }
 
   std::unique_ptr<Filter> clone(std::optional<bool> nullAllowed) const override {
-    std::vector<char> data(bloomFilter_.serializedSize());
-    bloomFilter_.serialize(data.data());
-    return std::make_unique<SparkMightContain>(data.data(), nullAllowed.value_or(nullAllowed_));
+    return std::make_unique<SparkMightContain>(constantVector_, nullAllowed.value_or(nullAllowed_));
   }
 
   bool testingEquals(const Filter& other) const override {
@@ -76,7 +78,11 @@ class SparkMightContain final : public common::Filter {
   }
 
  private:
-  BloomFilter<> bloomFilter_;
+  /// Keeps the constant expression vector alive so the serialized bloom filter
+  /// bytes that BloomFilterView points into remain valid.
+  VectorPtr constantVector_;
+  /// Zero-copy view over the serialized bloom filter data.
+  std::unique_ptr<BloomFilterView> view_;
 };
 
 std::optional<std::pair<facebook::velox::common::Subfield, std::unique_ptr<facebook::velox::common::Filter>>> combine(
@@ -159,9 +165,8 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       if (toSubfield(valueSide, subfield)) {
         auto bloomFilterValue = toConstant(call.inputs()[0], evaluator);
         if (bloomFilterValue && !bloomFilterValue->isNullAt(0)) {
-          auto sv = bloomFilterValue->as<SimpleVector<StringView>>()->valueAt(0);
           std::unique_ptr<common::Filter> filter =
-              std::make_unique<SparkMightContain>(sv.data(), false /*nullAllowed*/);
+              std::make_unique<SparkMightContain>(bloomFilterValue, false /*nullAllowed*/);
           return combine(subfield, filter);
         }
       }
