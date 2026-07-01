@@ -320,6 +320,8 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     val metrics = scans.head.metrics
     assert(metrics("storageReadBytes").value > 0)
     assert(metrics("ramReadBytes").value == 0)
+    assert(metrics("processedStrideRows").value > 0)
+    assert(metrics("skippedStrideRows").value >= 0)
   }
 
   test("Velox datasource metrics") {

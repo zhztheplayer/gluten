@@ -61,6 +61,8 @@ const std::string kSkippedSplits = "skippedSplits";
 const std::string kProcessedSplits = "processedSplits";
 const std::string kSkippedStrides = "skippedStrides";
 const std::string kProcessedStrides = "processedStrides";
+const std::string kSkippedStrideRows = "skippedStrideRows";
+const std::string kProcessedStrideRows = "processedStrideRows";
 const std::string kRemainingFilterTime = "totalRemainingFilterWallNanos";
 const std::string kIoWaitTime = "ioWaitWallNanos";
 const std::string kStorageReadBytes = "storageReadBytes";
@@ -568,6 +570,10 @@ void WholeStageResultIterator::collectMetrics() {
       metrics_->get(Metrics::kSkippedStrides)[metricIndex] = runtimeMetric("sum", second->customStats, kSkippedStrides);
       metrics_->get(Metrics::kProcessedStrides)[metricIndex] =
           runtimeMetric("sum", second->customStats, kProcessedStrides);
+      metrics_->get(Metrics::kSkippedStrideRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kSkippedStrideRows);
+      metrics_->get(Metrics::kProcessedStrideRows)[metricIndex] =
+          runtimeMetric("sum", second->customStats, kProcessedStrideRows);
       metrics_->get(Metrics::kRemainingFilterTime)[metricIndex] =
           runtimeMetric("sum", second->customStats, kRemainingFilterTime);
       metrics_->get(Metrics::kIoWaitTime)[metricIndex] = runtimeMetric("sum", second->customStats, kIoWaitTime);

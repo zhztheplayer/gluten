@@ -136,6 +136,8 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "data source read time"),
       "skippedStrides" -> SQLMetrics.createMetric(sparkContext, "number of skipped row groups"),
       "processedStrides" -> SQLMetrics.createMetric(sparkContext, "number of processed row groups"),
+      "skippedStrideRows" -> SQLMetrics.createMetric(sparkContext, "number of rows in skipped row groups"),
+      "processedStrideRows" -> SQLMetrics.createMetric(sparkContext, "number of rows in processed row groups"),
       "remainingFilterTime" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "remaining filter time"),
@@ -194,6 +196,8 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "data source read time"),
       "skippedStrides" -> SQLMetrics.createMetric(sparkContext, "number of skipped row groups"),
       "processedStrides" -> SQLMetrics.createMetric(sparkContext, "number of processed row groups"),
+      "skippedStrideRows" -> SQLMetrics.createMetric(sparkContext, "number of rows in skipped row groups"),
+      "processedStrideRows" -> SQLMetrics.createMetric(sparkContext, "number of rows in processed row groups"),
       "remainingFilterTime" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "remaining filter time"),
@@ -252,6 +256,8 @@ class VeloxMetricsApi extends MetricsApi with Logging {
         "data source read time"),
       "skippedStrides" -> SQLMetrics.createMetric(sparkContext, "number of skipped row groups"),
       "processedStrides" -> SQLMetrics.createMetric(sparkContext, "number of processed row groups"),
+      "skippedStrideRows" -> SQLMetrics.createMetric(sparkContext, "number of rows in skipped row groups"),
+      "processedStrideRows" -> SQLMetrics.createMetric(sparkContext, "number of rows in processed row groups"),
       "remainingFilterTime" -> SQLMetrics.createNanoTimingMetric(
         sparkContext,
         "remaining filter time"),

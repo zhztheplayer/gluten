@@ -77,6 +77,8 @@ struct Metrics {
     kProcessedSplits,
     kSkippedStrides,
     kProcessedStrides,
+    kSkippedStrideRows,
+    kProcessedStrideRows,
     kRemainingFilterTime,
     kIoWaitTime,
     kStorageReadBytes,
