@@ -150,6 +150,17 @@ function apply_compilation_fixes {
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
+function apply_stride_rows_patch {
+  echo "Applying stride rows patch..."
+  pushd $VELOX_HOME
+  git apply --check ${CURRENT_DIR}/stride_rows.patch && \
+    git apply ${CURRENT_DIR}/stride_rows.patch || {
+    echo "Failed to apply stride rows patch"
+    exit 1
+  }
+  popd
+}
+
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -231,5 +242,7 @@ fi
 apply_provided_velox_patch
 
 apply_compilation_fixes
+
+apply_stride_rows_patch
 
 echo "Finished getting Velox code"

@@ -1,0 +1,129 @@
+diff --git a/velox/dwio/common/Statistics.h b/velox/dwio/common/Statistics.h
+index 3fd6b4007..29c1c65c8 100644
+--- a/velox/dwio/common/Statistics.h
++++ b/velox/dwio/common/Statistics.h
+@@ -752,6 +752,12 @@ struct RuntimeStatistics {
+   // Number of strides (row groups) processed based on statistics.
+   int64_t processedStrides{0};
+ 
++  // Total rows in strides (row groups) that were skipped based on statistics.
++  int64_t skippedStrideRows{0};
++
++  // Total rows in strides (row groups) that were processed.
++  int64_t processedStrideRows{0};
++
+   int64_t footerBufferOverread{0};
+ 
+   int64_t footerBufferUnderread{0};
+@@ -792,6 +798,12 @@ struct RuntimeStatistics {
+     if (processedStrides > 0) {
+       result.emplace("processedStrides", RuntimeMetric(processedStrides));
+     }
++    if (skippedStrideRows > 0) {
++      result.emplace("skippedStrideRows", RuntimeMetric(skippedStrideRows));
++    }
++    if (processedStrideRows > 0) {
++      result.emplace("processedStrideRows", RuntimeMetric(processedStrideRows));
++    }
+     if (footerBufferOverread > 0) {
+       result.emplace(
+           "footerBufferOverread",
+diff --git a/velox/dwio/dwrf/reader/DwrfReader.cpp b/velox/dwio/dwrf/reader/DwrfReader.cpp
+index 81960942c..9e0c84363 100644
+--- a/velox/dwio/dwrf/reader/DwrfReader.cpp
++++ b/velox/dwio/dwrf/reader/DwrfReader.cpp
+@@ -544,6 +544,7 @@ void DwrfRowReader::checkSkipStrides(uint64_t strideSize) {
+         std::min(currentRowInStripe_ + strideSize, rowsInCurrentStripe_);
+     ++currentStride;
+     ++skippedStrides_;
++    skippedStrideRows_ += strideSize;
+   }
+   if (foundStridesToSkip && currentRowInStripe_ < rowsInCurrentStripe_) {
+     getSelectiveColumnReader()->seekToRowGroup(currentStride);
+@@ -608,6 +609,7 @@ int64_t DwrfRowReader::nextRowNumber() {
+             skippedStrides_ += static_cast<int64_t>(
+                 bits::divRoundUp(numStripeRows, strideSize));
+           }
++          skippedStrideRows_ += numStripeRows;
+           goto advanceToNextStripe;
+         }
+       }
+@@ -619,6 +621,7 @@ int64_t DwrfRowReader::nextRowNumber() {
+     if (currentRowInStripe_ < rowsInCurrentStripe_) {
+       if (strideSize > 0 && currentRowInStripe_ % strideSize == 0) {
+         ++processedStrides_;
++        processedStrideRows_ += strideSize;
+       }
+       nextRowNumber_ = firstRowOfStripe_[currentStripe_] + currentRowInStripe_;
+       return *nextRowNumber_;
+diff --git a/velox/dwio/dwrf/reader/DwrfReader.h b/velox/dwio/dwrf/reader/DwrfReader.h
+index 6dbae5615..6fd4354f5 100644
+--- a/velox/dwio/dwrf/reader/DwrfReader.h
++++ b/velox/dwio/dwrf/reader/DwrfReader.h
+@@ -109,6 +109,8 @@ class DwrfRowReader : public StrideIndexProvider,
+       dwio::common::RuntimeStatistics& stats) const override {
+     stats.skippedStrides += skippedStrides_;
+     stats.processedStrides += processedStrides_;
++    stats.skippedStrideRows += skippedStrideRows_;
++    stats.processedStrideRows += processedStrideRows_;
+     stats.footerBufferOverread += getReader().footerBufferOverread();
+     stats.numStripes += stripeCeiling_ - firstStripe_;
+     stats.columnReaderStats.mergeFrom(*columnReaderStats_);
+@@ -213,6 +215,12 @@ class DwrfRowReader : public StrideIndexProvider,
+   // Number of processed strides.
+   int64_t processedStrides_{0};
+ 
++  // Total rows in skipped strides.
++  int64_t skippedStrideRows_{0};
++
++  // Total rows in processed strides.
++  int64_t processedStrideRows_{0};
++
+   dwio::common::UnitLoaderStats unitLoadStats_;
+ 
+   // Set to true after clearing filter caches, i.e. adding a dynamic filter.
+diff --git a/velox/dwio/parquet/reader/ParquetReader.cpp b/velox/dwio/parquet/reader/ParquetReader.cpp
+index 80740947d..61d9df2a7 100644
+--- a/velox/dwio/parquet/reader/ParquetReader.cpp
++++ b/velox/dwio/parquet/reader/ParquetReader.cpp
+@@ -1446,12 +1446,14 @@ class ParquetRowReader::Impl {
+       auto isExcluded =
+           (i < res.totalCount && bits::isBitSet(res.filterResult.data(), i));
+       auto isEmpty = apache::thrift::can_throw(*rowGroups_[i].num_rows()) == 0;
++      const auto numRows = *rowGroups_[i].num_rows();
+ 
+       // Add a row group to read if it is within range and not empty and not in
+       // the excluded list.
+       if (rowGroupInRange && !isExcluded && !isEmpty) {
+         rowGroupIds_.push_back(i);
+         firstRowOfRowGroup_.push_back(rowNumber);
++        processedStrideRows_ += numRows;
+       } else {
+         if (i != 0) {
+           // Clear the metadata of row groups that are not read. This helps
+@@ -1473,6 +1475,7 @@ class ParquetRowReader::Impl {
+         }
+         if (rowGroupInRange) {
+           skippedStrides_++;
++          skippedStrideRows_ += numRows;
+         }
+       }
+ 
+@@ -1545,6 +1548,8 @@ class ParquetRowReader::Impl {
+   void updateRuntimeStats(dwio::common::RuntimeStatistics& stats) const {
+     stats.skippedStrides += skippedStrides_;
+     stats.processedStrides += rowGroupIds_.size();
++    stats.skippedStrideRows += skippedStrideRows_;
++    stats.processedStrideRows += processedStrideRows_;
+     stats.parquetFooterEstimatedBytes += readerBase_->initialThriftSize();
+     stats.columnReaderStats.pageLoadTimeNs.merge(
+         columnReaderStats_.pageLoadTimeNs);
+@@ -1592,6 +1597,8 @@ class ParquetRowReader::Impl {
+   uint64_t rowsInCurrentRowGroup_;
+   uint64_t currentRowInGroup_;
+   uint32_t skippedStrides_{0};
++  uint64_t processedStrideRows_{0};
++  uint64_t skippedStrideRows_{0};
+ 
+   std::unique_ptr<dwio::common::SelectiveColumnReader> columnReader_;
+ 
