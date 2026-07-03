@@ -117,16 +117,15 @@ class GlutenBloomFilterAggregateQuerySuite
     withTable(table) {
       (1L to 200L).toDF("col").write.format("parquet").saveAsTable(table)
 
-      // Build a bloom filter over the data, then use it as a constant in
-      // might_contain so it can be pushed down to the scan as a subfield filter.
+      // Build a bloom filter over xxhash64(col) so it matches the probe side.
       val hexBf = spark.sql(
-        s"SELECT hex(bloom_filter_agg(col, " +
+        s"SELECT hex(bloom_filter_agg(xxhash64(col), " +
           s"cast(200 as long), cast($veloxBloomFilterMaxNumBits as long))) " +
           s"FROM $table")
         .collect()(0).getString(0)
 
       val sqlString =
-        s"SELECT * FROM $table WHERE might_contain(X'$hexBf', col)"
+        s"SELECT * FROM $table WHERE might_contain(X'$hexBf', xxhash64(col))"
 
       val df = spark.sql(sqlString)
       val result = df.collect()
