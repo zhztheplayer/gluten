@@ -18,7 +18,7 @@ package org.apache.spark.sql
 
 import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.execution.HashAggregateExecBaseTransformer
+import org.apache.gluten.execution.{FileSourceScanExecTransformer, HashAggregateExecBaseTransformer}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
@@ -108,6 +108,40 @@ class GlutenBloomFilterAggregateQuerySuite
             df.queryExecution.executedPlan
           )
         }
+      }
+    }
+  }
+
+  testGluten("Test might_contain constant bloom filter pushdown to scan") {
+    val table = "bloom_filter_test"
+    withTable(table) {
+      (1L to 200L).toDF("col").write.format("parquet").saveAsTable(table)
+
+      // Build a bloom filter over the data, then use it as a constant in
+      // might_contain so it can be pushed down to the scan as a subfield filter.
+      val hexBf = spark.sql(
+        s"SELECT hex(bloom_filter_agg(col, " +
+          s"cast(200 as long), cast($veloxBloomFilterMaxNumBits as long))) " +
+          s"FROM $table")
+        .collect()(0).getString(0)
+
+      val sqlString =
+        s"SELECT * FROM $table WHERE might_contain(X'$hexBf', col)"
+
+      val df = spark.sql(sqlString)
+      val result = df.collect()
+      // All 200 rows should match since the bloom filter covers them.
+      assert(result.length == 200)
+
+      // Verify the filter was pushed to the scan.
+      val scans = collect(df.queryExecution.executedPlan) {
+        case s: FileSourceScanExecTransformer => s
+      }
+      assert(scans.nonEmpty)
+      scans.foreach { scan =>
+        val metrics = scan.metrics
+        assert(metrics.contains("rawInputRows"))
+        assert(metrics("rawInputRows").value > 0)
       }
     }
   }

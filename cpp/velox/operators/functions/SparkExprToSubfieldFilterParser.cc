@@ -16,7 +16,9 @@
  */
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
 
+#include "utils/Exception.h"
 #include "velox/common/base/BloomFilter.h"
+#include "velox/functions/sparksql/XxHash64.h"
 #include "velox/expression/Expr.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -46,8 +48,8 @@ VectorPtr toConstant(const core::TypedExprPtr& expr, core::ExpressionEvaluator* 
 }
 
 /// Subfield filter backed by Velox's BloomFilter from bloom_filter_agg / might_contain.
-/// Stores the constant vector to keep the serialized bloom filter data alive, and uses
-/// BloomFilterView for zero-copy membership tests without deserializing the full filter.
+/// Values are hashed with Spark-compatible XXH64 (seed 42), then re-hashed with folly
+/// hasher for bloom filter bucket selection, matching bloom_filter_agg's insertion path.
 class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
  public:
   SparkMightContain(VectorPtr constantVector, bool nullAllowed)
@@ -58,7 +60,33 @@ class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
   }
 
   bool testInt64(int64_t value) const override {
-    return view_->mayContain(folly::hasher<int64_t>()(value));
+    return view_->mayContain(folly::hasher<int64_t>()(
+        facebook::velox::functions::sparksql::XxHash64::hashInt64(value, kDefaultSeed)));
+  }
+
+  bool testDouble(double value) const override {
+    return view_->mayContain(folly::hasher<int64_t>()(
+        facebook::velox::functions::sparksql::XxHash64::hashDouble(value, kDefaultSeed)));
+  }
+
+  bool testFloat(float value) const override {
+    return view_->mayContain(folly::hasher<int64_t>()(
+        facebook::velox::functions::sparksql::XxHash64::hashFloat(value, kDefaultSeed)));
+  }
+
+  bool testBytes(const char* data, int32_t len) const override {
+    return view_->mayContain(folly::hasher<int64_t>()(
+        facebook::velox::functions::sparksql::XxHash64::hashBytes(StringView(data, len), kDefaultSeed)));
+  }
+
+  bool testTimestamp(const Timestamp& value) const override {
+    return view_->mayContain(folly::hasher<int64_t>()(
+        facebook::velox::functions::sparksql::XxHash64::hashTimestamp(value, kDefaultSeed)));
+  }
+
+  bool testInt128(const int128_t& value) const override {
+    return view_->mayContain(folly::hasher<int64_t>()(
+        facebook::velox::functions::sparksql::XxHash64::hashLongDecimal(value, kDefaultSeed)));
   }
 
   bool testInt64Range(int64_t /*min*/, int64_t /*max*/, bool /*hasNull*/) const override {
@@ -78,11 +106,10 @@ class SparkMightContain final : public common::BigintValuesUsingBloomFilter {
   }
 
  private:
-  /// Keeps the constant expression vector alive so the serialized bloom filter
-  /// bytes that BloomFilterView points into remain valid.
   VectorPtr constantVector_;
-  /// Zero-copy view over the serialized bloom filter data.
   std::unique_ptr<BloomFilterView> view_;
+
+  static constexpr int32_t kDefaultSeed = 42;
 };
 
 std::optional<std::pair<facebook::velox::common::Subfield, std::unique_ptr<facebook::velox::common::Filter>>> combine(
@@ -159,18 +186,23 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       return std::make_pair(std::move(subfield), facebook::velox::exec::isNotNull());
     }
   } else if (call.name() == "might_contain" && !negated) {
-    // might_contain(bloomFilter, value) — the column to filter is input[1].
-    if (call.inputs().size() >= 2) {
-      const auto* valueSide = call.inputs()[1].get();
-      if (toSubfield(valueSide, subfield)) {
-        auto bloomFilterValue = toConstant(call.inputs()[0], evaluator);
-        if (bloomFilterValue && !bloomFilterValue->isNullAt(0)) {
-          std::unique_ptr<common::Filter> filter =
-              std::make_unique<SparkMightContain>(bloomFilterValue, false /*nullAllowed*/);
-          return combine(subfield, filter);
-        }
+    // Matches: might_contain(bloomFilter, xxhash64(field)).
+    GLUTEN_CHECK(call.inputs().size() == 2, "might_contain expects 2 arguments: bloomFilter and xxhash64(field)");
+    const auto *hashCall =
+        dynamic_cast<const core::CallTypedExpr *>(call.inputs()[1].get());
+    if (hashCall && hashCall->name() == "xxhash64" && hashCall->inputs().size() == 1) {
+      auto bloomFilterValue = toConstant(call.inputs()[0], evaluator);
+      if (!toSubfield(hashCall->inputs()[0].get(), subfield)) {
+        return std::nullopt;
+      }
+      if (bloomFilterValue && !bloomFilterValue->isNullAt(0)) {
+        std::unique_ptr<common::Filter> filter =
+            std::make_unique<SparkMightContain>(bloomFilterValue, false /*nullAllowed*/);
+        return combine(subfield, filter);
       }
     }
+    LOG(WARNING) << "might_contain could not be converted to a subfield filter: "
+        << "expected might_contain(bloomFilter, xxhash64(field))";
   }
   return std::nullopt;
 }
