@@ -203,6 +203,8 @@ SparkExprToSubfieldFilterParser::leafCallToSubfieldFilter(
       }
       auto seed = seedValue->as<SimpleVector<int64_t>>()->valueAt(0);
       if (!toSubfield(hashCall->inputs()[1].get(), subfield)) {
+        LOG(WARNING) << "might_contain: second argument to xxhash64_with_seed "
+                     << "is not a subfield, cannot push down to subfield filter";
         return std::nullopt;
       }
       auto bloomFilterValue = toConstant(call.inputs()[0], evaluator);
