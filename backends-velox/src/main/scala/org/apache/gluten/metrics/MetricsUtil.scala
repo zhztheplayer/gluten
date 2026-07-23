@@ -79,6 +79,8 @@ object MetricsUtil extends Logging {
     metrics.abandonedPartialAggregationRows =
       customMetricSum(node, "abandonedPartialAggregationRows")
     metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
+    metrics.numRehashes = customMetricSum(node, "hashtable.numRehashes")
+    metrics.rehashWallNanos = customMetricSum(node, "hashtable.rehashWallNanos")
     metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
     metrics.scanTime = customMetricSum(node, "totalScanTime")
     metrics.skippedSplits = customMetricSum(node, "skippedSplits")
@@ -239,6 +241,8 @@ object MetricsUtil extends Logging {
     var flushRowCount: Long = 0
     var abandonedPartialAggregationRows: Long = 0
     var loadedToValueHook: Long = 0
+    var numRehashes: Long = 0
+    var rehashWallNanos: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
     var scanTime: Long = 0
     var skippedSplits: Long = 0
@@ -277,6 +281,8 @@ object MetricsUtil extends Logging {
       flushRowCount += metrics.flushRowCount
       abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
       loadedToValueHook += metrics.loadedToValueHook
+      numRehashes += metrics.numRehashes
+      rehashWallNanos += metrics.rehashWallNanos
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
       scanTime += metrics.scanTime
       skippedSplits += metrics.skippedSplits
@@ -322,6 +328,8 @@ object MetricsUtil extends Logging {
       flushRowCount,
       abandonedPartialAggregationRows,
       loadedToValueHook,
+      numRehashes,
+      rehashWallNanos,
       bloomFilterBlocksByteSize,
       scanTime,
       skippedSplits,

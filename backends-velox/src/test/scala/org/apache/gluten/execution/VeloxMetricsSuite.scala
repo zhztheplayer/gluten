@@ -214,6 +214,23 @@ class VeloxMetricsSuite extends VeloxWholeStageTransformerSuite with AdaptiveSpa
     }
   }
 
+  test("Hash aggregate metrics include hash table rehash statistics") {
+    runQueryAndCompare("SELECT c1, sum(c2) FROM metrics_t1 GROUP BY c1") {
+      df =>
+        val aggregates = collect(df.queryExecution.executedPlan) {
+          case agg: HashAggregateExecBaseTransformer => agg
+        }
+        assert(aggregates.nonEmpty)
+        aggregates.foreach {
+          agg =>
+            assert(agg.metrics.contains("numRehashes"))
+            assert(agg.metrics.contains("rehashWallNanos"))
+        }
+        assert(aggregates.map(_.metrics("numRehashes").value).sum > 0)
+        assert(aggregates.map(_.metrics("rehashWallNanos").value).sum > 0)
+    }
+  }
+
   test("Metrics of noop filter's children") {
     runQueryAndCompare("SELECT c1, c2 FROM metrics_t1 where c1 < 50") {
       df =>

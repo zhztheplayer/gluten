@@ -335,6 +335,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "loadedToValueHook" -> SQLMetrics.createMetric(
         sparkContext,
         "number of pushdown aggregations"),
+      "numRehashes" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of hash table rehashes"),
+      "rehashWallNanos" -> SQLMetrics.createNanoTimingMetric(
+        sparkContext,
+        "time of hash table rehashes"),
       "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
         sparkContext,
         "bloom filter blocks byte size"),

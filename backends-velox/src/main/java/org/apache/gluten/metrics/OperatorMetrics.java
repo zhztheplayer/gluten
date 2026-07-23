@@ -42,6 +42,8 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long flushRowCount;
   public long abandonedPartialAggregationRows;
   public long loadedToValueHook;
+  public long numRehashes;
+  public long rehashWallNanos;
   public long bloomFilterBlocksByteSize;
   public long skippedSplits;
   public long processedSplits;
@@ -93,6 +95,8 @@ public class OperatorMetrics implements IOperatorMetrics {
       long flushRowCount,
       long abandonedPartialAggregationRows,
       long loadedToValueHook,
+      long numRehashes,
+      long rehashWallNanos,
       long bloomFilterBlocksByteSize,
       long scanTime,
       long skippedSplits,
@@ -138,6 +142,8 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.flushRowCount = flushRowCount;
     this.abandonedPartialAggregationRows = abandonedPartialAggregationRows;
     this.loadedToValueHook = loadedToValueHook;
+    this.numRehashes = numRehashes;
+    this.rehashWallNanos = rehashWallNanos;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;
     this.processedSplits = processedSplits;

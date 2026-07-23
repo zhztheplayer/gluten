@@ -46,6 +46,8 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
   val flushRowCount: SQLMetric = metrics("flushRowCount")
   val abandonedPartialAggregationRows: SQLMetric = metrics("abandonedPartialAggregationRows")
   val loadedToValueHook: SQLMetric = metrics("loadedToValueHook")
+  val numRehashes: SQLMetric = metrics("numRehashes")
+  val rehashWallNanos: SQLMetric = metrics("rehashWallNanos")
 
   val rowConstructionCpuCount: SQLMetric = metrics("rowConstructionCpuCount")
   val rowConstructionWallNanos: SQLMetric = metrics("rowConstructionWallNanos")
@@ -84,6 +86,8 @@ class HashAggregateMetricsUpdaterImpl(val metrics: Map[String, SQLMetric])
     flushRowCount += aggMetrics.flushRowCount
     abandonedPartialAggregationRows += aggMetrics.abandonedPartialAggregationRows
     loadedToValueHook += aggMetrics.loadedToValueHook
+    numRehashes += aggMetrics.numRehashes
+    rehashWallNanos += aggMetrics.rehashWallNanos
     idx += 1
 
     if (aggParams.rowConstructionNeeded) {
