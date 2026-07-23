@@ -152,6 +152,13 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_gluten_velox_patches {
+  git -C "$VELOX_HOME" apply --check \
+    "${CURRENT_DIR}/hashtable-rehash-wall-time.patch"
+  git -C "$VELOX_HOME" apply \
+    "${CURRENT_DIR}/hashtable-rehash-wall-time.patch"
+}
+
 function apply_compilation_fixes {
   local SUDO_CMD=""
   if [ "$OS" == "Linux" ]; then
@@ -239,6 +246,8 @@ prepare_velox_source_code
 if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
   apply_setup_fixes
 fi
+
+apply_gluten_velox_patches
 
 apply_provided_velox_patch
 
