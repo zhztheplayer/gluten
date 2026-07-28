@@ -152,6 +152,17 @@ function apply_provided_velox_patch {
   fi
 }
 
+function apply_join_pre_filter_patch {
+  local patch_file="${CURRENT_DIR}/join-pre-filter.patch"
+  echo "Applying join pre-filter patch..."
+  pushd "$VELOX_HOME"
+  (git apply --check "$patch_file" && git apply "$patch_file") || {
+    echo "Failed to apply the join pre-filter patch"
+    exit 1
+  }
+  popd
+}
+
 function apply_compilation_fixes {
   local SUDO_CMD=""
   if [ "$OS" == "Linux" ]; then
@@ -241,6 +252,8 @@ if [[ "$RUN_SETUP_SCRIPT" == "ON" ]]; then
 fi
 
 apply_provided_velox_patch
+
+apply_join_pre_filter_patch
 
 apply_compilation_fixes
 
