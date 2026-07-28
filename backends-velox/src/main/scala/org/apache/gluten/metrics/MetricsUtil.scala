@@ -80,6 +80,8 @@ object MetricsUtil extends Logging {
       customMetricSum(node, "abandonedPartialAggregationRows")
     metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
     metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
+    metrics.bloomFilterTestedRows = customMetricSum(node, "bloomFilterTestedRows")
+    metrics.bloomFilterAcceptedRows = customMetricSum(node, "bloomFilterAcceptedRows")
     metrics.scanTime = customMetricSum(node, "totalScanTime")
     metrics.skippedSplits = customMetricSum(node, "skippedSplits")
     metrics.processedSplits = customMetricSum(node, "processedSplits")
@@ -240,6 +242,8 @@ object MetricsUtil extends Logging {
     var abandonedPartialAggregationRows: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
+    var bloomFilterTestedRows: Long = 0
+    var bloomFilterAcceptedRows: Long = 0
     var scanTime: Long = 0
     var skippedSplits: Long = 0
     var processedSplits: Long = 0
@@ -278,6 +282,8 @@ object MetricsUtil extends Logging {
       abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
+      bloomFilterTestedRows += metrics.bloomFilterTestedRows
+      bloomFilterAcceptedRows += metrics.bloomFilterAcceptedRows
       scanTime += metrics.scanTime
       skippedSplits += metrics.skippedSplits
       processedSplits += metrics.processedSplits
@@ -323,6 +329,8 @@ object MetricsUtil extends Logging {
       abandonedPartialAggregationRows,
       loadedToValueHook,
       bloomFilterBlocksByteSize,
+      bloomFilterTestedRows,
+      bloomFilterAcceptedRows,
       scanTime,
       skippedSplits,
       processedSplits,

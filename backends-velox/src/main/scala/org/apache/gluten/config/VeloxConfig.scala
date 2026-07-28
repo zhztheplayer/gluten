@@ -106,6 +106,12 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
 
   def hashProbeBloomFilterPushdownMaxSize: Long = getConf(HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE)
 
+  def bypassHashProbeBloomFilterMinRows: Int =
+    getConf(BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_ROWS)
+
+  def bypassHashProbeBloomFilterMinPct: Int =
+    getConf(BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_PCT)
+
   def hashProbeDynamicFilterPushdownEnabled: Boolean =
     getConf(HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED)
 
@@ -515,6 +521,24 @@ object VeloxConfig extends ConfigRegistry {
         " not be too larger than the CPU cache size on the host.")
       .bytesConf(ByteUnit.BYTE)
       .createWithDefault(0)
+
+  val BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_ROWS =
+    buildConf("spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterBypass.minRows")
+      .doc(
+        "Number of probe rows sampled before deciding whether to bypass the build-side Bloom " +
+          "filter. Set to 0 to disable local Bloom filter probing.")
+      .intConf
+      .checkValue(_ >= 0, "must be a non-negative number")
+      .createWithDefault(100000)
+
+  val BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_PCT =
+    buildConf("spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterBypass.minPct")
+      .doc(
+        "Bypass the build-side Bloom filter when its acceptance percentage reaches this value. " +
+          "Set to 0 to bypass without sampling.")
+      .intConf
+      .checkValue(pct => pct >= 0 && pct <= 100, "must be between 0 and 100")
+      .createWithDefault(85)
 
   val HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED =
     buildConf("spark.gluten.sql.columnar.backend.velox.hashProbe.dynamicFilterPushdown.enabled")

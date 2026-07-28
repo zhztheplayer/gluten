@@ -43,6 +43,8 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long abandonedPartialAggregationRows;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
+  public long bloomFilterTestedRows;
+  public long bloomFilterAcceptedRows;
   public long skippedSplits;
   public long processedSplits;
   public long skippedStrides;
@@ -94,6 +96,8 @@ public class OperatorMetrics implements IOperatorMetrics {
       long abandonedPartialAggregationRows,
       long loadedToValueHook,
       long bloomFilterBlocksByteSize,
+      long bloomFilterTestedRows,
+      long bloomFilterAcceptedRows,
       long scanTime,
       long skippedSplits,
       long processedSplits,
@@ -139,6 +143,8 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.abandonedPartialAggregationRows = abandonedPartialAggregationRows;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
+    this.bloomFilterTestedRows = bloomFilterTestedRows;
+    this.bloomFilterAcceptedRows = bloomFilterAcceptedRows;
     this.skippedSplits = skippedSplits;
     this.processedSplits = processedSplits;
     this.skippedStrides = skippedStrides;

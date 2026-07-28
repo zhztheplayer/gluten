@@ -698,6 +698,12 @@ class VeloxMetricsApi extends MetricsApi with Logging {
       "bloomFilterBlocksByteSize" -> SQLMetrics.createSizeMetric(
         sparkContext,
         "bloom filter blocks byte size"),
+      "bloomFilterTestedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of probe rows tested by the build-side bloom filter"),
+      "bloomFilterAcceptedRows" -> SQLMetrics.createMetric(
+        sparkContext,
+        "number of bloom filter tests accepted for hash table lookup"),
       "streamPreProjectionCpuCount" -> SQLMetrics.createMetric(
         sparkContext,
         "stream preProject cpu wall time count"),

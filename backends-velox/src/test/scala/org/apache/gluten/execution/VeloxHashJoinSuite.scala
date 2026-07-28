@@ -268,6 +268,39 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
     }
   }
 
+  test("Hash probe build-side bloom filter metrics") {
+    withSQLConf(
+      VeloxConfig.HASH_PROBE_DYNAMIC_FILTER_PUSHDOWN_ENABLED.key -> "false",
+      VeloxConfig.HASH_PROBE_BLOOM_FILTER_PUSHDOWN_MAX_SIZE.key -> "1048576",
+      VeloxConfig.BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_ROWS.key -> "100",
+      VeloxConfig.BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_PCT.key -> "100"
+    ) {
+      withTable("probe_table", "build_table") {
+        spark.sql("""
+          CREATE TABLE probe_table USING PARQUET
+          AS SELECT id as a FROM range(1000)
+        """)
+
+        spark.sql("""
+          CREATE TABLE build_table USING PARQUET
+          AS SELECT id * 10 as b FROM range(100)
+        """)
+
+        runQueryAndCompare("SELECT a FROM probe_table JOIN build_table ON a = b") {
+          df =>
+            val join = find(df.queryExecution.executedPlan) {
+              case _: BroadcastHashJoinExecTransformer => true
+              case _ => false
+            }
+            assert(join.isDefined)
+            val metrics = join.get.metrics
+            assert(metrics("bloomFilterTestedRows").value == 1000)
+            assert(metrics("bloomFilterAcceptedRows").value < 1000)
+        }
+      }
+    }
+  }
+
   test("Broadcast join preserves original cast expression in join keys") {
     withSQLConf(
       ("spark.sql.autoBroadcastJoinThreshold", "10MB"),
