@@ -22,7 +22,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/velox/core/QueryConfig.h b/velox/core/QueryConfig.h
 --- a/velox/core/QueryConfig.h	(revision 25c810e0783378a0ce1a5a9fb3f9f3d2ffa91c4a)
-+++ b/velox/core/QueryConfig.h	(revision da0d7e678dc62b7fe1053d2cea51fb8de05b3962)
++++ b/velox/core/QueryConfig.h	(revision 0e2a2df686e5ce3c309e620296405a288ff8aa4e)
 @@ -890,6 +890,26 @@
        0,
        "Maximum byte size of Bloom filter from hash probe. 0 disables.")
@@ -57,8 +57,30 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/velox/exec/HashProbe.cpp b/velox/exec/HashProbe.cpp
 --- a/velox/exec/HashProbe.cpp	(revision 25c810e0783378a0ce1a5a9fb3f9f3d2ffa91c4a)
-+++ b/velox/exec/HashProbe.cpp	(revision da0d7e678dc62b7fe1053d2cea51fb8de05b3962)
-@@ -136,9 +136,18 @@
++++ b/velox/exec/HashProbe.cpp	(revision d7f758e3d99fdc9a08a69c4909118c98330e50e4)
+@@ -33,6 +33,21 @@
+
+ // Batch size used when iterating the row container.
+ constexpr int kBatchSize = 1024;
++
++template <typename T>
++int64_t applyBloomFilter(
++    const common::BigintValuesUsingBloomFilter& filter,
++    const DecodedVector& decoded,
++    SelectivityVector& rows) {
++  int64_t numRejected = 0;
++  rows.applyToSelected([&](vector_size_t row) {
++    if (!filter.testInt64(decoded.valueAt<T>(row))) {
++      ++numRejected;
++      rows.setValid(row, false);
++    }
++  });
++  return numRejected;
++}
+ } // namespace
+
+ // static
+@@ -136,9 +151,18 @@
        joinBridge_(operatorCtx_->task()->getHashJoinBridgeLocked(
            operatorCtx_->driverCtx()->splitGroupId,
            planNodeId())),
@@ -67,7 +89,7 @@ diff --git a/velox/exec/HashProbe.cpp b/velox/exec/HashProbe.cpp
 +      bypassBloomFilterMinPct_{
 +          driverCtx->queryConfig().bypassHashProbeBloomFilterMinPct()},
 +      bypassBloomFilter_{
-+          bypassBloomFilterMinRows_ <= 0 || bypassBloomFilterMinPct_ == 0},
++          bypassBloomFilterMinRows_ <= 0 || bypassBloomFilterMinPct_ <= 0},
        filterResult_(1),
        outputTableRowsCapacity_(outputBatchSize_) {
    VELOX_CHECK_NOT_NULL(joinBridge_);
@@ -77,36 +99,10 @@ diff --git a/velox/exec/HashProbe.cpp b/velox/exec/HashProbe.cpp
  }
 
  void HashProbe::initialize() {
-@@ -431,6 +440,84 @@
+@@ -431,6 +455,72 @@
    }
  }
 
-+bool HashProbe::bloomFilterMiss(vector_size_t row) const {
-+  for (auto i = 0; i < hashers_.size(); ++i) {
-+    const auto& filter = table_->hashers()[i]->getBloomFilter();
-+    if (!filter) {
-+      continue;
-+    }
-+
-+    const auto& decoded = hashers_[i]->decodedVector();
-+    switch (hashers_[i]->typeKind()) {
-+      case TypeKind::INTEGER:
-+        if (!filter->testInt64(decoded.valueAt<int32_t>(row))) {
-+          return true;
-+        }
-+        break;
-+      case TypeKind::BIGINT:
-+        if (!filter->testInt64(decoded.valueAt<int64_t>(row))) {
-+          return true;
-+        }
-+        break;
-+      default:
-+        VELOX_UNREACHABLE();
-+    }
-+  }
-+  return false;
-+}
-+
 +void HashProbe::applyBloomFilterForJoinProbe() {
 +  if (bypassBloomFilter_ || nullAware_ || isSpillInput() ||
 +      needToSpillInput() ||
@@ -127,17 +123,31 @@ diff --git a/velox/exec/HashProbe.cpp b/velox/exec/HashProbe.cpp
 +    return;
 +  }
 +
-+  int64_t numTested = 0;
++  const int64_t numTested = activeRows_.countSelected();
 +  int64_t numRejected = 0;
-+  const bool isSampling =
-+      bloomFilterSampledRows_ < bypassBloomFilterMinRows_;
-+  activeRows_.applyToSelected([&](vector_size_t row) {
-+    ++numTested;
-+    if (bloomFilterMiss(row)) {
-+      ++numRejected;
-+      activeRows_.setValid(row, false);
++  const bool isSampling = bloomFilterSampledRows_ < bypassBloomFilterMinRows_;
++  for (auto i = 0; i < hashers_.size(); ++i) {
++    const auto& filter = table_->hashers()[i]->getBloomFilter();
++    if (!filter) {
++      continue;
 +    }
-+  });
++    const auto* bloomFilter =
++        checkedPointerCast<const common::BigintValuesUsingBloomFilter>(
++            filter.get());
++    const auto& decoded = hashers_[i]->decodedVector();
++    switch (hashers_[i]->typeKind()) {
++      case TypeKind::INTEGER:
++        numRejected +=
++            applyBloomFilter<int32_t>(*bloomFilter, decoded, activeRows_);
++        break;
++      case TypeKind::BIGINT:
++        numRejected +=
++            applyBloomFilter<int64_t>(*bloomFilter, decoded, activeRows_);
++        break;
++      default:
++        VELOX_UNREACHABLE();
++    }
++  }
 +  activeRows_.updateBounds();
 +
 +  if (isSampling) {
@@ -162,7 +172,7 @@ diff --git a/velox/exec/HashProbe.cpp b/velox/exec/HashProbe.cpp
  void HashProbe::asyncWaitForHashTable() {
    checkRunning();
    VELOX_CHECK_NULL(table_);
-@@ -772,6 +859,7 @@
+@@ -772,6 +862,7 @@
          activeRows_.size() - activeRows_.countSelected();
    }
 
@@ -177,7 +187,7 @@ Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
 ===================================================================
 diff --git a/velox/exec/HashProbe.h b/velox/exec/HashProbe.h
 --- a/velox/exec/HashProbe.h	(revision 25c810e0783378a0ce1a5a9fb3f9f3d2ffa91c4a)
-+++ b/velox/exec/HashProbe.h	(revision da0d7e678dc62b7fe1053d2cea51fb8de05b3962)
++++ b/velox/exec/HashProbe.h	(revision c401fd9c1bbe9bf5008b206a98fd1a9ef4c5f1ad)
 @@ -31,6 +31,12 @@
    /// Runtime stat keys for hash probe.
    /// Size of the bloom filter in bytes.
@@ -191,20 +201,18 @@ diff --git a/velox/exec/HashProbe.h b/velox/exec/HashProbe.h
    /// Number of rows bypassed via dynamic filter replacement.
    static constexpr std::string_view kReplacedWithDynamicFilterRows =
        "replacedWithDynamicFilterRows";
-@@ -139,6 +145,12 @@
+@@ -139,6 +145,10 @@
 
    void pushdownDynamicFilters();
 
-+  // Uses build-side Bloom filters to remove rows from lookup_->rows when a
++  // Uses build-side Bloom filters to remove rows from activeRows_ when a
 +  // miss can be handled by the join's existing unmatched-row path.
 +  void applyBloomFilterForJoinProbe();
-+
-+  bool bloomFilterMiss(vector_size_t row) const;
 +
    // Invoked to wait for the hash table to be built by the hash build operators
    // asynchronously. The function also sets up the internal state for
    // potentially spilling input or reading spilled input or recursively spill
-@@ -450,7 +462,13 @@
+@@ -450,6 +460,12 @@
 
    folly::F14FastSet<column_index_t> dynamicFiltersProducedOnChannels_;
 
@@ -216,5 +224,4 @@ diff --git a/velox/exec/HashProbe.h b/velox/exec/HashProbe.h
 +
    // True if the join can become a no-op starting with the next batch of input.
    bool canReplaceWithDynamicFilter_{false};
- 
-   // True if the join became a no-op after pushing down the filter.
+
