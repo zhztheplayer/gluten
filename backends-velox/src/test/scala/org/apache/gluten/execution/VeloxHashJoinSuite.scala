@@ -276,17 +276,18 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
       VeloxConfig.BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_PCT.key -> "100"
     ) {
       withTable("probe_table", "build_table") {
+        // Number of rows should exceed Velox kMaxDistinct to make bloom filters available.
         spark.sql("""
           CREATE TABLE probe_table USING PARQUET
-          AS SELECT id as a FROM range(1000)
+          AS SELECT id as a FROM range(150000)
         """)
 
         spark.sql("""
           CREATE TABLE build_table USING PARQUET
-          AS SELECT id * 10 as b FROM range(100)
+          AS SELECT id * 10 as b FROM range(150000)
         """)
 
-        runQueryAndCompare("SELECT a FROM probe_table JOIN build_table ON a = b") {
+        runQueryAndCompare("SELECT a FROM probe_table LEFT OUTER JOIN build_table ON a = b") {
           df =>
             val join = find(df.queryExecution.executedPlan) {
               case _: BroadcastHashJoinExecTransformer => true
@@ -294,8 +295,8 @@ class VeloxHashJoinSuite extends VeloxWholeStageTransformerSuite {
             }
             assert(join.isDefined)
             val metrics = join.get.metrics
-            assert(metrics("bloomFilterTestedRows").value == 1000)
-            assert(metrics("bloomFilterAcceptedRows").value < 1000)
+            assert(metrics("bloomFilterTestedRows").value == 150000)
+            assert(metrics("bloomFilterAcceptedRows").value < 150000)
         }
       }
     }
