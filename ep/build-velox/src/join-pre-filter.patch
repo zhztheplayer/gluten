@@ -204,7 +204,7 @@ diff --git a/velox/exec/HashProbe.h b/velox/exec/HashProbe.h
    // Invoked to wait for the hash table to be built by the hash build operators
    // asynchronously. The function also sets up the internal state for
    // potentially spilling input or reading spilled input or recursively spill
-@@ -450,6 +462,12 @@
+@@ -450,7 +462,13 @@
 
    folly::F14FastSet<column_index_t> dynamicFiltersProducedOnChannels_;
 
@@ -216,3 +216,5 @@ diff --git a/velox/exec/HashProbe.h b/velox/exec/HashProbe.h
 +
    // True if the join can become a no-op starting with the next batch of input.
    bool canReplaceWithDynamicFilter_{false};
+ 
+   // True if the join became a no-op after pushing down the filter.
