@@ -34,7 +34,7 @@ diff --git a/velox/core/QueryConfig.h b/velox/core/QueryConfig.h
 +      bypassHashProbeBloomFilterMinRows,
 +      "bypass_hash_probe_bloom_filter_min_rows",
 +      int32_t,
-+      100'000,
++      0,
 +      "Number of probe rows used to decide whether to bypass the build-side "
 +      "Bloom filter. 0 disables local Bloom filter probing.")
 +
@@ -216,4 +216,3 @@ diff --git a/velox/exec/HashProbe.h b/velox/exec/HashProbe.h
 +
    // True if the join can become a no-op starting with the next batch of input.
    bool canReplaceWithDynamicFilter_{false};
-

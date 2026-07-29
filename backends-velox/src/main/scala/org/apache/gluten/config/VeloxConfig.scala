@@ -529,7 +529,7 @@ object VeloxConfig extends ConfigRegistry {
           "filter. Set to 0 to disable local Bloom filter probing.")
       .intConf
       .checkValue(_ >= 0, "must be a non-negative number")
-      .createWithDefault(100000)
+      .createWithDefault(0)
 
   val BYPASS_HASH_PROBE_BLOOM_FILTER_MIN_PCT =
     buildConf("spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterBypass.minPct")

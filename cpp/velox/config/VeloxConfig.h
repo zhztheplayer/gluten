@@ -94,7 +94,7 @@ const std::string kHashProbeBloomFilterPushdownMaxSize =
 
 const std::string kBypassHashProbeBloomFilterMinRows =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterBypass.minRows";
-const int32_t kBypassHashProbeBloomFilterMinRowsDefault = 100'000;
+const int32_t kBypassHashProbeBloomFilterMinRowsDefault = 0;
 
 const std::string kBypassHashProbeBloomFilterMinPct =
     "spark.gluten.sql.columnar.backend.velox.hashProbe.bloomFilterBypass.minPct";
