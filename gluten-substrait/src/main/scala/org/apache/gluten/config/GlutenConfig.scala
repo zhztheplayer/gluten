@@ -156,6 +156,9 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
   def pushAggregateThroughJoinMaxDepth: Int =
     getConf(PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH)
 
+  def rewriteLeftOuterToLeftAntiEnabled: Boolean =
+    getConf(REWRITE_LEFT_OUTER_TO_LEFT_ANTI_ENABLED)
+
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
 
@@ -789,6 +792,18 @@ object GlutenConfig extends ConfigRegistry {
       .intConf
       .checkValue(_ >= 1, "must be greater than or equal to 1.")
       .createWithDefault(Int.MaxValue)
+
+  val REWRITE_LEFT_OUTER_TO_LEFT_ANTI_ENABLED =
+    buildConf("spark.gluten.sql.rewriteLeftOuterToLeftAnti.enabled")
+      .doc(
+        "Rewrites the `left outer join ... where <right side column> is null` anti-join idiom " +
+          "into a real left anti join, which vanilla Spark does not do. The rewrite only " +
+          "applies when the is-null check can be proven to hold for null-extended rows only, " +
+          "for instance because the checked column is an equi-join key. TPC-DS q78 is written " +
+          "this way."
+      )
+      .booleanConf
+      .createWithDefault(true)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")
