@@ -19,7 +19,7 @@ package org.apache.gluten.extension.joinagg
 import org.apache.gluten.config.GlutenConfig
 
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, ExprId, NamedExpression, PredicateHelper}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, DeclarativeAggregate}
 import org.apache.spark.sql.catalyst.optimizer.DecimalAggregates
 import org.apache.spark.sql.catalyst.plans.Inner
@@ -66,6 +66,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private var successfulSplitCount: Int = 0
   private var successfulPushCount: Int = 0
+  private var unprofitablePushCount: Int = 0
 
   def resetSuccessfulSplitCount(): Unit = {
     successfulSplitCount = 0
@@ -75,9 +76,15 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     successfulPushCount = 0
   }
 
+  def resetUnprofitablePushCount(): Unit = {
+    unprofitablePushCount = 0
+  }
+
   def getSuccessfulSplitCount: Int = successfulSplitCount
 
   def getSuccessfulPushCount: Int = successfulPushCount
+
+  def getUnprofitablePushCount: Int = unprofitablePushCount
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     if (!isEnabled) {
@@ -92,11 +99,26 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         // 1) Aggregate+Join => FinalWrapperAgg(PartialWrapperAgg(...Join...))
         splitAggregate(agg) match {
           case Some(newAgg) =>
-            splitCount += 1
             // 2) Exhaustively push PartialWrapperAgg through join edges.
-            val pushed = pushPartialWrapperAggregate(newAgg)
-            // 3) Return rewritten plan with pushed partial wrapper aggregates.
-            pushed
+            val (pushed, pushCount) = pushPartialWrapperAggregate(newAgg)
+            if (isUnpushedSplit(pushed)) {
+              // The wrapper pair only pays off once the pushed aggregate crosses at least one
+              // join edge (e.g. there is no join under this aggregate). Keeping an unpushed split
+              // would merely re-stage the original aggregate with extra pack/unpack projections
+              // and a redundant pre-shuffle merge stage, so undo it.
+              agg
+            } else if (!isReducingPush(pushed)) {
+              // 2b) The pushed aggregate crosses no join edge where removing rows would save an
+              // exchange, and it cannot be shown to remove rows at all, so it would only cost an
+              // extra aggregation pass over the pushed side. Undo the whole rewrite.
+              unprofitablePushCount += 1
+              agg
+            } else {
+              splitCount += 1
+              successfulPushCount += pushCount
+              // 3) Return rewritten plan with pushed partial wrapper aggregates.
+              pushed
+            }
           case None => agg
         }
     }
@@ -112,6 +134,12 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private def isEnabled: Boolean = GlutenConfig.get.pushAggregateThroughJoinEnabled
 
   private def maxDepth: Int = GlutenConfig.get.pushAggregateThroughJoinMaxDepth
+
+  private def minReductionRatio: Double =
+    GlutenConfig.get.pushAggregateThroughJoinMinReductionRatio
+
+  private def profitabilityCheckMinRows: Long =
+    GlutenConfig.get.pushAggregateThroughJoinProfitabilityCheckMinRows
 
   private def splitAggregate(agg: Aggregate): Option[Aggregate] = {
     // Split is intentionally child-agnostic. It only rewrites:
@@ -174,7 +202,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
   }
 
-  private def pushPartialWrapperAggregate(agg: Aggregate): LogicalPlan = {
+  private def pushPartialWrapperAggregate(agg: Aggregate): (LogicalPlan, Int) = {
     // Push one join edge per iteration. This keeps the rewrite local and lets `maxDepth` bound
     // how far a pushed aggregate is allowed to travel through a multi-join subtree.
     var current: LogicalPlan = agg
@@ -198,8 +226,107 @@ case class PushAggregateThroughJoin(spark: SparkSession)
           }
       }
     }
-    successfulPushCount += pushCount
-    current
+    (current, pushCount)
+  }
+
+  /**
+   * Whether every pushed pre-aggregation in `plan` is worth keeping.
+   *
+   * Because `ImplementJoinAggregate` plants a pre-shuffle merge above the join, the exchange that
+   * feeds the final aggregate is the same size whether or not the aggregate was pushed. What the
+   * push can still remove is rows from the join edges it crosses, and that is worth very different
+   * amounts depending on the edge:
+   *
+   *   - an edge whose other side has to be shuffled: the push shrinks a whole exchange. TPC-DS q4
+   *     (`GROUP BY <customer columns>, d_year` over `customer x store_sales x date_dim`) pushes
+   *     down to `GROUP BY ss_customer_sk, ss_sold_date_sk`, which folds every line item of a ticket
+   *     into one row and takes the exchange feeding the `customer` join from 201 GiB to 12 GiB.
+   *   - an edge whose other side is broadcast: the push only saves hash probes. TPC-DS q47 (`GROUP
+   *     BY i_category, i_brand, s_store_name, s_company_name, d_year, d_moy` over
+   *     `store_sales x date_dim x item x store`) pushes down to
+   *     `GROUP BY ss_item_sk, ss_store_sk, ss_sold_date_sk`, which is close to a key of the fact
+   *     table, so it reads the whole fact table to emit almost as many rows as it read - below
+   *     three broadcast joins, for nothing.
+   *
+   * So a push that crosses a shuffling edge is kept outright. Its downside there is bounded: the
+   * pushed row replaces the measure columns with aggregate buffers, which is usually narrower than
+   * the raw stream it would otherwise shuffle, and Velox's flushable aggregation abandons the
+   * pre-aggregation at runtime if it turns out not to reduce.
+   *
+   * A push that crosses only broadcast edges has to earn its keep by provably reducing rows. That
+   * test is one-sided - a push it cannot decide either way is dropped - and deliberately so,
+   * because there is nothing to win on those edges anyway. Do not extend that test to shuffling
+   * edges: the bounds are a product of per-key distinct counts, so they assume independence and are
+   * hopeless for correlated keys. On q4 they say 1.2x where the truth is 12x. See
+   * [[JoinAggregateCardinality.distinctCountUpperBounds]].
+   */
+  private def isReducingPush(plan: LogicalPlan): Boolean = {
+    if (minReductionRatio <= 1.0d) {
+      // Gate disabled: keep every push the syntactic rules allow.
+      return true
+    }
+    val pushedAggs = plan.collect {
+      case agg: Aggregate if isPurePartialWrapperAggregate(agg) => agg
+    }
+    if (pushedAggs.isEmpty) {
+      return true
+    }
+    val finalGroupingIds = plan match {
+      case finalAgg: Aggregate =>
+        finalAgg.groupingExpressions.flatMap(referencedAttrsInOrder).map(_.exprId).toSet
+      case _ => Set.empty[ExprId]
+    }
+    val equalities = JoinAggregateCardinality.equiJoinEqualities(plan)
+    // A pushed key that is equi-join-equal to a final grouping key does not make the pushed
+    // aggregate any finer than the aggregate above the join.
+    val coveredIds = JoinAggregateCardinality.expandThroughEqualities(finalGroupingIds, equalities)
+    lazy val bounds = JoinAggregateCardinality.distinctCountUpperBounds(plan)
+    pushedAggs.forall(isReducingPushedAgg(plan, _, coveredIds, equalities, bounds))
+  }
+
+  private def isReducingPushedAgg(
+      plan: LogicalPlan,
+      pushedAgg: Aggregate,
+      coveredIds: Set[ExprId],
+      equalities: Map[ExprId, Set[ExprId]],
+      bounds: => Map[ExprId, BigInt]): Boolean = {
+    val keys = dedupeAttrs(pushedAgg.groupingExpressions.flatMap(referencedAttrsInOrder))
+    if (keys.forall(key => coveredIds.contains(key.exprId))) {
+      // The pushed aggregate groups at the grain the query groups at anyway, so it does the work
+      // the aggregate above the join would have done, only on the pre-join input. This is the shape
+      // the rewrite exists for - for instance `GROUP BY c_customer_sk` over
+      // `ss_customer_sk = c_customer_sk` - and it needs no estimate.
+      return true
+    }
+    if (crossesShufflingJoinEdge(plan, pushedAgg)) {
+      // The push shrinks an exchange rather than just some hash probes, so it is worth keeping even
+      // without being able to show how much it reduces.
+      return true
+    }
+    JoinAggregateCardinality.estimatedRowCount(pushedAgg.child) match {
+      case None =>
+        // Nothing is known about the pushed side. Do not gamble a full extra aggregation pass
+        // on it.
+        logDebug(
+          s"Dropping aggregate pushdown grouped by ${keys.mkString(", ")}: " +
+            "no size statistics on the pushed side.")
+        false
+      case Some(childRows) if childRows < profitabilityCheckMinRows =>
+        // Small enough that the extra pass cannot matter either way, and the regime where the row
+        // estimate is least trustworthy. Leave the decision to the syntactic rules.
+        true
+      case Some(childRows) =>
+        val groupBound =
+          JoinAggregateCardinality.groupCountUpperBound(keys, childRows, equalities, bounds)
+        val reducing = BigDecimal(childRows) >= BigDecimal(groupBound) * minReductionRatio
+        if (!reducing) {
+          logDebug(
+            s"Dropping aggregate pushdown grouped by ${keys.mkString(", ")}: " +
+              s"at most $groupBound groups out of $childRows rows is below the required " +
+              s"$minReductionRatio x reduction.")
+        }
+        reducing
+    }
   }
 
   private def pushOnce(
@@ -333,6 +460,56 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
     val pushedJoin = side.replace(join, pushedAgg)
     Some(pushedJoin)
+  }
+
+  /**
+   * Whether any join edge the pushed aggregate crossed has an other side that cannot be broadcast,
+   * and therefore an exchange on the pushed side that the pre-aggregation shrinks.
+   *
+   * This mirrors what `JoinSelection` will decide from the same `sizeInBytes`, so it needs no
+   * cardinality estimate - only the relative size of the two sides.
+   */
+  private def crossesShufflingJoinEdge(plan: LogicalPlan, pushedAgg: Aggregate): Boolean = {
+    val threshold = conf.autoBroadcastJoinThreshold
+    crossedJoinEdges(plan, pushedAgg).exists {
+      case (_, otherSide) => threshold <= 0 || otherSide.stats.sizeInBytes > threshold
+    }
+  }
+
+  /**
+   * Every join between `plan` and `pushedAgg`, paired with the side the pushed aggregate is not on.
+   */
+  private def crossedJoinEdges(
+      plan: LogicalPlan,
+      pushedAgg: Aggregate): Seq[(Join, LogicalPlan)] = {
+    def contains(node: LogicalPlan): Boolean = node.find(_ eq pushedAgg).isDefined
+    def walk(node: LogicalPlan): Seq[(Join, LogicalPlan)] = {
+      if (node eq pushedAgg) {
+        Nil
+      } else {
+        node match {
+          case join: Join if contains(join.left) => (join, join.right) +: walk(join.left)
+          case join: Join if contains(join.right) => (join, join.left) +: walk(join.right)
+          case other => other.children.find(contains).map(walk).getOrElse(Nil)
+        }
+      }
+    }
+    walk(plan)
+  }
+
+  /**
+   * A freshly split aggregate keeps the partial wrapper aggregate as the direct child of the final
+   * wrapper aggregate. Any successful `pushOnce` replaces that child with the rebuilt Project /
+   * Filter / Join subtree, so this shape surviving the push loop means the pushed aggregate never
+   * crossed a join edge.
+   */
+  private def isUnpushedSplit(plan: LogicalPlan): Boolean = plan match {
+    case finalAgg: Aggregate =>
+      finalAgg.child match {
+        case partialAgg: Aggregate => isPurePartialWrapperAggregate(partialAgg)
+        case _ => false
+      }
+    case _ => false
   }
 
   private def isPurePartialWrapperAggregate(agg: Aggregate): Boolean = {
