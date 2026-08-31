@@ -1,0 +1,137 @@
+diff --git a/velox/exec/Aggregate.h b/velox/exec/Aggregate.h
+index 03b019f5e6..a00191c378 100644
+--- a/velox/exec/Aggregate.h
++++ b/velox/exec/Aggregate.h
+@@ -89,6 +89,12 @@ class Aggregate {
+     return false;
+   }
+ 
++  /// Returns true if toIntermediate() can process 'rows'. By default, an
++  /// aggregate that supports toIntermediate() can process any row selection.
++  virtual bool canToIntermediate(const SelectivityVector& /*rows*/) const {
++    return supportsToIntermediate();
++  }
++
+   void setAllocator(HashStringAllocator* allocator) {
+     setAllocatorInternal(allocator);
+   }
+diff --git a/velox/exec/AggregateCompanionAdapter.cpp b/velox/exec/AggregateCompanionAdapter.cpp
+index 724aca1843..ebc58a057c 100644
+--- a/velox/exec/AggregateCompanionAdapter.cpp
++++ b/velox/exec/AggregateCompanionAdapter.cpp
+@@ -143,6 +143,20 @@ void AggregateCompanionAdapter::PartialFunction::extractValues(
+   fn_->extractAccumulators(groups, numGroups, result);
+ }
+ 
++bool AggregateCompanionAdapter::MergeFunction::canToIntermediate(
++    const SelectivityVector& rows) const {
++  return rows.isAllSelected() && fn_->supportsToIntermediate();
++}
++
++void AggregateCompanionAdapter::MergeFunction::toIntermediate(
++    const SelectivityVector& rows,
++    std::vector<VectorPtr>& args,
++    VectorPtr& result) const {
++  VELOX_CHECK(rows.isAllSelected());
++  VELOX_CHECK_EQ(args.size(), 1);
++  result = args[0];
++}
++
+ void AggregateCompanionAdapter::MergeFunction::addRawInput(
+     char** groups,
+     const SelectivityVector& rows,
+diff --git a/velox/exec/AggregateCompanionAdapter.h b/velox/exec/AggregateCompanionAdapter.h
+index f72172c5e3..84db696de0 100644
+--- a/velox/exec/AggregateCompanionAdapter.h
++++ b/velox/exec/AggregateCompanionAdapter.h
+@@ -117,6 +117,13 @@ struct AggregateCompanionAdapter {
+         const TypePtr& resultType)
+         : AggregateCompanionFunctionBase{std::move(fn), resultType} {}
+ 
++    bool canToIntermediate(const SelectivityVector& rows) const override;
++
++    void toIntermediate(
++        const SelectivityVector& rows,
++        std::vector<VectorPtr>& args,
++        VectorPtr& result) const override;
++
+     void addRawInput(
+         char** groups,
+         const SelectivityVector& rows,
+diff --git a/velox/exec/GroupingSet.cpp b/velox/exec/GroupingSet.cpp
+index 872a945dd2..e15a36f86f 100644
+--- a/velox/exec/GroupingSet.cpp
++++ b/velox/exec/GroupingSet.cpp
+@@ -1546,18 +1546,11 @@ void GroupingSet::updateRow(SpillMergeStream& input, char* row) {
+ 
+ void GroupingSet::abandonPartialAggregation() {
+   abandonedPartialAggregation_ = true;
+-  allSupportToIntermediate_ = true;
+-  for (auto& aggregate : aggregates_) {
+-    if (!aggregate.function->supportsToIntermediate()) {
+-      allSupportToIntermediate_ = false;
+-    }
+-  }
+-
+   VELOX_CHECK_EQ(table_->rows()->numRows(), 0);
+   intermediateRows_ = std::make_unique<RowContainer>(
+       table_->rows()->keyTypes(),
+       !ignoreNullKeys_,
+-      accumulators(true),
++      accumulators(false),
+       std::vector<TypePtr>(),
+       false,
+       false,
+@@ -1566,7 +1559,7 @@ void GroupingSet::abandonPartialAggregation() {
+       false,
+       false,
+       pool_);
+-  initializeAggregates(aggregates_, *intermediateRows_, true);
++  initializeAggregates(aggregates_, *intermediateRows_, false);
+   table_.reset();
+ }
+ 
+@@ -1601,7 +1594,15 @@ void GroupingSet::toIntermediate(
+   masks_.addInput(input, activeRows_);
+ 
+   result->resize(numRows);
+-  if (!allSupportToIntermediate_) {
++  bool needsIntermediateGroups = false;
++  for (auto i = 0; i < aggregates_.size(); ++i) {
++    if (!aggregates_[i].function->canToIntermediate(
++            getSelectivityVector(i))) {
++      needsIntermediateGroups = true;
++      break;
++    }
++  }
++  if (needsIntermediateGroups) {
+     intermediateGroups_.resize(numRows);
+     for (auto i = 0; i < numRows; ++i) {
+       intermediateGroups_[i] = intermediateRows_->newRow();
+@@ -1622,7 +1623,7 @@ void GroupingSet::toIntermediate(
+     recursiveResizeChildren(aggregateVector, input->size());
+     const auto& rows = getSelectivityVector(i);
+ 
+-    if (function->supportsToIntermediate()) {
++    if (function->canToIntermediate(rows)) {
+       populateTempVectors(i, input);
+       VELOX_DCHECK(aggregateVector);
+       function->toIntermediate(rows, tempVectors_, aggregateVector);
+diff --git a/velox/exec/GroupingSet.h b/velox/exec/GroupingSet.h
+index 426c2db067..ba96f1a620 100644
+--- a/velox/exec/GroupingSet.h
++++ b/velox/exec/GroupingSet.h
+@@ -464,12 +464,7 @@ class GroupingSet {
+   // True if partial aggregation has been given up as non-productive.
+   bool abandonedPartialAggregation_{false};
+ 
+-  // True if partial aggregation and all aggregates have a fast path from raw
+-  // input to intermediate. Initialized in abandonPartialAggregation().
+-  bool allSupportToIntermediate_;
+-
+-  // RowContainer for toIntermediate for aggregates that do not have a
+-  // toIntermediate() fast path
++  // RowContainer for toIntermediate() fallback.
+   std::unique_ptr<RowContainer> intermediateRows_;
+   std::vector<char*> intermediateGroups_;
+   std::vector<vector_size_t> intermediateRowNumbers_;

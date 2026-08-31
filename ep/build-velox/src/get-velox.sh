@@ -162,6 +162,19 @@ function apply_compilation_fixes {
   git add ${VELOX_HOME}/CMake/resolve_dependency_modules/arrow/modify_arrow.patch # to avoid the file from being deleted by git clean -dffx :/
 }
 
+function apply_upstream_velox_patches {
+  pushd $VELOX_HOME
+  for pr_id in 18565 18569; do
+    local patch_file="${CURRENT_DIR}/velox-pr-${pr_id}.patch"
+    echo "Applying production changes from Velox PR #${pr_id}..."
+    git apply --check "$patch_file" && git apply "$patch_file" || {
+      echo "Failed to apply Velox PR #${pr_id} patch"
+      exit 1
+    }
+  done
+  popd
+}
+
 function setup_linux {
   local LINUX_DISTRIBUTION=$(. /etc/os-release && echo ${ID})
   local LINUX_VERSION_ID=$(. /etc/os-release && echo ${VERSION_ID})
@@ -244,5 +257,7 @@ fi
 apply_provided_velox_patch
 
 apply_compilation_fixes
+
+apply_upstream_velox_patches
 
 echo "Finished getting Velox code"
