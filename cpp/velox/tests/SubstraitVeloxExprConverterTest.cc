@@ -17,6 +17,7 @@
 
 #include "substrait/SubstraitToVeloxExpr.h"
 
+#include "config/VeloxConfig.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/QueryConfig.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
@@ -28,7 +29,10 @@ using namespace facebook::velox;
 
 namespace gluten {
 
-class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {};
+class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {
+ protected:
+  config::ConfigBase backendConf_{std::unordered_map<std::string, std::string>{}};
+};
 
 // Regression test for a SIGSEGV in
 // SubstraitVeloxExprConverter::toVeloxExpr(Expression::FieldReference, ...).
@@ -81,14 +85,14 @@ TEST_F(SubstraitVeloxExprConverterExecutionTest, ordinalFieldReferenceIntoNonStr
   structField->mutable_child()->mutable_struct_field()->set_field(0);
 
   const std::unordered_map<uint64_t, std::string> functionMap;
-  SubstraitVeloxExprConverter converter(pool(), functionMap);
+  SubstraitVeloxExprConverter converter(pool(), functionMap, &backendConf_);
   VELOX_ASSERT_THROW(converter.toVeloxExpr(substraitExpr, inputType), "Nested field reference into a non-struct type");
 }
 
 TEST_F(SubstraitVeloxExprConverterExecutionTest, ordinalFieldReferenceIndexOutOfRangeThrows) {
   auto inputType = ROW({"a", "b"}, {INTEGER(), INTEGER()});
   const std::unordered_map<uint64_t, std::string> functionMap;
-  SubstraitVeloxExprConverter converter(pool(), functionMap);
+  SubstraitVeloxExprConverter converter(pool(), functionMap, &backendConf_);
 
   for (const auto index : {-1, 5}) {
     SCOPED_TRACE(index);
@@ -96,6 +100,37 @@ TEST_F(SubstraitVeloxExprConverterExecutionTest, ordinalFieldReferenceIndexOutOf
     substraitExpr.mutable_selection()->mutable_direct_reference()->mutable_struct_field()->set_field(index);
     VELOX_ASSERT_USER_THROW(converter.toVeloxExpr(substraitExpr, inputType), "out of range");
   }
+}
+
+TEST_F(SubstraitVeloxExprConverterExecutionTest, sharesMightContainBinaryLiteral) {
+  constexpr uint64_t kMightContainFunctionId = 1;
+  const std::string bloomFilterBytes(128, 'x');
+  ::substrait::Expression::ScalarFunction function;
+  function.set_function_reference(kMightContainFunctionId);
+  function.add_arguments()->mutable_value()->mutable_literal()->set_binary(bloomFilterBytes);
+  function.add_arguments()->mutable_value()->mutable_literal()->set_i64(1);
+  function.mutable_output_type()->mutable_bool_();
+
+  const std::unordered_map<uint64_t, std::string> functionMap = {{kMightContainFunctionId, "might_contain"}};
+  config::ConfigBase cacheEnabledConf({{kScanBloomFilterBufferCacheEnabled, "true"}});
+  SubstraitVeloxExprConverter firstConverter(pool(), functionMap, &cacheEnabledConf);
+  SubstraitVeloxExprConverter secondConverter(pool(), functionMap, &cacheEnabledConf);
+  const auto first =
+      std::dynamic_pointer_cast<const core::CallTypedExpr>(firstConverter.toVeloxExpr(function, ROW({}, {})));
+  const auto second =
+      std::dynamic_pointer_cast<const core::CallTypedExpr>(secondConverter.toVeloxExpr(function, ROW({}, {})));
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+
+  const auto firstConstant = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(first->inputs()[0]);
+  const auto secondConstant = std::dynamic_pointer_cast<const core::ConstantTypedExpr>(second->inputs()[0]);
+  ASSERT_NE(firstConstant, nullptr);
+  ASSERT_NE(secondConstant, nullptr);
+  const auto& firstVector = firstConstant->valueVector();
+  const auto& secondVector = secondConstant->valueVector();
+  EXPECT_EQ(
+      firstVector->as<SimpleVector<StringView>>()->valueAt(0).data(),
+      secondVector->as<SimpleVector<StringView>>()->valueAt(0).data());
 }
 
 TEST_F(SubstraitVeloxExprConverterExecutionTest, nestedFieldReferenceUsesOrdinalForUnnamedFields) {
@@ -111,7 +146,7 @@ TEST_F(SubstraitVeloxExprConverterExecutionTest, nestedFieldReferenceUsesOrdinal
   structField->mutable_child()->mutable_struct_field()->set_field(1);
 
   const std::unordered_map<uint64_t, std::string> functionMap;
-  SubstraitVeloxExprConverter converter(pool(), functionMap);
+  SubstraitVeloxExprConverter converter(pool(), functionMap, &backendConf_);
   auto expression = converter.toVeloxExpr(substraitExpr, asRowType(input->type()));
   auto dereference = std::dynamic_pointer_cast<const core::DereferenceTypedExpr>(expression);
   ASSERT_NE(dereference, nullptr);

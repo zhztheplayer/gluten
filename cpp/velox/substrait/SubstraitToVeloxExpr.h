@@ -18,6 +18,7 @@
 #pragma once
 
 #include "SubstraitParser.h"
+#include "velox/common/config/Config.h"
 #include "velox/core/Expressions.h"
 #include "velox/type/StringView.h"
 #include "velox/vector/ComplexVector.h"
@@ -36,8 +37,11 @@ class SubstraitVeloxExprConverter {
   /// storing the relations between the function id and the function name.
   explicit SubstraitVeloxExprConverter(
       memory::MemoryPool* pool,
-      const std::unordered_map<uint64_t, std::string>& functionMap)
-      : pool_(pool), functionMap_(functionMap) {}
+      const std::unordered_map<uint64_t, std::string>& functionMap,
+      const facebook::velox::config::ConfigBase* backendConf)
+      : pool_(pool), functionMap_(functionMap), backendConf_(backendConf) {
+    VELOX_USER_CHECK_NOT_NULL(backendConf_);
+  }
 
   /// Stores the variant and its type.
   struct TypedVariant {
@@ -85,6 +89,10 @@ class SubstraitVeloxExprConverter {
       const ::substrait::Expression::ScalarFunction& substraitFunc,
       const RowTypePtr& inputType);
 
+  core::TypedExprPtr toMightContainExpr(
+      const ::substrait::Expression::ScalarFunction& substraitFunc,
+      const RowTypePtr& inputType);
+
  private:
   /// Convert list literal to ArrayVector.
   ArrayVectorPtr literalsToArrayVector(const ::substrait::Expression::Literal& literal);
@@ -102,6 +110,8 @@ class SubstraitVeloxExprConverter {
   /// The map storing the relations between the function id and the function
   /// name.
   std::unordered_map<uint64_t, std::string> functionMap_;
+
+  const facebook::velox::config::ConfigBase* backendConf_;
 
   // The map storing the Substrait extract function input field and velox
   // function name.

@@ -1822,12 +1822,12 @@ void SubstraitToVeloxPlanConverter::constructFunctionMap(const ::substrait::Plan
     auto name = sFmap.name();
     functionMap_[id] = name;
   }
-  exprConverter_ = std::make_unique<SubstraitVeloxExprConverter>(pool_, functionMap_);
+  exprConverter_ = std::make_unique<SubstraitVeloxExprConverter>(pool_, functionMap_, veloxCfg_);
 }
 
 void SubstraitToVeloxPlanConverter::constructFunctionMap(std::unordered_map<uint64_t, std::string> substraitPlan) {
   functionMap_ = std::move(substraitPlan);
-  exprConverter_ = std::make_unique<SubstraitVeloxExprConverter>(pool_, functionMap_);
+  exprConverter_ = std::make_unique<SubstraitVeloxExprConverter>(pool_, functionMap_, veloxCfg_);
 }
 
 std::string SubstraitToVeloxPlanConverter::findFuncSpec(uint64_t id) {
