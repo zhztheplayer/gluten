@@ -119,6 +119,8 @@ class VeloxMemoryManager final : public MemoryManager {
 
 VeloxMemoryManager* getDefaultMemoryManager();
 
+void testingSetDefaultMemoryManager(VeloxMemoryManager* memoryManager);
+
 std::shared_ptr<facebook::velox::memory::MemoryPool> defaultLeafVeloxMemoryPool();
 
 } // namespace gluten

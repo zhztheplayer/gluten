@@ -450,8 +450,17 @@ VeloxMemoryManager::~VeloxMemoryManager() {
 #endif
 }
 
+namespace {
+VeloxMemoryManager* testingDefaultMemoryManager{nullptr};
+} // namespace
+
 VeloxMemoryManager* getDefaultMemoryManager() {
-  return VeloxBackend::get()->getGlobalMemoryManager();
+  return testingDefaultMemoryManager ? testingDefaultMemoryManager
+                                     : VeloxBackend::get()->getGlobalMemoryManager();
+}
+
+void testingSetDefaultMemoryManager(VeloxMemoryManager* memoryManager) {
+  testingDefaultMemoryManager = memoryManager;
 }
 
 std::shared_ptr<velox::memory::MemoryPool> defaultLeafVeloxMemoryPool() {

@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
+#include "compute/VeloxBackend.h"
 #include "substrait/SubstraitToVeloxExpr.h"
 
-#include "compute/VeloxBackend.h"
 #include "config/VeloxConfig.h"
+#include "memory/VeloxMemoryManager.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/QueryConfig.h"
 #include "velox/exec/tests/utils/AssertQueryBuilder.h"
@@ -32,14 +33,20 @@ namespace gluten {
 
 class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {
  protected:
-  static void SetUpTestSuite() {
-    VeloxBackend::create(AllocationListener::noop(), {});
+  static void SetUpTestCase() {
+    exec::test::OperatorTestBase::SetUpTestCase();
+    defaultMemoryManager_ = std::make_unique<VeloxMemoryManager>(
+        kVeloxBackendKind, AllocationListener::noop(), std::unordered_map<std::string, std::string>{});
+    testingSetDefaultMemoryManager(defaultMemoryManager_.get());
   }
 
-  static void TearDownTestSuite() {
-    VeloxBackend::get()->tearDown();
+  static void TearDownTestCase() {
+    testingSetDefaultMemoryManager(nullptr);
+    defaultMemoryManager_.reset();
+    exec::test::OperatorTestBase::TearDownTestCase();
   }
 
+  inline static std::unique_ptr<VeloxMemoryManager> defaultMemoryManager_;
   config::ConfigBase backendConf_{std::unordered_map<std::string, std::string>{}};
 };
 
