@@ -38,9 +38,9 @@ class SubstraitVeloxExprConverter {
   explicit SubstraitVeloxExprConverter(
       memory::MemoryPool* pool,
       const std::unordered_map<uint64_t, std::string>& functionMap,
-      const facebook::velox::config::ConfigBase* backendConf)
-      : pool_(pool), functionMap_(functionMap), backendConf_(backendConf) {
-    VELOX_USER_CHECK_NOT_NULL(backendConf_);
+      const facebook::velox::config::ConfigBase* veloxCfg)
+      : pool_(pool), functionMap_(functionMap), veloxCfg_(veloxCfg) {
+    VELOX_USER_CHECK_NOT_NULL(veloxCfg_);
   }
 
   /// Stores the variant and its type.
@@ -111,7 +111,7 @@ class SubstraitVeloxExprConverter {
   /// name.
   std::unordered_map<uint64_t, std::string> functionMap_;
 
-  const facebook::velox::config::ConfigBase* backendConf_;
+  const facebook::velox::config::ConfigBase* veloxCfg_;
 
   // The map storing the Substrait extract function input field and velox
   // function name.

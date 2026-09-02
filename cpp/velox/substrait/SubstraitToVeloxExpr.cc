@@ -466,7 +466,7 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toVeloxExpr(
     return toExtractExpr(std::move(params), outputType);
   }
   if (veloxFunction == "might_contain" &&
-      backendConf_->get<bool>(
+      veloxCfg_->get<bool>(
           gluten::kScanBloomFilterBufferCacheEnabled, gluten::kScanBloomFilterBufferCacheEnabledDefault)) {
     return toMightContainExpr(substraitFunc, inputType);
   }

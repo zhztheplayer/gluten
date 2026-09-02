@@ -455,8 +455,7 @@ VeloxMemoryManager* testingDefaultMemoryManager{nullptr};
 } // namespace
 
 VeloxMemoryManager* getDefaultMemoryManager() {
-  return testingDefaultMemoryManager ? testingDefaultMemoryManager
-                                     : VeloxBackend::get()->getGlobalMemoryManager();
+  return testingDefaultMemoryManager ? testingDefaultMemoryManager : VeloxBackend::get()->getGlobalMemoryManager();
 }
 
 void testingSetDefaultMemoryManager(VeloxMemoryManager* memoryManager) {
