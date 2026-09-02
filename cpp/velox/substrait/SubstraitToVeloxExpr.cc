@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include "TypeUtils.h"
 #include "config/VeloxConfig.h"
+#include "memory/VeloxMemoryManager.h"
 #include "velox/functions/sparksql/specialforms/SparkCastExpr.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/FlatVector.h"
@@ -33,7 +34,7 @@ namespace {
 constexpr const char* kSparkAnsiCast = "spark_ansi_cast";
 constexpr const char* kSparkLegacyCast = "spark_legacy_cast";
 
-// Shares immutable Bloom filter bytes across plan conversions in this process.
+// Shares immutable Bloom filter constants across plan conversions in this process.
 class BloomFilterBufferCache {
  public:
   static BloomFilterBufferCache& instance() {
@@ -41,26 +42,29 @@ class BloomFilterBufferCache {
     return cache;
   }
 
-  std::shared_ptr<const std::string> intern(std::string_view bytes) {
+  VectorPtr intern(std::string_view bytes) {
     const auto hash = std::hash<std::string_view>{}(bytes);
     std::lock_guard<std::mutex> lock(mutex_);
     auto mapIt = entries_.find(hash);
     if (mapIt != entries_.end()) {
       for (const auto& entry : mapIt->second) {
-        if (auto buffer = entry.lock()) {
-          if (buffer->size() == bytes.size() && std::equal(buffer->begin(), buffer->end(), bytes.begin())) {
-            return buffer;
+        if (auto vector = entry.lock()) {
+          const auto value = vector->as<SimpleVector<StringView>>()->valueAt(0);
+          if (value.size() == bytes.size() && std::equal(value.data(), value.data() + value.size(), bytes.begin())) {
+            return vector;
           }
         }
       }
     }
-    auto buffer = std::make_shared<const std::string>(bytes);
-    entries_[hash].emplace_back(buffer);
+    // Cached vectors outlive task pools, so allocate them from Gluten's global pool.
+    auto vector = BaseVector::createConstant(
+        VARBINARY(), variant::binary(std::string(bytes)), 1, gluten::defaultLeafVeloxMemoryPool().get());
+    entries_[hash].emplace_back(vector);
     if (++entriesSinceSweep_ >= kSweepInterval) {
       sweep();
       entriesSinceSweep_ = 0;
     }
-    return buffer;
+    return vector;
   }
 
  private:
@@ -80,32 +84,15 @@ class BloomFilterBufferCache {
 
   static constexpr size_t kSweepInterval = 128;
   std::mutex mutex_;
-  std::unordered_map<size_t, std::vector<std::weak_ptr<const std::string>>> entries_;
+  std::unordered_map<size_t, std::vector<std::weak_ptr<BaseVector>>> entries_;
   size_t entriesSinceSweep_{0};
 };
 
-// Keeps externally owned bytes alive for a Velox BufferView.
-struct SharedStringReleaser {
-  explicit SharedStringReleaser(std::shared_ptr<const std::string> value) : value_(std::move(value)) {}
-
-  void addRef() const {}
-  void release() const {}
-
- private:
-  const std::shared_ptr<const std::string> value_;
-};
-
 std::shared_ptr<const core::ConstantTypedExpr> makeSharedBinaryConstant(
-    const ::substrait::Expression::Literal& literal,
-    memory::MemoryPool* pool) {
+    const ::substrait::Expression::Literal& literal) {
   const auto value = gluten::SubstraitParser::getLiteralValue<StringView>(literal);
-  auto bytes = BloomFilterBufferCache::instance().intern(std::string_view(value.data(), value.size()));
-  auto stringBuffer = BufferView<SharedStringReleaser>::create(
-      reinterpret_cast<const uint8_t*>(bytes->data()), bytes->size(), SharedStringReleaser(bytes));
-  auto vector = BaseVector::create<FlatVector<StringView>>(VARBINARY(), 1, pool);
-  vector->setStringBuffers({std::move(stringBuffer)});
-  vector->setNoCopy(0, StringView(bytes->data(), bytes->size()));
-  return std::make_shared<const core::ConstantTypedExpr>(vector);
+  return std::make_shared<const core::ConstantTypedExpr>(
+      BloomFilterBufferCache::instance().intern(std::string_view(value.data(), value.size())));
 }
 
 ArrayVectorPtr makeArrayVector(const VectorPtr& elements) {
@@ -452,7 +439,7 @@ core::TypedExprPtr SubstraitVeloxExprConverter::toMightContainExpr(
 
   std::vector<core::TypedExprPtr> params;
   params.reserve(2);
-  params.emplace_back(makeSharedBinaryConstant(bloomFilter.literal(), pool_));
+  params.emplace_back(makeSharedBinaryConstant(bloomFilter.literal()));
   params.emplace_back(toVeloxExpr(substraitFunc.arguments(1).value(), inputType));
   return std::make_shared<const core::CallTypedExpr>(
       SubstraitParser::parseType(substraitFunc.output_type()), std::move(params), "might_contain");

@@ -17,6 +17,7 @@
 
 #include "substrait/SubstraitToVeloxExpr.h"
 
+#include "compute/VeloxBackend.h"
 #include "config/VeloxConfig.h"
 #include "velox/common/base/tests/GTestUtils.h"
 #include "velox/core/QueryConfig.h"
@@ -31,6 +32,14 @@ namespace gluten {
 
 class SubstraitVeloxExprConverterExecutionTest : public exec::test::OperatorTestBase {
  protected:
+  static void SetUpTestSuite() {
+    VeloxBackend::create(AllocationListener::noop(), {});
+  }
+
+  static void TearDownTestSuite() {
+    VeloxBackend::get()->tearDown();
+  }
+
   config::ConfigBase backendConf_{std::unordered_map<std::string, std::string>{}};
 };
 
