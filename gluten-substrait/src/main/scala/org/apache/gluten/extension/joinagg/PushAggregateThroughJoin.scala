@@ -64,6 +64,12 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private case class SidePartialRef(spec: SidePartialSpec, attr: AttributeReference)
 
+  // `lowerBuffersByExprId` connects each retained partial output to the fresh buffer produced
+  // below the join, so the retained aggregate can become a PartialMerge without changing its ID.
+  private case class PushedJoin(
+      join: Join,
+      lowerBuffersByExprId: Map[Long, AttributeReference])
+
   private var successfulSplitCount: Int = 0
   private var successfulPushCount: Int = 0
 
@@ -215,9 +221,12 @@ case class PushAggregateThroughJoin(spark: SparkSession)
               val maybePushedJoin =
                 pushPartialAggToJoinSide(join, groupingExprs, aggExprs, wrapperRequiredAttrs, side)
               maybePushedJoin match {
-                case Some(pushedJoin) =>
-                  val requiredAttrs = partialAgg.output.collect { case a: Attribute => a }
-                  Some(rebuild(pushedJoin, requiredAttrs))
+                case Some(PushedJoin(pushedJoin, lowerBuffersByExprId)) =>
+                  val requiredAttrs = dedupeAttrs(
+                    groupingExprs.flatMap(referencedAttrsInOrder) ++
+                      lowerBuffersByExprId.values)
+                  val rebuiltChild = rebuild(pushedJoin, requiredAttrs)
+                  Some(buildPartialMergeAggregate(partialAgg, rebuiltChild, lowerBuffersByExprId))
                 case None => None
               }
           }
@@ -231,7 +240,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       groupingExprs: Seq[Expression],
       aggExprs: Seq[NamedExpression],
       wrapperRequiredAttrs: Seq[Attribute],
-      side: JoinSide): Option[Join] = {
+      side: JoinSide): Option[PushedJoin] = {
     // A pushed wrapper aggregate may move to a join side only when all of its aggregate inputs
     // come from that side. The pushed grouping then has to include:
     //   - grouping attrs already present on this side
@@ -317,12 +326,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         val wrapped = JoinAggregateFunctionWrapper
           .wrapperPartial(wrapper.innerAgg, wrapper.wrapperKey)
           .toAggregateExpression()
-        Alias(wrapped, alias.name)(
-          exprId = alias.exprId,
-          qualifier = alias.qualifier,
-          explicitMetadata = alias.explicitMetadata,
-          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
-        )
+        Alias(wrapped, s"${alias.name}_pushed")()
     }
 
     val pushedAgg = Aggregate(
@@ -332,7 +336,39 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     )
 
     val pushedJoin = side.replace(join, pushedAgg)
-    Some(pushedJoin)
+    val lowerBuffersByExprId = wrapperAliases.zip(
+      pushedAgg.output.slice(pushedGrouping.size, pushedGrouping.size + pushedWrapperAliases.size))
+      .map {
+        case ((alias, _), attr) => alias.exprId.id -> cleanAttr(attr)
+      }
+      .toMap
+    Some(PushedJoin(pushedJoin, lowerBuffersByExprId))
+  }
+
+  private def buildPartialMergeAggregate(
+      partialAgg: Aggregate,
+      child: LogicalPlan,
+      lowerBuffersByExprId: Map[Long, AttributeReference]): Aggregate = {
+    val partialMergeExpressions = partialAgg.aggregateExpressions.map {
+      case alias @ Alias(
+            AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _),
+            _)
+          if wrapper.targetPhase == JoinAggregateFunctionWrapper.PartialPhase =>
+        val lowerBuffer = lowerBuffersByExprId.getOrElse(
+          alias.exprId.id,
+          throw new IllegalStateException(s"Cannot resolve pushed buffer for ${alias.sql}"))
+        val partialMerge = JoinAggregateFunctionWrapper
+          .wrapperPartialMerge(wrapper.innerAgg, lowerBuffer, wrapper.wrapperKey)
+          .toAggregateExpression()
+        Alias(partialMerge, alias.name)(
+          exprId = alias.exprId,
+          qualifier = alias.qualifier,
+          explicitMetadata = alias.explicitMetadata,
+          nonInheritableMetadataKeys = alias.nonInheritableMetadataKeys
+        )
+      case other => other
+    }
+    partialAgg.copy(aggregateExpressions = partialMergeExpressions, child = child)
   }
 
   private def isPurePartialWrapperAggregate(agg: Aggregate): Boolean = {
