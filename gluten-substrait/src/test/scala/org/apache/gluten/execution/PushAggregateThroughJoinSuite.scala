@@ -128,7 +128,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
                 .map(_.treeString)
                 .mkString("\n---\n")}")
           assert(joinAggregateRule.getSuccessfulPushCount == expectedPushCount)
-          assert(aggregateNodeCount == testCase.expectedAggCount)
+          assert(aggregateNodeCount == testCase.expectedAggCount + expectedPushCount)
           (withRuleRows, withRulePlan, withRulePhysicalPlan)
         }
 
