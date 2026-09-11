@@ -22,6 +22,7 @@ import org.apache.gluten.extension.columnar.validator.FallbackInjects
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.catalyst.expressions.aggregate.{Final, Partial}
 import org.apache.spark.sql.execution.aggregate.BaseAggregateExec
+import org.apache.spark.sql.execution.exchange.ShuffleExchangeLike
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -1253,6 +1254,23 @@ class VeloxAggregateFunctionsFlushSuite extends VeloxAggregateFunctionsSuite {
             executedPlan.exists(plan => plan.isInstanceOf[RegularHashAggregateExecTransformer]))
           assert(
             executedPlan.exists(plan => plan.isInstanceOf[FlushableHashAggregateExecTransformer]))
+      }
+    }
+  }
+
+  test("flushable aggregate rule - single-partition partial aggregate") {
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+      withTempView("single_partition") {
+        spark
+          .range(0, 10, 1, 1)
+          .selectExpr("id % 2 as k")
+          .createOrReplaceTempView("single_partition")
+        runQueryAndCompare("select k, count(*) from single_partition group by k") {
+          df =>
+            val executedPlan = getExecutedPlan(df)
+            assert(!executedPlan.exists(_.isInstanceOf[ShuffleExchangeLike]))
+            assert(executedPlan.exists(_.isInstanceOf[FlushableHashAggregateExecTransformer]))
+        }
       }
     }
   }
