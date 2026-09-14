@@ -25,7 +25,7 @@ index 724aca1843..ebc58a057c 100644
  
 +bool AggregateCompanionAdapter::MergeFunction::canToIntermediate(
 +    const SelectivityVector& rows) const {
-+  return rows.isAllSelected() && fn_->supportsToIntermediate();
++  return rows.isAllSelected();
 +}
 +
 +void AggregateCompanionAdapter::MergeFunction::toIntermediate(
