@@ -1202,11 +1202,19 @@ abstract class VeloxAggregateFunctionsSuite extends VeloxWholeStageTransformerSu
       ) {
         df =>
           {
-            assert(
-              getExecutedPlan(df).count(
-                plan => {
-                  plan.isInstanceOf[SortHashAggregateExecTransformer]
-                }) == 1)
+            val executedPlan = getExecutedPlan(df)
+            val sortHashCount =
+              executedPlan.count(_.isInstanceOf[SortHashAggregateExecTransformer])
+            val flushableCount =
+              executedPlan.count(_.isInstanceOf[FlushableHashAggregateExecTransformer])
+            assert(sortHashCount + flushableCount == 2)
+            if (VeloxConfig.get.enableVeloxFlushablePartialAggregation) {
+              assert(sortHashCount == 1)
+              assert(flushableCount == 1)
+            } else {
+              assert(sortHashCount == 2)
+              assert(flushableCount == 0)
+            }
           }
       }
     }
