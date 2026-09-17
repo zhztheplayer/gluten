@@ -35,7 +35,8 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
       return plan
     }
     val protectedAggIds = collectProtectedOneDistinctPartialMergeAggIds(plan)
-    plan.transformUp {
+    // Use top-down traversal: child rewrites can copy an aggregate with a new plan ID.
+    plan.transformDown {
       case agg: RegularHashAggregateExecTransformer if isEligible(agg, protectedAggIds) =>
         toFlushableAgg(agg)
       case agg: SortHashAggregateExecTransformer if isEligible(agg, protectedAggIds) =>
@@ -85,8 +86,8 @@ case class FlushableHashAggregateRule(session: SparkSession) extends Rule[SparkP
     !aggregatesNotSupportFlush(agg.aggregateExpressions)
   }
 
-  private def toFlushableAgg(
-      agg: HashAggregateExecTransformer): FlushableHashAggregateExecTransformer = {
+  private def toFlushableAgg(agg: HashAggregateExecTransformer)
+      : FlushableHashAggregateExecTransformer = {
     FlushableHashAggregateExecTransformer(
       agg.requiredChildDistributionExpressions,
       agg.groupingExpressions,
