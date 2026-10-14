@@ -18,12 +18,10 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.joinagg.ImplementJoinAggregate
-import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper
 import org.apache.gluten.extension.joinagg.PushAggregateThroughJoin
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.PlanTest
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -512,31 +510,19 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
   }
 
-  test("top partial merge is not retained when no side can be pushed") {
-    withSQLConf(
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key -> "top") {
-      withExtraPlanning(Nil, Nil) {
-        val original = spark.sql("""
-                                   |SELECT sum(ss_sales_price), sum(i_category_id)
-                                   |FROM store_sales
-                                   |JOIN item ON ss_item_sk = i_item_sk
-                                   |""".stripMargin).queryExecution.optimizedPlan
-        val rule = PushAggregateThroughJoin(spark)
-        val rewritten = rule(original)
-        val mergeWrappers = rewritten.collect { case agg: Aggregate => agg }
-          .flatMap(_.aggregateExpressions)
-          .flatMap(_.collect {
-            case AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _)
-                if wrapper.targetPhase == JoinAggregateFunctionWrapper.PartialMergePhase =>
-              wrapper
-          })
-
-        assert(rule.getSuccessfulPushCount == 0)
-        assert(rewritten.collect { case _: Aggregate => 1 }.size == 2)
-        assert(mergeWrappers.isEmpty)
-      }
-    }
+  test("partial merge is not retained when no side can be pushed") {
+    val pushdownCase = PushdownCase(
+      inputSql = """
+                   |SELECT sum(ss_sales_price), sum(i_category_id)
+                   |FROM store_sales
+                   |JOIN item ON ss_item_sk = i_item_sk
+                   |""".stripMargin
+    )
+    runCaseWithMaxDepth(
+      pushdownCase,
+      maxDepth = Int.MaxValue,
+      expectedPushCount = 0,
+      expectedAggCounts = ExpectedAggCounts(none = 2, top = 2, all = 2))
   }
 
   test("pre-aggregate with filter inside inner equi-join") {
