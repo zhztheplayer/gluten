@@ -167,13 +167,15 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
               println(withoutRuleLogicalPlan.treeString)
               println("=== Optimized Plan After (with PushJoinAggregatePreAggregation) ===")
               println(withRuleLogicalPlan.treeString)
-              println("=== Optimized Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
+              println(
+                "=== Optimized Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
               println(withRuleAndStrategyLogicalPlan.treeString)
               println("=== Physical Plan Before (without PushJoinAggregatePreAggregation) ===")
               println(withoutRulePhysicalPlan.treeString)
               println("=== Physical Plan After (with PushJoinAggregatePreAggregation only) ===")
               println(withRulePhysicalPlan.treeString)
-              println("=== Physical Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
+              println(
+                "=== Physical Plan After (with PushJoinAggregatePreAggregation and strategy) ===")
               println(withRuleAndStrategyPhysicalPlan.treeString)
               println("=== Result Before (without PushJoinAggregatePreAggregation) ===")
               println(withoutRuleRows.mkString("\n"))
@@ -515,7 +517,8 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
     withSQLConf(
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> "2",
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key -> "top") {
+      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key -> "top"
+    ) {
       withExtraPlanning(Nil, Nil) {
         val original = spark.sql("""
                                    |SELECT i_item_desc, d_date, sum(ss_sales_price)

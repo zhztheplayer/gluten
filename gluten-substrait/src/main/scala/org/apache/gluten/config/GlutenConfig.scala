@@ -163,13 +163,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
     getConf(PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH)
 
   def pushAggregateThroughJoinPartialMergeMode: PartialMergeMode.Value =
-    getConf(PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE).getOrElse {
-      if (getConf(PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED)) {
-        PartialMergeMode.ALL
-      } else {
-        PartialMergeMode.NONE
-      }
-    }
+    getConf(PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE)
 
   def forceOrcCharTypeScanFallbackEnabled: Boolean =
     getConf(VELOX_FORCE_ORC_CHAR_TYPE_SCAN_FALLBACK)
@@ -797,23 +791,14 @@ object GlutenConfig extends ConfigRegistry {
       .checkValue(_ >= 1, "must be greater than or equal to 1.")
       .createWithDefault(Int.MaxValue)
 
-  val PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED =
-    buildConf("spark.gluten.sql.pushAggregateThroughJoin.partialMerge.enabled")
-      .doc(
-        "Enables a PartialMerge aggregate above each aggregate pushed through a join. " +
-          "Used only when spark.gluten.sql.pushAggregateThroughJoin.partialMerge.mode is unset.")
-      .booleanConf
-      .createWithDefault(false)
-
   val PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE =
     buildConf("spark.gluten.sql.pushAggregateThroughJoin.partialMerge.mode")
       .doc(
         "Controls where PartialMerge aggregates are retained during aggregate pushdown: " +
           "none retains none, top retains one at the original partial aggregate position, " +
-          "and all retains one at every successful join push. " +
-          "When unset, partialMerge.enabled=true selects all; otherwise the mode is none.")
+          "and all retains one at every successful join push.")
       .enumConf(PartialMergeMode)
-      .createOptional
+      .createWithDefault(PartialMergeMode.NONE)
 
   val GLUTEN_SOFT_AFFINITY_ENABLED =
     buildConf("spark.gluten.soft-affinity.enabled")

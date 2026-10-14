@@ -44,30 +44,19 @@ class SparkConfigUtilSuite extends AnyFunSuiteLike {
     assert(SparkConfigUtil.get(conf, GlutenConfig.GLUTEN_LOAD_LIB_OS).isEmpty)
   }
 
-  test("aggregate pushdown partial-merge mode overrides the legacy boolean") {
+  test("aggregate pushdown partial-merge mode") {
     val conf = new SQLConf
     val glutenConf = new GlutenConfig(conf)
-    val enabledKey = GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key
     val modeKey = GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key
 
     assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == PartialMergeMode.NONE)
-    Seq(false, true).foreach {
-      enabled =>
-        conf.setConfString(enabledKey, enabled.toString)
-        val expectedMode = if (enabled) {
-          PartialMergeMode.ALL
-        } else {
-          PartialMergeMode.NONE
-        }
-        assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == expectedMode)
-        Seq(PartialMergeMode.NONE, PartialMergeMode.TOP, PartialMergeMode.ALL).foreach {
-          mode =>
-            conf.setConfString(modeKey, mode.toString.toLowerCase(java.util.Locale.ROOT))
-            assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == mode)
-        }
-        conf.unsetConf(modeKey)
-        assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == expectedMode)
+    Seq(PartialMergeMode.NONE, PartialMergeMode.TOP, PartialMergeMode.ALL).foreach {
+      mode =>
+        conf.setConfString(modeKey, mode.toString.toLowerCase(java.util.Locale.ROOT))
+        assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == mode)
     }
+    conf.unsetConf(modeKey)
+    assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == PartialMergeMode.NONE)
 
     conf.setConfString(modeKey, "invalid")
     val error = intercept[IllegalArgumentException] {
