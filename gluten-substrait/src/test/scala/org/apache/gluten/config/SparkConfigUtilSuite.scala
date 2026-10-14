@@ -58,9 +58,8 @@ class SparkConfigUtilSuite extends AnyFunSuiteLike {
     conf.unsetConf(modeKey)
     assert(glutenConf.pushAggregateThroughJoinPartialMergeMode == PartialMergeMode.NONE)
 
-    conf.setConfString(modeKey, "invalid")
     val error = intercept[IllegalArgumentException] {
-      glutenConf.pushAggregateThroughJoinPartialMergeMode
+      conf.setConfString(modeKey, "invalid")
     }
     assert(error.getMessage.contains(modeKey))
   }
