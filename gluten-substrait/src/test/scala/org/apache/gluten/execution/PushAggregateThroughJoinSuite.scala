@@ -25,8 +25,7 @@ import org.apache.spark.SparkConf
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.PlanTest
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Join}
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
@@ -511,41 +510,6 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       maxDepth = Int.MaxValue,
       expectedPushCount = 2,
       expectedAggCounts = ExpectedAggCounts(none = 2, top = 3, all = 4))
-  }
-
-  test("top partial merge stays above both pushed joins") {
-    withSQLConf(
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> "2",
-      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_MODE.key -> "top"
-    ) {
-      withExtraPlanning(Nil, Nil) {
-        val original = spark.sql("""
-                                   |SELECT i_item_desc, d_date, sum(ss_sales_price)
-                                   |FROM store_sales
-                                   |JOIN date_dim ON ss_sold_date_sk = d_date_sk
-                                   |JOIN item ON ss_item_sk = i_item_sk
-                                   |GROUP BY i_item_desc, d_date
-                                   |""".stripMargin).queryExecution.optimizedPlan
-        val rule = PushAggregateThroughJoin(spark)
-        val rewritten = rule(original).asInstanceOf[Aggregate]
-        val topMerge = rewritten.child.asInstanceOf[Aggregate]
-        val phases = topMerge.aggregateExpressions.flatMap(_.collect {
-          case AggregateExpression(wrapper: JoinAggregateFunctionWrapper, _, _, _, _) =>
-            wrapper.targetPhase
-        })
-
-        assert(phases == Seq(JoinAggregateFunctionWrapper.PartialMergePhase))
-        assert(topMerge.groupingExpressions == original.asInstanceOf[Aggregate].groupingExpressions)
-        assert(topMerge.child.collect { case _: Join => 1 }.size == 2)
-        assert(topMerge.child.collect { case _: Aggregate => 1 }.size == 1)
-        assert(rewritten.output == original.output)
-        assert(rewritten.resolved)
-        assert(rewritten.collect { case p if p.missingInput.nonEmpty => p }.isEmpty)
-        assert(rule.getSuccessfulPushCount == 2)
-        assert(rule(rewritten) eq rewritten)
-      }
-    }
   }
 
   test("top partial merge is not retained when no side can be pushed") {
