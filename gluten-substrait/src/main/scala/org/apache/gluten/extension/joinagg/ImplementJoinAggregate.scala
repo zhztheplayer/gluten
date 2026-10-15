@@ -142,17 +142,16 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
   }
 
   private def planFinalPhase(
-    grouping: Seq[NamedExpression],
-    aggregateExpressions: Seq[AggregateExpression],
-    resultExpressions: Seq[NamedExpression],
-    childPlan: SparkPlan): Option[SparkPlan] = {
-    val stage = if (
-      GlutenConfig.get.pushAggregateThroughJoinTwoStageMode == JoinAggregateTwoStageMode.TOP
-    ) {
-      AggregationStage.TWO_STAGE
-    } else {
-      AggregationStage.DISTRIBUTED
-    }
+      grouping: Seq[NamedExpression],
+      aggregateExpressions: Seq[AggregateExpression],
+      resultExpressions: Seq[NamedExpression],
+      childPlan: SparkPlan): Option[SparkPlan] = {
+    val stage =
+      if (GlutenConfig.get.pushAggregateThroughJoinTwoStageMode == JoinAggregateTwoStageMode.TOP) {
+        AggregationStage.TWO_STAGE
+      } else {
+        AggregationStage.DISTRIBUTED
+      }
     planPhase(
       grouping,
       aggregateExpressions,
@@ -246,7 +245,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       aggregateAttributes = mergeExpressions.flatMap(_.aggregateFunction.aggBufferAttributes),
       initialInputBufferOffset = 0,
       resultExpressions = grouping.map(_.toAttribute) ++ bufferOutputs,
-      child = childPlan)
+      child = childPlan
+    )
   }
 
   private def unpackInputBufferFields(
