@@ -1095,4 +1095,14 @@ abstract class StarSchemaJoinAggregateSuite
 
     runQueryAndCompare(query)(df => checkDf(df))
   }
+
+  test("Support filtered aggregates alongside pushed aggregates") {
+    val query = """
+                  |SELECT SUM(ss.ss_sales_price),
+                  |       MAX(d.d_moy) FILTER (WHERE d.d_year = 1999)
+                  |FROM store_sales ss
+                  |JOIN date_dim d ON ss.ss_sold_date_sk = d.d_date_sk
+                  |""".stripMargin
+    runQueryAndCompare(query)(df => checkDf(df))
+  }
 }

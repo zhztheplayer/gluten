@@ -192,7 +192,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
             case Complete => Final
             case other => other
           }
-          ae.copy(mode = mode)
+          // Like Spark's AggUtils.mayRemoveAggFilters, remove filters from buffer-merge stages.
+          ae.copy(mode = mode, filter = None)
       }
     } else {
       rewrittenAggExprs
