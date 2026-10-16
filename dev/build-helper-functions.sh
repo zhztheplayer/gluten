@@ -312,6 +312,7 @@ function setup_linux {
     "$LINUX_DISTRIBUTION" == "almalinux" ]]; then
     case "${LINUX_VERSION_ID%%.*}" in
     9)
+      source $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh
       $GLUTEN_VELOX_SCRIPT_HOME/setup-rhel.sh ;;
     *)
       echo "Unsupported ${LINUX_DISTRIBUTION} version: $LINUX_VERSION_ID"
