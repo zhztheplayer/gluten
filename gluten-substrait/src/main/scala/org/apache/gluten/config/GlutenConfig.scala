@@ -33,7 +33,7 @@ import scala.collection.mutable
 object JoinAggregateTwoStageMode extends Enumeration {
   // TODO: Support ALL at existing shuffle boundaries; splitting below joins can otherwise
   //  introduce unnecessary shuffles, especially for broadcast hash joins.
-  val NONE, TOP = Value
+  val NONE, FINAL = Value
 }
 
 trait ShuffleWriterType {
@@ -806,7 +806,7 @@ object GlutenConfig extends ConfigRegistry {
     buildConf("spark.gluten.sql.pushAggregateThroughJoin.twoStage.mode")
       .doc(
         "Controls physical staging of the final join aggregate: NONE uses a single final " +
-          "stage; TOP adds a local partial merge before the final aggregation exchange.")
+          "stage; FINAL adds a local partial merge before the final aggregation exchange.")
       .enumConf(JoinAggregateTwoStageMode)
       .createWithDefault(JoinAggregateTwoStageMode.NONE)
 

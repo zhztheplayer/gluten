@@ -83,16 +83,16 @@ class StarSchemaJoinAggregatePartialMergeTwoStageSuite extends StarSchemaJoinAgg
     super.sparkConf
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "true")
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "top")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
   }
 }
 
-class StarSchemaJoinAggregateTwoStageTopSuite extends StarSchemaJoinAggregateSuite {
+class StarSchemaJoinAggregateTwoStageFinalSuite extends StarSchemaJoinAggregateSuite {
   override protected def sparkConf: SparkConf = {
     super.sparkConf
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "top")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
   }
 }
 
