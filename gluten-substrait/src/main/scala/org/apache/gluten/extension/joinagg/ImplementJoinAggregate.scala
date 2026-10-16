@@ -147,7 +147,9 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
       resultExpressions: Seq[NamedExpression],
       childPlan: SparkPlan): Option[SparkPlan] = {
     val stage =
-      if (GlutenConfig.get.pushAggregateThroughJoinTwoStageMode == JoinAggregateTwoStageMode.FINAL) {
+      if (
+        GlutenConfig.get.pushAggregateThroughJoinTwoStageMode == JoinAggregateTwoStageMode.FINAL
+      ) {
         AggregationStage.TWO_STAGE
       } else {
         AggregationStage.DISTRIBUTED
