@@ -22,7 +22,40 @@ import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, JoinAggregat
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
+import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
+import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
+
+class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
+  override def apply(extensions: SparkSessionExtensions): Unit = {
+    extensions.injectPlannerStrategy(PushAggregateThroughJoin.apply)
+    extensions.injectPlannerStrategy { spark =>
+      new SparkStrategy {
+        override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
+          // Test the rewrite independently of ImplementJoinAggregate by using Spark's own strategy.
+          case agg: JoinAggregate => spark.sessionState.planner.Aggregation(agg.asAggregate)
+          case _ => Nil
+        }
+      }
+    }
+  }
+}
+
+class StarSchemaJoinAggregateVanillaLogicalOnlySuite extends StarSchemaJoinAggregateSuite {
+  override protected def sparkConf: SparkConf = {
+    super.sparkConf
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
+      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
+      .set(GlutenConfig.GLUTEN_ENABLED.key, "false")
+      .set("spark.shuffle.manager", "sort")
+      .set(
+        "spark.sql.extensions",
+        classOf[VanillaJoinAggregateLogicalOnlyExtensions].getCanonicalName)
+  }
+
+  override protected def checkPlan(df: DataFrame): Unit = {}
+}
 
 class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
@@ -52,6 +85,10 @@ class StarSchemaJoinAggregateMaxDepthOneSuite extends StarSchemaJoinAggregateSui
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
   }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
+  }
 }
 
 class StarSchemaJoinAggregatePartialMergeTwoStageSuite extends StarSchemaJoinAggregateSuite {
@@ -60,6 +97,10 @@ class StarSchemaJoinAggregatePartialMergeTwoStageSuite extends StarSchemaJoinAgg
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "true")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
+  }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 }
 
@@ -70,6 +111,10 @@ class StarSchemaJoinAggregateTwoStageFinalSuite extends StarSchemaJoinAggregateS
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "final")
   }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
+  }
 }
 
 class StarSchemaJoinAggregateDefaultSuite extends StarSchemaJoinAggregateSuite {
@@ -78,6 +123,10 @@ class StarSchemaJoinAggregateDefaultSuite extends StarSchemaJoinAggregateSuite {
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
       .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
+  }
+
+  override protected def checkPlan(df: DataFrame): Unit = {
+    checkGlutenPlan[HashAggregateExecTransformer](df)
   }
 }
 
@@ -451,9 +500,7 @@ abstract class StarSchemaJoinAggregateSuite
     checkPlan(df)
   }
 
-  protected def checkPlan(df: DataFrame): Unit = {
-    checkGlutenPlan[HashAggregateExecTransformer](df)
-  }
+  protected def checkPlan(df: DataFrame): Unit
 
   test("Join-aggregate wrapper aggregate") {
     val query =
