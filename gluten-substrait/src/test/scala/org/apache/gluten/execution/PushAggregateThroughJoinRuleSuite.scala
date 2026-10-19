@@ -186,7 +186,8 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
           GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
           GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> depth.toString,
           GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key ->
-            partialMergeEnabled.toString) {
+            partialMergeEnabled.toString
+        ) {
           val rule = PushAggregateThroughJoin(spark)
           val rewritten = rule(plan)
           val aggregates = rewritten.collect { case agg: Aggregate => agg }
@@ -231,7 +232,8 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
         Filter(GreaterThan(Rand(0L), Literal(0.5)), join),
         join.copy(condition = Some(And(
           EqualTo(leftKey, rightKey),
-          GreaterThan(Rand(0L), Literal(0.5))))))
+          GreaterThan(Rand(0L), Literal(0.5)))))
+      )
       val rule = PushAggregateThroughJoin(spark)
 
       children.foreach {

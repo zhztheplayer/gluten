@@ -18,6 +18,7 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregateThroughJoinBatch}
+
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
@@ -1111,8 +1112,7 @@ abstract class StarSchemaJoinAggregateSuite
                   |JOIN item i ON ss.ss_item_sk = i.i_item_sk
                   |""".stripMargin
     runQueryAndCompare(query) {
-      df =>
-        checkPlan(df)
+      df => checkPlan(df)
     }
   }
 
@@ -1124,8 +1124,7 @@ abstract class StarSchemaJoinAggregateSuite
                   |JOIN date_dim d ON ss.ss_sold_date_sk = d.d_date_sk
                   |""".stripMargin
     runQueryAndCompare(query) {
-      df =>
-        checkPlan(df)
+      df => checkPlan(df)
     }
   }
 }

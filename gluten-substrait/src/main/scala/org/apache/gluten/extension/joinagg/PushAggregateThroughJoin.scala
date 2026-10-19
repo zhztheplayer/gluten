@@ -361,7 +361,8 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         groupingExpressions = partialAgg.groupingExpressions,
         aggregateExpressions = lowerGroupingOutputs ++ lowerAliases,
         child = partialAgg.child),
-      PartialPhase)
+      PartialPhase
+    )
     val lowerBuffersByExprId = wrapperAliases.zip(
       lowerAgg.output.drop(lowerGroupingOutputs.size))
       .map { case ((alias, _), attr) => alias.exprId.id -> cleanAttr(attr) }
