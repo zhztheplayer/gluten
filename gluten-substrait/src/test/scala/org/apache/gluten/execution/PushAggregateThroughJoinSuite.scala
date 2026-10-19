@@ -525,7 +525,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 3))
   }
 
-  test("partial merge is not retained when no side can be pushed") {
+  test("original aggregate is retained when no side can be pushed") {
     val pushdownCase = PushdownCase(
       inputSql = """
                    |SELECT sum(ss_sales_price), sum(i_category_id)
@@ -537,7 +537,7 @@ class PushAggregateThroughJoinSuite extends PlanTest with SharedSparkSession {
       pushdownCase,
       maxDepth = Int.MaxValue,
       expectedPushCount = 0,
-      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 2, partialMergeEnabled = 2))
+      expectedAggCounts = ExpectedAggCounts(partialMergeDisabled = 1, partialMergeEnabled = 1))
   }
 
   test("pre-aggregate with filter inside inner equi-join") {

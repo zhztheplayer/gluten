@@ -17,9 +17,10 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.{JoinAggregateFunctionWrapper, PushAggregateThroughJoin}
+import org.apache.gluten.extension.joinagg.{JoinAggregateFunctionWrapper, JoinAggregateTags, PushAggregateThroughJoin}
+import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper.{FinalPhase, PartialMergePhase, PartialPhase}
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, EqualTo, GreaterThan, Literal, Rand}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, AttributeReference, EqualTo, GreaterThan, Literal, Rand}
 import org.apache.spark.sql.catalyst.expressions.aggregate.Sum
 import org.apache.spark.sql.catalyst.plans.{Inner, PlanTest}
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Filter, Join, JoinHint, LocalRelation, Project}
@@ -54,6 +55,7 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
       joinAggregateRule.JoinLeft)
     assert(leftPushed.exists(_.child eq join.left))
     assert(leftPushed.get.aggregateExpressions.last == leftPartialSum)
+    assert(leftPushed.get.getTagValue(JoinAggregateTags.phase).contains(PartialPhase))
     assert(joinAggregateRule
       .pushPartialAggToJoinSide(
         Seq(leftKey),
@@ -90,29 +92,7 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
         assert(pushed.child eq side.plan(join))
         assert(pushed.groupingExpressions == side.plan(join).output)
         assert(pushed.aggregateExpressions == side.plan(join).output)
-    }
-  }
-
-  test("pushPartialAggToJoinSide grouping-only pushdown is idempotent") {
-    val leftKey = AttributeReference("left_key", IntegerType)()
-    val rightKey = AttributeReference("right_key", IntegerType)()
-    val join = Join(
-      LocalRelation(Seq(leftKey)),
-      LocalRelation(Seq(rightKey)),
-      Inner,
-      Some(EqualTo(leftKey, rightKey)),
-      JoinHint.NONE)
-    val keys = Seq(leftKey, rightKey)
-
-    Seq(joinAggregateRule.JoinLeft, joinAggregateRule.JoinRight).foreach {
-      side =>
-        val pushed = joinAggregateRule
-          .pushPartialAggToJoinSide(keys, keys, join, Nil, side)
-          .get
-        val pushedJoin = side.replace(join, pushed)
-        assert(joinAggregateRule
-          .pushPartialAggToJoinSide(keys, keys, pushedJoin, Nil, side)
-          .isEmpty)
+        assert(pushed.getTagValue(JoinAggregateTags.phase).contains(PartialPhase))
     }
   }
 
@@ -147,20 +127,92 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
           assert(once.collect { case p if p.missingInput.nonEmpty => p }.isEmpty)
           assert(rule.getSuccessfulPushCount == 2)
 
-          // The second run tries to split every DISTINCT:
-          // - Left/right DISTINCT: no join below them, so no push succeeds.
-          // - Top DISTINCT: both join sides are already grouped.
-          // A single join has no between-join merge in either option setting.
-          // No push succeeds, so every temporary split is discarded.
+          val phases = once.collect {
+            case agg: Aggregate => agg.getTagValue(JoinAggregateTags.phase)
+          }
+          assert(phases == Seq(Some(FinalPhase), Some(PartialPhase), Some(PartialPhase)))
+          // Generated aggregates are tagged, so later runs do not split them again.
           val twice = rule(once)
           assert(twice eq once)
           assert(rule.getSuccessfulPushCount == 2)
+
+          // Spark tree rewrites copy the phase tags when replacing aggregate children.
+          val copied = once.transformUp {
+            case leaf: LocalRelation => Project(leaf.output, leaf)
+          }
+          assert(copied.collect {
+            case agg: Aggregate => agg.getTagValue(JoinAggregateTags.phase)
+          } == phases)
+          assert(rule(copied) eq copied)
         }
     }
   }
 
+  test("generated phases and idempotence across join depths") {
+    val a = AttributeReference("a", IntegerType)()
+    val b = AttributeReference("b", IntegerType)()
+    val c = AttributeReference("c", IntegerType)()
+    val d = AttributeReference("d", IntegerType)()
+    val leftJoin = Join(
+      LocalRelation(Seq(a)),
+      LocalRelation(Seq(b)),
+      Inner,
+      Some(EqualTo(a, b)),
+      JoinHint.NONE)
+    val rightJoin = Join(
+      LocalRelation(Seq(c)),
+      LocalRelation(Seq(d)),
+      Inner,
+      Some(EqualTo(c, d)),
+      JoinHint.NONE)
+    val join = Join(leftJoin, rightJoin, Inner, Some(EqualTo(a, c)), JoinHint.NONE)
+    val keys = Seq(a, b, c, d)
+    val plans = Seq(
+      (Aggregate(keys, keys, join), 2),
+      (
+        Aggregate(
+          Seq(b, d),
+          Seq(b, d, Alias(Sum(a).toAggregateExpression(), "total")()),
+          join),
+        1))
 
-  test("grouping-only pushdown keeps nondeterministic expressions above the join") {
+    for {
+      (plan, pushedSides) <- plans
+      depth <- Seq(1, 2)
+      partialMergeEnabled <- Seq(false, true)
+    } {
+      withClue(s"plan=$plan, depth=$depth, partialMergeEnabled=$partialMergeEnabled: ") {
+        withSQLConf(
+          GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
+          GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> depth.toString,
+          GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key ->
+            partialMergeEnabled.toString) {
+          val rule = PushAggregateThroughJoin(spark)
+          val rewritten = rule(plan)
+          val aggregates = rewritten.collect { case agg: Aggregate => agg }
+          assert(aggregates.forall(_.getTagValue(JoinAggregateTags.phase).isDefined))
+          assert(aggregates.head.getTagValue(JoinAggregateTags.phase).contains(FinalPhase))
+          val mergeCount = aggregates.count(
+            _.getTagValue(JoinAggregateTags.phase).contains(PartialMergePhase))
+          val expectedMergeCount = if (partialMergeEnabled && depth == 2) {
+            pushedSides
+          } else {
+            0
+          }
+          assert(mergeCount == expectedMergeCount)
+          assert(rewritten.output == plan.output)
+          assert(rewritten.resolved)
+          assert(rewritten.collect { case p if p.missingInput.nonEmpty => p }.isEmpty)
+          val pushes = rule.getSuccessfulPushCount
+          assert(pushes > 0)
+          assert(rule(rewritten) eq rewritten)
+          assert(rule.getSuccessfulPushCount == pushes)
+        }
+      }
+    }
+  }
+
+  test("aggregate pushdown does not cross nondeterministic expressions") {
     withSQLConf(
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key -> "1") {
@@ -176,13 +228,23 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
       val randomValue = Alias(Rand(0L), "random_value")()
       val children = Seq(
         Project(keys :+ randomValue, join),
-        Filter(GreaterThan(Rand(0L), Literal(0.5)), join))
+        Filter(GreaterThan(Rand(0L), Literal(0.5)), join),
+        join.copy(condition = Some(And(
+          EqualTo(leftKey, rightKey),
+          GreaterThan(Rand(0L), Literal(0.5))))))
       val rule = PushAggregateThroughJoin(spark)
 
       children.foreach {
         child =>
-          val plan = Aggregate(child.output, child.output, child)
-          assert(rule(plan) eq plan)
+          val plans = Seq(
+            Aggregate(child.output, child.output, child),
+            Aggregate(
+              Seq(leftKey),
+              Seq(leftKey, Alias(Sum(leftKey).toAggregateExpression(), "total")()),
+              child))
+          plans.foreach {
+            plan => assert(rule(plan) eq plan)
+          }
       }
     }
   }
