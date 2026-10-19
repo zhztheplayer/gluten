@@ -193,16 +193,14 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       lowerPartialAgg.aggregateExpressions)
     val partialMergeEnabled = GlutenConfig.get.pushAggregateThroughJoinPartialMergeEnabled
     var current: LogicalPlan = lowerPartialAgg
-    var changed = true
+    var candidates = Seq(lowerPartialAgg)
     var pushCount = 0
     var depth = 0
-    while (changed && depth < maxDepth) {
-      changed = false
+    while (candidates.nonEmpty && depth < maxDepth) {
+      val nextCandidates = Seq.newBuilder[Aggregate]
       current = current.transformUp {
-        case partialAgg: Aggregate
-            if (!groupingOnly && isPurePartialWrapperAggregate(partialAgg)) ||
-              (groupingOnly &&
-                isGroupingOnly(partialAgg.groupingExpressions, partialAgg.aggregateExpressions)) =>
+        // Only revisit aggregates created by the previous push, not unrelated aggregates.
+        case partialAgg: Aggregate if candidates.exists(_ eq partialAgg) =>
           // The physical strategy owns the top merge; retain logical merges only between joins.
           val retainPartialMerge = partialMergeEnabled && pushCount > 0
           val pushed = if (retainPartialMerge) {
@@ -216,12 +214,13 @@ case class PushAggregateThroughJoin(spark: SparkSession)
           pushed match {
             case Some(result) =>
               pushCount += result.pushedAggregates.size
-              changed = true
+              nextCandidates ++= result.pushedAggregates
               result.plan
             case None =>
               partialAgg
           }
       }
+      candidates = nextCandidates.result()
       depth += 1
     }
     successfulPushCount += pushCount
@@ -403,15 +402,6 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       case other => other
     }
     (partialAgg.copy(aggregateExpressions = partialMergeExpressions, child = lowerAgg), lowerAgg)
-  }
-
-  private def isPurePartialWrapperAggregate(agg: Aggregate): Boolean = {
-    val wrapperAliases = collectPartialWrapperAliases(agg.aggregateExpressions)
-    wrapperAliases.nonEmpty && agg.aggregateExpressions.forall {
-      case Alias(_: AggregateExpression, _) => true
-      case _: AggregateExpression => false
-      case _ => true
-    }
   }
 
   private def collectPartialWrapperAliases(

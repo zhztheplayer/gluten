@@ -159,6 +159,7 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
     }
   }
 
+
   test("grouping-only pushdown keeps nondeterministic expressions above the join") {
     withSQLConf(
       GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
