@@ -67,6 +67,11 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private case class SidePartialRef(spec: SidePartialSpec, attr: AttributeReference)
 
+  private case class PushResult(
+      plan: LogicalPlan,
+      // New lower aggregates eligible for further pushdown.
+      pushedAggregates: Seq[Aggregate])
+
   private var successfulSplitCount: Int = 0
   private var successfulPushCount: Int = 0
 
@@ -203,16 +208,16 @@ case class PushAggregateThroughJoin(spark: SparkSession)
           val pushed = if (retainPartialMerge) {
             val (partialMergeAgg, freshLowerPartialAgg) = splitPartialAggregateForMerge(partialAgg)
             pushOnce(freshLowerPartialAgg).map {
-              case (pushedPlan, count) => (partialMergeAgg.copy(child = pushedPlan), count)
+              result => result.copy(plan = partialMergeAgg.copy(child = result.plan))
             }
           } else {
             pushOnce(partialAgg)
           }
           pushed match {
-            case Some((newPlan, count)) =>
-              pushCount += count
+            case Some(result) =>
+              pushCount += result.pushedAggregates.size
               changed = true
-              newPlan
+              result.plan
             case None =>
               partialAgg
           }
@@ -228,7 +233,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
   }
 
-  private def pushOnce(partialAgg: Aggregate): Option[(LogicalPlan, Int)] = {
+  private def pushOnce(partialAgg: Aggregate): Option[PushResult] = {
     val groupingOnly = isGroupingOnly(
       partialAgg.groupingExpressions,
       partialAgg.aggregateExpressions)
@@ -237,16 +242,36 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
     extractJoin(partialAgg.child).flatMap {
       case (join, wrapperRequiredAttrs, rebuild) =>
-        pushPartialAggToJoinSide(
-          partialAgg.groupingExpressions,
-          partialAgg.aggregateExpressions,
-          join,
-          wrapperRequiredAttrs).map {
-          pushedJoin =>
-            val count = Seq(JoinLeft, JoinRight).count {
-              side => side.plan(pushedJoin) ne side.plan(join)
-            }
-            (rebuild(pushedJoin, partialAgg.output.collect { case a: Attribute => a }), count)
+        val candidates: Seq[(JoinSide, Aggregate)] = Seq(JoinLeft, JoinRight).flatMap {
+          side =>
+            pushPartialAggToJoinSide(
+              partialAgg.groupingExpressions,
+              partialAgg.aggregateExpressions,
+              join,
+              wrapperRequiredAttrs,
+              side).map(agg => (side, agg))
+        }
+        val selected = if (groupingOnly) {
+          // Without aggregate functions, DISTINCT can be pushed to both join sides simultaneously.
+          candidates
+        } else {
+          // When both sides qualify, choose one so the same aggregate buffer is not produced on both
+          // sides.
+          //
+          // SUM(fact.amount) qualifies only on the fact side because it requires fact.amount.
+          // COUNT(*) requires no columns, so both sides qualify; take(1) prefers the left side.
+          // TODO: Use statistics to choose a side when both qualify, rather than preferring the left.
+          candidates.take(1)
+        }
+        if (selected.isEmpty) {
+          None
+        } else {
+          val pushedJoin = selected.foldLeft(join) {
+            case (currentJoin, (side, pushedAgg)) => side.replace(currentJoin, pushedAgg)
+          }
+          Some(PushResult(
+            rebuild(pushedJoin, partialAgg.output.collect { case a: Attribute => a }),
+            selected.map(_._2)))
         }
     }
   }
@@ -256,108 +281,82 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       groupingExpressions: Seq[Expression],
       aggregateExpressions: Seq[NamedExpression],
       join: Join,
-      wrapperRequiredAttrs: Seq[Attribute]): Option[Join] = {
+      wrapperRequiredAttrs: Seq[Attribute],
+      side: JoinSide): Option[Aggregate] = {
     val wrapperAliases = collectPartialWrapperAliases(aggregateExpressions)
     val hasPartialWrappers = wrapperAliases.nonEmpty
     val groupingOnly = isGroupingOnly(groupingExpressions, aggregateExpressions) &&
       join.condition.forall(_.deterministic)
     val canPushAggregate = hasPartialWrappers || groupingOnly
-    if (!canPushAggregate) {
+    if (!canPushAggregate || !wrapperAliases.forall {
+      case (_, wrapper) => canPushToSide(wrapper.innerAgg, side.outputSet(join))
+    }) {
       return None
     }
-    val pushableSides = Seq(JoinLeft, JoinRight).filter {
-      candidate =>
-        wrapperAliases.forall {
-          case (_, wrapper) => canPushToSide(wrapper.innerAgg, candidate.outputSet(join))
-        }
+    // Keep grouping and join dependencies, but not pure aggregate measure inputs.
+    val sideOutputSet = side.outputSet(join)
+    val sideGroupingAttrs = groupingExpressions
+      .flatMap(referencedAttrsInOrder)
+      .collect { case a: Attribute if sideOutputSet.contains(a) => a }
+    val sideJoinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
+      case EqualTo(l: Attribute, r: Attribute)
+          if sideOutputSet.contains(l) && !sideOutputSet.contains(r) =>
+        l
+      case EqualTo(l: Attribute, r: Attribute)
+          if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
+        r
     }
-    val candidates = pushableSides.flatMap {
-      side =>
-        // Keep grouping and join dependencies, but not pure aggregate measure inputs.
-        val sideOutputSet = side.outputSet(join)
-        val sideGroupingAttrs = groupingExpressions
-          .flatMap(referencedAttrsInOrder)
-          .collect { case a: Attribute if sideOutputSet.contains(a) => a }
-        val sideJoinKeys = join.condition.toSeq.flatMap(splitConjunctivePredicates).collect {
-          case EqualTo(l: Attribute, r: Attribute)
-              if sideOutputSet.contains(l) && !sideOutputSet.contains(r) =>
-            l
-          case EqualTo(l: Attribute, r: Attribute)
-              if sideOutputSet.contains(r) && !sideOutputSet.contains(l) =>
-            r
+    val sideJoinCondAttrs = join.condition.toSeq
+      .flatMap(referencedAttrsInOrder)
+      .collect { case a: Attribute if sideOutputSet.contains(a) => a }
+
+    val sideNonPushableAggAttrs = dedupeAttrs(aggregateExpressions.flatMap {
+      case Alias(expr, _) if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
+        referencedAttrsInOrder(expr).collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
         }
-        val sideJoinCondAttrs = join.condition.toSeq
-          .flatMap(referencedAttrsInOrder)
-          .collect { case a: Attribute if sideOutputSet.contains(a) => a }
-
-        val sideNonPushableAggAttrs = dedupeAttrs(aggregateExpressions.flatMap {
-          case Alias(expr, _) if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
-            referencedAttrsInOrder(expr).collect {
-              case a: Attribute if sideOutputSet.contains(a) => a
-            }
-          case expr if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
-            referencedAttrsInOrder(expr).collect {
-              case a: Attribute if sideOutputSet.contains(a) => a
-            }
-          case _ => Nil
-        })
-        val sidePushableAggInputAttrs = dedupeAttrs(wrapperAliases.flatMap {
-          case (_, wrapper) =>
-            wrapper.innerAgg.children.flatMap(referencedAttrsInOrder).collect {
-              case a: Attribute if sideOutputSet.contains(a) => a
-            }
-        })
-        // Project / Filter dependencies survive the pushed aggregate, except measure inputs.
-        val sideWrapperRequiredAttrs = dedupeAttrs(
-          wrapperRequiredAttrs
-            .collect {
-              case a: Attribute if sideOutputSet.contains(a) => a
-            }
-            .filterNot(attr => sidePushableAggInputAttrs.exists(_.semanticEquals(attr))))
-        val pushedGrouping = dedupeAttrs(
-          sideGroupingAttrs ++
-            sideJoinKeys ++
-            sideJoinCondAttrs ++
-            sideNonPushableAggAttrs ++
-            sideWrapperRequiredAttrs)
-
-        // Repeated rule runs must not stack equivalent DISTINCT nodes.
-        val alreadyGrouped = groupingOnly && (side.plan(join) match {
-          case existing: Aggregate =>
-            ExpressionSet(existing.groupingExpressions) == ExpressionSet(pushedGrouping) &&
-            AttributeSet(pushedGrouping).subsetOf(existing.outputSet)
-          case _ => false
-        })
-        if (pushedGrouping.isEmpty || alreadyGrouped) {
-          None
-        } else {
-          // Keep the existing Partial expressions and their ExprIds.
-          val pushedAgg = Aggregate(
-            groupingExpressions = pushedGrouping,
-            aggregateExpressions = pushedGrouping ++ wrapperAliases.map(_._1),
-            child = side.plan(join))
-          Some((side, pushedAgg))
+      case expr if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
+        referencedAttrsInOrder(expr).collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
         }
-    }
+      case _ => Nil
+    })
+    val sidePushableAggInputAttrs = dedupeAttrs(wrapperAliases.flatMap {
+      case (_, wrapper) =>
+        wrapper.innerAgg.children.flatMap(referencedAttrsInOrder).collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
+        }
+    })
+    // Project / Filter dependencies survive the pushed aggregate, except measure inputs.
+    val sideWrapperRequiredAttrs = dedupeAttrs(
+      wrapperRequiredAttrs
+        .collect {
+          case a: Attribute if sideOutputSet.contains(a) => a
+        }
+        .filterNot(attr => sidePushableAggInputAttrs.exists(_.semanticEquals(attr))))
+    val pushedGrouping = dedupeAttrs(
+      sideGroupingAttrs ++
+        sideJoinKeys ++
+        sideJoinCondAttrs ++
+        sideNonPushableAggAttrs ++
+        sideWrapperRequiredAttrs)
 
-    val selected = if (groupingOnly) {
-      // Without aggregate functions, DISTINCT can be pushed to both join sides simultaneously.
-      candidates
-    } else {
-      // When both sides qualify, choose one so the same aggregate buffer is not produced on both
-      // sides.
-      //
-      // SUM(fact.amount) qualifies only on the fact side because it requires fact.amount.
-      // COUNT(*) requires no columns, so both sides qualify; take(1) prefers the left side.
-      // TODO: Use statistics to choose a side when both qualify, rather than preferring the left.
-      candidates.take(1)
-    }
-    if (selected.isEmpty) {
+    // Repeated rule runs must not stack equivalent DISTINCT nodes.
+    val alreadyGrouped = groupingOnly && (side.plan(join) match {
+      case existing: Aggregate =>
+        ExpressionSet(existing.groupingExpressions) == ExpressionSet(pushedGrouping) &&
+        AttributeSet(pushedGrouping).subsetOf(existing.outputSet)
+      case _ => false
+    })
+    if (pushedGrouping.isEmpty || alreadyGrouped) {
       None
     } else {
-      Some(selected.foldLeft(join) {
-        case (currentJoin, (side, pushedAgg)) => side.replace(currentJoin, pushedAgg)
-      })
+      // Keep the existing Partial expressions and their ExprIds.
+      val pushedAgg = Aggregate(
+        groupingExpressions = pushedGrouping,
+        aggregateExpressions = pushedGrouping ++ wrapperAliases.map(_._1),
+        child = side.plan(join))
+      Some(pushedAgg)
     }
   }
 
@@ -646,19 +645,19 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     expr.collect { case attr: Attribute => attr }
   }
 
-  sealed private trait JoinSide {
+  sealed trait JoinSide {
     def plan(join: Join): LogicalPlan
     def outputSet(join: Join): AttributeSet
     def replace(join: Join, newPlan: LogicalPlan): Join
   }
 
-  private case object JoinLeft extends JoinSide {
+  case object JoinLeft extends JoinSide {
     override def plan(join: Join): LogicalPlan = join.left
     override def outputSet(join: Join): AttributeSet = join.left.outputSet
     override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(left = newPlan)
   }
 
-  private case object JoinRight extends JoinSide {
+  case object JoinRight extends JoinSide {
     override def plan(join: Join): LogicalPlan = join.right
     override def outputSet(join: Join): AttributeSet = join.right.outputSet
     override def replace(join: Join, newPlan: LogicalPlan): Join = join.copy(right = newPlan)

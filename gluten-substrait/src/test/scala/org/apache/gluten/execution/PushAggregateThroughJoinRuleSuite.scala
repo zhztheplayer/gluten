@@ -29,7 +29,7 @@ import org.apache.spark.sql.types.IntegerType
 class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession {
   private val joinAggregateRule = PushAggregateThroughJoin(spark)
 
-  test("pushPartialAggToJoinSide chooses the eligible side") {
+  test("pushPartialAggToJoinSide accepts only an eligible side") {
     val leftKey = AttributeReference("left_key", IntegerType)()
     val value = AttributeReference("value", IntegerType)()
     val rightKey = AttributeReference("right_key", IntegerType)()
@@ -50,15 +50,28 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
       Seq(leftKey),
       Seq(leftKey, leftPartialSum),
       join,
-      Nil)
-    assert(leftPushed.exists(_.left.isInstanceOf[Aggregate]))
-    assert(
-      joinAggregateRule
-        .pushPartialAggToJoinSide(Seq(leftKey), Seq(leftKey, rightPartialSum), join, Nil)
-        .exists(_.right.isInstanceOf[Aggregate]))
+      Nil,
+      joinAggregateRule.JoinLeft)
+    assert(leftPushed.exists(_.child eq join.left))
+    assert(leftPushed.get.aggregateExpressions.last == leftPartialSum)
+    assert(joinAggregateRule
+      .pushPartialAggToJoinSide(
+        Seq(leftKey),
+        Seq(leftKey, leftPartialSum),
+        join,
+        Nil,
+        joinAggregateRule.JoinRight)
+      .isEmpty)
+    val rightPushed = joinAggregateRule.pushPartialAggToJoinSide(
+      Seq(leftKey),
+      Seq(leftKey, rightPartialSum),
+      join,
+      Nil,
+      joinAggregateRule.JoinRight)
+    assert(rightPushed.exists(_.child eq join.right))
   }
 
-  test("pushPartialAggToJoinSide groups both sides without aggregate functions") {
+  test("pushPartialAggToJoinSide supports grouping-only pushdown on either side") {
     val leftKey = AttributeReference("left_key", IntegerType)()
     val rightKey = AttributeReference("right_key", IntegerType)()
     val join = Join(
@@ -67,52 +80,39 @@ class PushAggregateThroughJoinRuleSuite extends PlanTest with SharedSparkSession
       Inner,
       Some(EqualTo(leftKey, rightKey)),
       JoinHint.NONE)
+    val keys = Seq(leftKey, rightKey)
 
-    val pushed = joinAggregateRule.pushPartialAggToJoinSide(
-      Seq(leftKey, rightKey),
-      Seq(leftKey, rightKey),
-      join,
-      Nil)
-    assert(pushed.exists(
-      j =>
-        j.left.isInstanceOf[Aggregate] && j.right.isInstanceOf[Aggregate]))
-
-    val pushedJoin = pushed.get
-    val leftAlreadyGrouped = join.copy(left = pushedJoin.left)
-    val rightPushed = joinAggregateRule
-      .pushPartialAggToJoinSide(
-        Seq(leftKey, rightKey),
-        Seq(leftKey, rightKey),
-        leftAlreadyGrouped,
-        Nil)
-      .get
-    assert(rightPushed.left eq pushedJoin.left)
-    assert(rightPushed.right.isInstanceOf[Aggregate])
+    Seq(joinAggregateRule.JoinLeft, joinAggregateRule.JoinRight).foreach {
+      side =>
+        val pushed = joinAggregateRule
+          .pushPartialAggToJoinSide(keys, keys, join, Nil, side)
+          .get
+        assert(pushed.child eq side.plan(join))
+        assert(pushed.groupingExpressions == side.plan(join).output)
+        assert(pushed.aggregateExpressions == side.plan(join).output)
+    }
   }
 
   test("pushPartialAggToJoinSide grouping-only pushdown is idempotent") {
-    Seq(false, true).foreach {
-      partialMergeEnabled =>
-        withSQLConf(
-          GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key ->
-            partialMergeEnabled.toString) {
-          val leftKey = AttributeReference("left_key", IntegerType)()
-          val rightKey = AttributeReference("right_key", IntegerType)()
-          val join = Join(
-            LocalRelation(Seq(leftKey)),
-            LocalRelation(Seq(rightKey)),
-            Inner,
-            Some(EqualTo(leftKey, rightKey)),
-            JoinHint.NONE)
-          val keys = Seq(leftKey, rightKey)
+    val leftKey = AttributeReference("left_key", IntegerType)()
+    val rightKey = AttributeReference("right_key", IntegerType)()
+    val join = Join(
+      LocalRelation(Seq(leftKey)),
+      LocalRelation(Seq(rightKey)),
+      Inner,
+      Some(EqualTo(leftKey, rightKey)),
+      JoinHint.NONE)
+    val keys = Seq(leftKey, rightKey)
 
-          val pushedJoin = joinAggregateRule
-            .pushPartialAggToJoinSide(keys, keys, join, Nil)
-            .get
-          assert(joinAggregateRule
-            .pushPartialAggToJoinSide(keys, keys, pushedJoin, Nil)
-            .isEmpty)
-        }
+    Seq(joinAggregateRule.JoinLeft, joinAggregateRule.JoinRight).foreach {
+      side =>
+        val pushed = joinAggregateRule
+          .pushPartialAggToJoinSide(keys, keys, join, Nil, side)
+          .get
+        val pushedJoin = side.replace(join, pushed)
+        assert(joinAggregateRule
+          .pushPartialAggToJoinSide(keys, keys, pushedJoin, Nil, side)
+          .isEmpty)
     }
   }
 
