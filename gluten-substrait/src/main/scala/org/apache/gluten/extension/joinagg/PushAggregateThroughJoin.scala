@@ -309,17 +309,6 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       .flatMap(referencedAttrsInOrder)
       .collect { case a: Attribute if sideOutputSet.contains(a) => a }
 
-    val sideNonPushableAggAttrs = dedupeAttrs(aggregateExpressions.flatMap {
-      case Alias(expr, _) if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
-        referencedAttrsInOrder(expr).collect {
-          case a: Attribute if sideOutputSet.contains(a) => a
-        }
-      case expr if !isPushableExpr(expr) && !containsWrapperAggregateExpr(expr) =>
-        referencedAttrsInOrder(expr).collect {
-          case a: Attribute if sideOutputSet.contains(a) => a
-        }
-      case _ => Nil
-    })
     val sidePushableAggInputAttrs = dedupeAttrs(wrapperAliases.flatMap {
       case (_, wrapper) =>
         wrapper.innerAgg.children.flatMap(referencedAttrsInOrder).collect {
@@ -337,7 +326,6 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       sideGroupingAttrs ++
         sideJoinKeys ++
         sideJoinCondAttrs ++
-        sideNonPushableAggAttrs ++
         sideWrapperRequiredAttrs)
 
     // Repeated rule runs must not stack equivalent DISTINCT nodes.
