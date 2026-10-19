@@ -18,12 +18,10 @@ package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
 import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregateThroughJoinBatch}
-
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.SparkSessionExtensions
+import org.apache.spark.sql.{DataFrame, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Join}
+import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 
 class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
