@@ -253,12 +253,13 @@ case class PushAggregateThroughJoin(spark: SparkSession)
           // Without aggregate functions, DISTINCT can be pushed to both join sides simultaneously.
           candidates
         } else {
-          // When both sides qualify, choose one so the same aggregate buffer is not produced on both
-          // sides.
+          // When both sides qualify, choose one so the same aggregate buffer is not produced on
+          // both sides.
           //
           // SUM(fact.amount) qualifies only on the fact side because it requires fact.amount.
           // COUNT(*) requires no columns, so both sides qualify; take(1) prefers the left side.
-          // TODO: Use statistics to choose a side when both qualify, rather than preferring the left.
+          // TODO: Use statistics to choose a side when both qualify, rather than preferring the
+          //  left.
           candidates.take(1)
         }
         if (selected.isEmpty) {
