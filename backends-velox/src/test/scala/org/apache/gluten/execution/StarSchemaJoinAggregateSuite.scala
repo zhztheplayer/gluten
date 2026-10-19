@@ -1012,7 +1012,8 @@ abstract class StarSchemaJoinAggregateSuite
         | order by d_week_seq1
         |""".stripMargin
 
-    runQueryAndCompare(query)(df => checkDf(df))
+    // Each conditional SUM references both join sides, so no aggregate can be pushed.
+    runQueryAndCompare(query)(df => checkDfNoPush(df))
   }
 
   test("Support TPC-DS q62 shape") {
