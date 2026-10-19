@@ -17,39 +17,16 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, PushAggregateThroughJoinBatch}
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, JoinAggregate, PushAggregateThroughJoin, PushAggregateThroughJoinBatch}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, SparkSessionExtensions}
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
-import org.apache.spark.sql.catalyst.plans.logical.Aggregate
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
-
-class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
-  override def apply(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
-  }
-}
-
-class StarSchemaJoinAggregateVanillaLogicalOnlySuite extends StarSchemaJoinAggregateSuite {
-  override protected def sparkConf: SparkConf = {
-    super.sparkConf
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_MAX_DEPTH.key, Int.MaxValue.toString)
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_PARTIAL_MERGE_ENABLED.key, "false")
-      .set(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key, "none")
-      .set(GlutenConfig.GLUTEN_ENABLED.key, "false")
-      .set("spark.shuffle.manager", "sort")
-      .set(
-        "spark.sql.extensions",
-        classOf[VanillaJoinAggregateLogicalOnlyExtensions].getCanonicalName)
-  }
-
-  override protected def checkPlan(df: DataFrame): Unit = {}
-}
 
 class VanillaJoinAggregateExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
-    extensions.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
+    extensions.injectPlannerStrategy(PushAggregateThroughJoin.apply)
     extensions.injectPlannerStrategy(ImplementJoinAggregate.apply)
   }
 }
@@ -436,9 +413,10 @@ abstract class StarSchemaJoinAggregateSuite
   }
 
   private def checkDf(df: DataFrame): Unit = {
-    assert(df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
-    val invalidPushedAggregates = df.queryExecution.optimizedPlan.collect {
-      case agg: Aggregate
+    val pushedPlan = PushAggregateThroughJoinBatch(spark)(df.queryExecution.optimizedPlan)
+    assert(pushedPlan.toString().contains("join_agg_wrapper_"))
+    val invalidPushedAggregates = pushedPlan.collect {
+      case agg: JoinAggregate
           if agg.aggregateExpressions.exists(_.exists {
             case AggregateExpression(_, _, _, _, _) => true
             case _ => false
@@ -468,7 +446,8 @@ abstract class StarSchemaJoinAggregateSuite
   }
 
   private def checkDfNoPush(df: DataFrame): Unit = {
-    assert(!df.queryExecution.optimizedPlan.toString().contains("join_agg_wrapper_"))
+    val pushedPlan = PushAggregateThroughJoinBatch(spark)(df.queryExecution.optimizedPlan)
+    assert(!pushedPlan.toString().contains("join_agg_wrapper_"))
     checkPlan(df)
   }
 

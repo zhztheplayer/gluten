@@ -17,18 +17,53 @@
 package org.apache.gluten.execution
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, JoinAggregateTags}
+import org.apache.gluten.extension.joinagg.{ImplementJoinAggregate, JoinAggregate, PushAggregateThroughJoin}
 import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper.{FinalPhase, PartialMergePhase, PartialPhase}
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference}
-import org.apache.spark.sql.catalyst.plans.PlanTest
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LocalRelation}
+import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeReference, EqualTo}
+import org.apache.spark.sql.catalyst.plans.{Inner, PlanTest}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Join, JoinHint, LocalRelation}
+import org.apache.spark.sql.execution.PlanLater
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.IntegerType
 
 class ImplementJoinAggregateSuite extends PlanTest with SharedSparkSession {
-  test("untagged aggregates are left to Spark") {
+  test("push strategy defers explicit phases and the planner resolves them recursively") {
+    withSQLConf(
+      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
+      GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key -> "none") {
+      val leftKey = AttributeReference("left_key", IntegerType)()
+      val rightKey = AttributeReference("right_key", IntegerType)()
+      val join = Join(
+        LocalRelation(Seq(leftKey)),
+        LocalRelation(Seq(rightKey)),
+        Inner,
+        Some(EqualTo(leftKey, rightKey)),
+        JoinHint.NONE)
+      val agg = Aggregate(Seq(leftKey, rightKey), Seq(leftKey, rightKey), join)
+      val push = PushAggregateThroughJoin(spark)
+      val deferred = push(agg).head.asInstanceOf[PlanLater]
+      val phases = deferred.plan.collect { case phase: JoinAggregate => phase }
+      assert(phases.map(_.phase) == Seq(FinalPhase, PartialPhase, PartialPhase))
+      assert(deferred.output == agg.output)
+      assert(push(phases.head).isEmpty)
+      assert(push(agg.copy(child = LocalRelation(Seq(leftKey, rightKey)))).isEmpty)
+
+      val previous = spark.experimental.extraStrategies
+      try {
+        spark.experimental.extraStrategies = Seq(push, ImplementJoinAggregate(spark))
+        val physical = spark.sessionState.planner.plan(agg).next()
+        assert(physical.collect { case p: PlanLater => p }.isEmpty)
+        assert(physical.collect { case a: HashAggregateExec => a }.size == 3)
+        assert(physical.output == agg.output)
+      } finally {
+        spark.experimental.extraStrategies = previous
+      }
+    }
+  }
+
+  test("ordinary aggregates are left to Spark") {
     withSQLConf(GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true") {
       val key = AttributeReference("key", IntegerType)()
       val agg = Aggregate(Seq(key), Seq(key), LocalRelation(Seq(key)))
@@ -36,7 +71,7 @@ class ImplementJoinAggregateSuite extends PlanTest with SharedSparkSession {
     }
   }
 
-  test("grouping-only aggregates follow their tagged phase") {
+  test("grouping-only aggregates follow their explicit phase") {
     for {
       phase <- Seq(PartialPhase, PartialMergePhase, FinalPhase)
       twoStageMode <- Seq("none", "final")
@@ -46,11 +81,11 @@ class ImplementJoinAggregateSuite extends PlanTest with SharedSparkSession {
           GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_ENABLED.key -> "true",
           GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key -> twoStageMode) {
           val key = AttributeReference("key", IntegerType)()
-          val agg = Aggregate(
+          val agg = JoinAggregate(
+            phase,
             Seq(key),
             Seq(Alias(key, "output_key")()),
             LocalRelation(Seq(key)))
-          agg.setTagValue(JoinAggregateTags.phase, phase)
 
           val alternatives = ImplementJoinAggregate(spark)(agg)
           assert(alternatives.size == 1)

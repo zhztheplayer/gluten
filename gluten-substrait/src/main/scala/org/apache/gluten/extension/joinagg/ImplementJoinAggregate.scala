@@ -39,7 +39,7 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
    * This strategy lowers the logical join-aggregate wrapper shape produced by
    * `PushAggregateThroughJoin` into ordinary Spark physical hash aggregates.
    *
-   * The optimizer tags each aggregate with its partial, partial-merge, or final phase.
+   * The pushdown strategy creates explicit partial, partial-merge, and final logical nodes.
    * Grouping-only aggregates use the same phases without aggregate-function wrappers.
    *
    * Spark's physical aggregate operators still expect normal aggregate functions and normal input
@@ -62,10 +62,8 @@ case class ImplementJoinAggregate(spark: SparkSession) extends SparkStrategy {
     }
 
     plan match {
-      case agg: Aggregate =>
-        agg.getTagValue(JoinAggregateTags.phase)
-          .flatMap(phase => planJoinAggregate(agg, phase))
-          .toSeq
+      case agg: JoinAggregate =>
+        planJoinAggregate(agg.asAggregate, agg.phase).toSeq
       case _ =>
         Nil
     }

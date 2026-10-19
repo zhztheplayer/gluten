@@ -17,7 +17,7 @@
 package org.apache.gluten.extension.joinagg
 
 import org.apache.gluten.config.GlutenConfig
-import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper.{FinalPhase, PartialMergePhase, PartialPhase, TargetPhase}
+import org.apache.gluten.extension.joinagg.JoinAggregateFunctionWrapper.{FinalPhase, PartialMergePhase, PartialPhase}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeReference, AttributeSet, EqualTo, Expression, NamedExpression, PredicateHelper}
@@ -26,8 +26,9 @@ import org.apache.spark.sql.catalyst.optimizer.DecimalAggregates
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.{SparkPlan, SparkStrategy}
 
-case class PushAggregateThroughJoin(spark: SparkSession)
+case class PushAggregateThroughJoinRule(spark: SparkSession)
   extends Rule[LogicalPlan]
   with PredicateHelper {
   /*
@@ -71,7 +72,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
   private case class PushResult(
       plan: LogicalPlan,
       // New lower aggregates eligible for further pushdown.
-      pushedAggregates: Seq[Aggregate])
+      pushedAggregates: Seq[JoinAggregate])
 
   private var successfulSplitCount: Int = 0
   private var successfulPushCount: Int = 0
@@ -94,14 +95,14 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
     var splitCount = 0
     val newPlan = plan.transformUp {
-      case agg: Aggregate if agg.getTagValue(JoinAggregateTags.phase).isEmpty =>
+      case agg: Aggregate =>
         // Keep the top aggregate and push the lower stage through join edges.
         splitAggregate(agg).flatMap {
           case (finalAgg, lowerPartialAgg) =>
             pushPartialAggregate(lowerPartialAgg).map {
               pushed =>
                 splitCount += 1
-                withPhase(finalAgg.copy(child = pushed), FinalPhase)
+                finalAgg.copy(child = pushed)
             }
         }.getOrElse(agg)
     }
@@ -118,7 +119,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
   private def maxDepth: Int = GlutenConfig.get.pushAggregateThroughJoinMaxDepth
 
-  private def splitAggregate(agg: Aggregate): Option[(Aggregate, Aggregate)] = {
+  private def splitAggregate(agg: Aggregate): Option[(JoinAggregate, JoinAggregate)] = {
     // Split is intentionally child-agnostic. It only rewrites:
     //
     //   Aggregate(resultExprs, child)
@@ -161,12 +162,11 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         )()
     }
 
-    val partialAgg = withPhase(
-      Aggregate(
-        groupingExpressions = partialGroupingKeys,
-        aggregateExpressions = partialGroupingKeys ++ partialAliases,
-        child = agg.child),
-      PartialPhase)
+    val partialAgg = JoinAggregate(
+      phase = PartialPhase,
+      groupingExpressions = partialGroupingKeys,
+      aggregateExpressions = partialGroupingKeys ++ partialAliases,
+      child = agg.child)
 
     val partialOutputAttrs =
       partialAgg.output
@@ -178,14 +178,16 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
     rewriteAggregateExpressions(agg.aggregateExpressions, partialRefs).map {
       rewrittenAggExprs =>
-        val finalAgg = withPhase(
-          agg.copy(aggregateExpressions = rewrittenAggExprs, child = partialAgg),
-          FinalPhase)
+        val finalAgg = JoinAggregate(
+          phase = FinalPhase,
+          groupingExpressions = agg.groupingExpressions,
+          aggregateExpressions = rewrittenAggExprs,
+          child = partialAgg)
         (finalAgg, partialAgg)
     }
   }
 
-  private def pushPartialAggregate(lowerPartialAgg: Aggregate): Option[LogicalPlan] = {
+  private def pushPartialAggregate(lowerPartialAgg: JoinAggregate): Option[LogicalPlan] = {
     // Push one join level per iteration; grouping-only aggregation can push to both sides.
     val partialMergeEnabled = GlutenConfig.get.pushAggregateThroughJoinPartialMergeEnabled
     var current: LogicalPlan = lowerPartialAgg
@@ -193,19 +195,17 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     var pushCount = 0
     var depth = 0
     while (candidates.nonEmpty && depth < maxDepth) {
-      val nextCandidates = Seq.newBuilder[Aggregate]
+      val nextCandidates = Seq.newBuilder[JoinAggregate]
       current = current.transformUp {
         // Only revisit aggregates created by the previous push, not unrelated aggregates.
-        case partialAgg: Aggregate if candidates.exists(_ eq partialAgg) =>
+        case partialAgg: JoinAggregate if candidates.exists(_ eq partialAgg) =>
           // The physical strategy owns the top merge; retain logical merges only between joins.
           val retainPartialMerge = partialMergeEnabled && pushCount > 0
           val pushed = if (retainPartialMerge) {
             val (partialMergeAgg, freshLowerPartialAgg) = splitPartialAggregateForMerge(partialAgg)
             pushOnce(freshLowerPartialAgg).map {
               result =>
-                val mergeAgg = withPhase(
-                  partialMergeAgg.copy(child = result.plan),
-                  PartialMergePhase)
+                val mergeAgg = partialMergeAgg.copy(child = result.plan)
                 result.copy(plan = mergeAgg)
             }
           } else {
@@ -232,7 +232,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
   }
 
-  private def pushOnce(partialAgg: Aggregate): Option[PushResult] = {
+  private def pushOnce(partialAgg: JoinAggregate): Option[PushResult] = {
     val hasBuffers = collectPartialWrapperAliases(partialAgg.aggregateExpressions).nonEmpty
     if (!isDeterministicJoinPath(partialAgg.child)) {
       // Skip pushdown: grouping rows before evaluating rand(), for example, changes the results.
@@ -240,7 +240,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
     extractJoin(partialAgg.child).flatMap {
       case (join, wrapperRequiredAttrs, rebuild) =>
-        val candidates: Seq[(JoinSide, Aggregate)] = Seq(JoinLeft, JoinRight).flatMap {
+        val candidates: Seq[(JoinSide, JoinAggregate)] = Seq(JoinLeft, JoinRight).flatMap {
           side =>
             pushPartialAggToJoinSide(
               partialAgg.groupingExpressions,
@@ -281,7 +281,7 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       aggregateExpressions: Seq[NamedExpression],
       join: Join,
       wrapperRequiredAttrs: Seq[Attribute],
-      side: JoinSide): Option[Aggregate] = {
+      side: JoinSide): Option[JoinAggregate] = {
     val wrapperAliases = collectPartialWrapperAliases(aggregateExpressions)
     // Inputs come from the lower aggregate: grouping keys followed by partial wrappers.
     if (
@@ -332,19 +332,19 @@ case class PushAggregateThroughJoin(spark: SparkSession)
       None
     } else {
       // Keep the existing Partial expressions and their ExprIds.
-      val pushedAgg = withPhase(
-        Aggregate(
-          groupingExpressions = pushedGrouping,
-          aggregateExpressions = pushedGrouping ++ wrapperAliases.map(_._1),
-          child = side.plan(join)),
-        PartialPhase)
+      val pushedAgg = JoinAggregate(
+        phase = PartialPhase,
+        groupingExpressions = pushedGrouping,
+        aggregateExpressions = pushedGrouping ++ wrapperAliases.map(_._1),
+        child = side.plan(join))
       Some(pushedAgg)
     }
   }
 
   // Retain the current buffer IDs above a fresh lower Partial. The lower Partial is then the
   // only aggregate pushed through the next join edge.
-  private def splitPartialAggregateForMerge(partialAgg: Aggregate): (Aggregate, Aggregate) = {
+  private def splitPartialAggregateForMerge(
+      partialAgg: JoinAggregate): (JoinAggregate, JoinAggregate) = {
     // For DISTINCT, both stages group the same keys; there are no buffer aliases to rewrite.
     val wrapperAliases = collectPartialWrapperAliases(partialAgg.aggregateExpressions)
     val lowerAliases = wrapperAliases.map {
@@ -357,13 +357,11 @@ case class PushAggregateThroughJoin(spark: SparkSession)
     }
     val lowerGroupingOutputs =
       partialAgg.aggregateExpressions.take(partialAgg.groupingExpressions.size)
-    val lowerAgg = withPhase(
-      Aggregate(
-        groupingExpressions = partialAgg.groupingExpressions,
-        aggregateExpressions = lowerGroupingOutputs ++ lowerAliases,
-        child = partialAgg.child),
-      PartialPhase
-    )
+    val lowerAgg = JoinAggregate(
+      phase = PartialPhase,
+      groupingExpressions = partialAgg.groupingExpressions,
+      aggregateExpressions = lowerGroupingOutputs ++ lowerAliases,
+      child = partialAgg.child)
     val lowerBuffersByExprId = wrapperAliases.zip(
       lowerAgg.output.drop(lowerGroupingOutputs.size))
       .map { case ((alias, _), attr) => alias.exprId.id -> cleanAttr(attr) }
@@ -387,15 +385,11 @@ case class PushAggregateThroughJoin(spark: SparkSession)
         )
       case other => other
     }
-    val mergeAgg = withPhase(
-      partialAgg.copy(aggregateExpressions = partialMergeExpressions, child = lowerAgg),
-      PartialMergePhase)
+    val mergeAgg = partialAgg.copy(
+      phase = PartialMergePhase,
+      aggregateExpressions = partialMergeExpressions,
+      child = lowerAgg)
     (mergeAgg, lowerAgg)
-  }
-
-  private def withPhase(agg: Aggregate, phase: TargetPhase): Aggregate = {
-    agg.setTagValue(JoinAggregateTags.phase, phase)
-    agg
   }
 
   private def collectPartialWrapperAliases(
@@ -641,17 +635,38 @@ case class PushAggregateThroughJoin(spark: SparkSession)
 
 case class PushAggregateThroughJoinBatch(spark: SparkSession) extends Rule[LogicalPlan] {
   private val decimalAvgRule = DecimalAggregates
-  private val pushRule = PushAggregateThroughJoin(spark)
+  private val pushRule = PushAggregateThroughJoinRule(spark)
 
   override def apply(plan: LogicalPlan): LogicalPlan = {
     if (!isEnabled) {
       return plan
     }
     val decimalAvgRewrittenPlan = decimalAvgRule(plan)
-    pushRule(decimalAvgRewrittenPlan)
+    val pushed = pushRule(decimalAvgRewrittenPlan)
+    if (pushed fastEquals decimalAvgRewrittenPlan) {
+      plan
+    } else {
+      pushed
+    }
   }
 
   private def isEnabled: Boolean = {
     GlutenConfig.get.pushAggregateThroughJoinEnabled
+  }
+}
+
+/** Runs eager aggregation after logical optimization, before physical aggregate planning. */
+case class PushAggregateThroughJoin(spark: SparkSession) extends SparkStrategy {
+  private val rule = PushAggregateThroughJoinBatch(spark)
+
+  override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
+    case agg: Aggregate =>
+      val rewritten = rule(agg)
+      if (rewritten fastEquals agg) {
+        Nil
+      } else {
+        Seq(planLater(rewritten))
+      }
+    case _ => Nil
   }
 }
