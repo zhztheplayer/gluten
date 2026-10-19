@@ -82,10 +82,10 @@ class ImplementJoinAggregateSuite extends PlanTest with SharedSparkSession {
           GlutenConfig.PUSH_AGGREGATE_THROUGH_JOIN_TWO_STAGE_MODE.key -> twoStageMode) {
           val key = AttributeReference("key", IntegerType)()
           val agg = JoinAggregate(
-            phase,
             Seq(key),
             Seq(Alias(key, "output_key")()),
-            LocalRelation(Seq(key)))
+            LocalRelation(Seq(key)),
+            phase)
 
           val alternatives = ImplementJoinAggregate(spark)(agg)
           assert(alternatives.size == 1)

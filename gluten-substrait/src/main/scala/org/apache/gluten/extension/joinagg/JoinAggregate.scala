@@ -23,10 +23,10 @@ import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan, Unar
 
 /** An aggregate execution phase introduced after Spark's logical optimization. */
 case class JoinAggregate(
-    phase: TargetPhase,
     groupingExpressions: Seq[Expression],
     aggregateExpressions: Seq[NamedExpression],
-    child: LogicalPlan)
+    child: LogicalPlan,
+    phase: TargetPhase)
   extends UnaryNode {
 
   override def output: Seq[Attribute] = aggregateExpressions.map(_.toAttribute)

@@ -163,10 +163,10 @@ case class PushAggregateThroughJoinRule(spark: SparkSession)
     }
 
     val partialAgg = JoinAggregate(
-      phase = PartialPhase,
       groupingExpressions = partialGroupingKeys,
       aggregateExpressions = partialGroupingKeys ++ partialAliases,
-      child = agg.child)
+      child = agg.child,
+      phase = PartialPhase)
 
     val partialOutputAttrs =
       partialAgg.output
@@ -179,10 +179,10 @@ case class PushAggregateThroughJoinRule(spark: SparkSession)
     rewriteAggregateExpressions(agg.aggregateExpressions, partialRefs).map {
       rewrittenAggExprs =>
         val finalAgg = JoinAggregate(
-          phase = FinalPhase,
           groupingExpressions = agg.groupingExpressions,
           aggregateExpressions = rewrittenAggExprs,
-          child = partialAgg)
+          child = partialAgg,
+          phase = FinalPhase)
         (finalAgg, partialAgg)
     }
   }
@@ -333,10 +333,10 @@ case class PushAggregateThroughJoinRule(spark: SparkSession)
     } else {
       // Keep the existing Partial expressions and their ExprIds.
       val pushedAgg = JoinAggregate(
-        phase = PartialPhase,
         groupingExpressions = pushedGrouping,
         aggregateExpressions = pushedGrouping ++ wrapperAliases.map(_._1),
-        child = side.plan(join))
+        child = side.plan(join),
+        phase = PartialPhase)
       Some(pushedAgg)
     }
   }
@@ -358,10 +358,10 @@ case class PushAggregateThroughJoinRule(spark: SparkSession)
     val lowerGroupingOutputs =
       partialAgg.aggregateExpressions.take(partialAgg.groupingExpressions.size)
     val lowerAgg = JoinAggregate(
-      phase = PartialPhase,
       groupingExpressions = partialAgg.groupingExpressions,
       aggregateExpressions = lowerGroupingOutputs ++ lowerAliases,
-      child = partialAgg.child)
+      child = partialAgg.child,
+      phase = PartialPhase)
     val lowerBuffersByExprId = wrapperAliases.zip(
       lowerAgg.output.drop(lowerGroupingOutputs.size))
       .map { case ((alias, _), attr) => alias.exprId.id -> cleanAttr(attr) }
