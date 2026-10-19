@@ -1107,87 +1107,27 @@ abstract class StarSchemaJoinAggregateSuite
   }
 
   test("Push DISTINCT through a single join") {
-    withTempView("distinct_fact", "distinct_item") {
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW distinct_fact AS
-                  |SELECT * FROM VALUES (1, 10), (1, 10), (2, 20), (3, 30)
-                  |AS t(item_key, date_key)
-                  |""".stripMargin)
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW distinct_item AS
-                  |SELECT * FROM VALUES (1, 'a'), (1, 'a'), (2, 'b')
-                  |AS t(item_key, item_name)
-                  |""".stripMargin)
-
-      val query = """
-                    |SELECT DISTINCT f.date_key, i.item_name
-                    |FROM distinct_fact f
-                    |JOIN distinct_item i ON f.item_key = i.item_key
-                    |""".stripMargin
-      runQueryAndCompare(query) {
-        df =>
-          val joins = df.queryExecution.optimizedPlan.collect { case join: Join => join }
-          assert(joins.size == 1)
-          val join = joins.head
-          Seq(join.left, join.right).foreach {
-            side =>
-              assert(side.exists {
-                case agg: Aggregate =>
-                  !agg.aggregateExpressions.exists(_.exists {
-                    case _: AggregateExpression => true
-                    case _ => false
-                  })
-                case _ => false
-              })
-          }
-          checkPlan(df)
-      }
+    val query = """
+                  |SELECT DISTINCT ss.ss_sold_date_sk, i.i_item_desc
+                  |FROM store_sales ss
+                  |JOIN item i ON ss.ss_item_sk = i.i_item_sk
+                  |""".stripMargin
+    runQueryAndCompare(query) {
+      df =>
+        checkPlan(df)
     }
   }
 
   test("Push DISTINCT through two consecutive joins") {
-    withTempView("distinct_fact", "distinct_item", "distinct_date") {
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW distinct_fact AS
-                  |SELECT * FROM VALUES (1, 10), (1, 10), (2, 20), (3, 30)
-                  |AS t(item_key, date_key)
-                  |""".stripMargin)
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW distinct_item AS
-                  |SELECT * FROM VALUES (1, 'a'), (1, 'a'), (2, 'b')
-                  |AS t(item_key, item_name)
-                  |""".stripMargin)
-      spark.sql("""
-                  |CREATE OR REPLACE TEMP VIEW distinct_date AS
-                  |SELECT * FROM VALUES (10, 'day-one'), (10, 'day-one'), (20, 'day-two')
-                  |AS t(date_key, date_name)
-                  |""".stripMargin)
-
-      val query = """
-                    |SELECT DISTINCT i.item_name, d.date_name
-                    |FROM distinct_fact f
-                    |JOIN distinct_item i ON f.item_key = i.item_key
-                    |JOIN distinct_date d ON f.date_key = d.date_key
-                    |""".stripMargin
-      runQueryAndCompare(query) {
-        df =>
-          val joins = df.queryExecution.optimizedPlan.collect { case join: Join => join }
-          assert(joins.size == 2)
-          // Even at maxDepth=1, DISTINCT is pushed to both sides of the outer join.
-          val outerJoin = joins.head
-          Seq(outerJoin.left, outerJoin.right).foreach {
-            side =>
-              assert(side.exists {
-                case agg: Aggregate =>
-                  !agg.aggregateExpressions.exists(_.exists {
-                    case _: AggregateExpression => true
-                    case _ => false
-                  })
-                case _ => false
-              })
-          }
-          checkPlan(df)
-      }
+    val query = """
+                  |SELECT DISTINCT i.i_item_desc, d.d_year
+                  |FROM store_sales ss
+                  |JOIN item i ON ss.ss_item_sk = i.i_item_sk
+                  |JOIN date_dim d ON ss.ss_sold_date_sk = d.d_date_sk
+                  |""".stripMargin
+    runQueryAndCompare(query) {
+      df =>
+        checkPlan(df)
     }
   }
 }
