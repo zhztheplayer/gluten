@@ -33,7 +33,8 @@ class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions 
       spark =>
         new SparkStrategy {
           override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-            // Test the rewrite independently of ImplementJoinAggregate by using Spark's own strategy.
+            // Test the rewrite independently of ImplementJoinAggregate by using Spark's own
+            // strategy.
             case agg: JoinAggregate => spark.sessionState.planner.Aggregation(agg.asAggregate)
             case _ => Nil
           }
