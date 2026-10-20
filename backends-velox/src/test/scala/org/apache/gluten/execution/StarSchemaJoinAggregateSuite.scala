@@ -29,14 +29,15 @@ import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 class VanillaJoinAggregateLogicalOnlyExtensions extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
     extensions.injectPlannerStrategy(PushAggregateThroughJoin.apply)
-    extensions.injectPlannerStrategy { spark =>
-      new SparkStrategy {
-        override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-          // Test the rewrite independently of ImplementJoinAggregate by using Spark's own strategy.
-          case agg: JoinAggregate => spark.sessionState.planner.Aggregation(agg.asAggregate)
-          case _ => Nil
+    extensions.injectPlannerStrategy {
+      spark =>
+        new SparkStrategy {
+          override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
+            // Test the rewrite independently of ImplementJoinAggregate by using Spark's own strategy.
+            case agg: JoinAggregate => spark.sessionState.planner.Aggregation(agg.asAggregate)
+            case _ => Nil
+          }
         }
-      }
     }
   }
 }

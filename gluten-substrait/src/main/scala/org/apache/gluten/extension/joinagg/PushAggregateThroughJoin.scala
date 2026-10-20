@@ -361,7 +361,8 @@ case class PushAggregateThroughJoinRule(spark: SparkSession)
       groupingExpressions = partialAgg.groupingExpressions,
       aggregateExpressions = lowerGroupingOutputs ++ lowerAliases,
       child = partialAgg.child,
-      phase = PartialPhase)
+      phase = PartialPhase
+    )
     val lowerBuffersByExprId = wrapperAliases.zip(
       lowerAgg.output.drop(lowerGroupingOutputs.size))
       .map { case ((alias, _), attr) => alias.exprId.id -> cleanAttr(attr) }
@@ -643,7 +644,7 @@ case class PushAggregateThroughJoinBatch(spark: SparkSession) extends Rule[Logic
     }
     val decimalAvgRewrittenPlan = decimalAvgRule(plan)
     val pushed = pushRule(decimalAvgRewrittenPlan)
-    if (pushed fastEquals decimalAvgRewrittenPlan) {
+    if (pushed.fastEquals(decimalAvgRewrittenPlan)) {
       plan
     } else {
       pushed
@@ -662,7 +663,7 @@ case class PushAggregateThroughJoin(spark: SparkSession) extends SparkStrategy {
   override def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
     case agg: Aggregate =>
       val rewritten = rule(agg)
-      if (rewritten fastEquals agg) {
+      if (rewritten.fastEquals(agg)) {
         Nil
       } else {
         Seq(planLater(rewritten))
